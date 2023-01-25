@@ -90,12 +90,21 @@ fn fileNameAlloc(allocator: Allocator, name: []const u8) ![]u8 {
 }
 
 fn translateNamespace(allocator: Allocator, ns: gir.Namespace, out: anytype) !void {
+    for (ns.aliases) |alias| {
+        try translateAlias(allocator, alias, ns, out);
+    }
     for (ns.classes) |class| {
         try translateClass(allocator, class, ns, out);
     }
     for (ns.records) |record| {
         try translateRecord(allocator, record, ns, out);
     }
+}
+
+fn translateAlias(allocator: Allocator, alias: gir.Alias, ns: gir.Namespace, out: anytype) !void {
+    try out.print("pub const {s} = ", .{alias.name.local});
+    try translateType(allocator, alias.type, ns, out);
+    _ = try out.write(";\n\n");
 }
 
 fn translateClass(allocator: Allocator, class: gir.Class, ns: gir.Namespace, out: anytype) !void {
@@ -128,12 +137,31 @@ fn translateFieldType(allocator: Allocator, @"type": gir.FieldType, ns: gir.Name
     }
 }
 
-const builtins = blk: {
-    var buf: [1024]u8 = .{0} ** 1024;
-    var map = StringHashMap([]const u8).init(heap.FixedBufferAllocator.init(&buf));
-    map.put("gint8", "i8") catch unreachable;
-    break :blk map;
-};
+const builtins = std.ComptimeStringMap([]const u8, .{
+    .{ "gboolean", "bool" },
+    .{ "gchar", "u8" },
+    .{ "guchar", "u8" },
+    .{ "gint8", "i8" },
+    .{ "guint8", "u8" },
+    .{ "gint16", "i16" },
+    .{ "guint16", "u16" },
+    .{ "gint32", "i32" },
+    .{ "guint32", "u32" },
+    .{ "gint64", "i64" },
+    .{ "guint64", "u64" },
+    .{ "gshort", "c_short" },
+    .{ "gushort", "c_ushort" },
+    .{ "gint", "c_int" },
+    .{ "guint", "c_uint" },
+    .{ "glong", "c_long" },
+    .{ "gulong", "c_ulong" },
+    .{ "gsize", "usize" },
+    .{ "gssize", "isize" },
+    .{ "gpointer", "*anyopaque" },
+    .{ "gconstpointer", "*const anyopaque" },
+    .{ "long double", "c_longdouble" },
+    .{ "none", "void" },
+});
 
 fn translateType(allocator: Allocator, @"type": gir.Type, ns: gir.Namespace, out: anytype) !void {
     if (@"type".name == null or @"type".c_type == null) {
@@ -141,7 +169,18 @@ fn translateType(allocator: Allocator, @"type": gir.Type, ns: gir.Namespace, out
         return;
     }
 
+    var name = @"type".name.?;
     var c_type = @"type".c_type.?;
+
+    // Special cases for string types
+    if (name.ns == null and (mem.eql(u8, name.local, "utf8") or mem.eql(u8, name.local, "filename"))) {
+        name = .{ .ns = null, .local = "gchar" };
+        if (mem.endsWith(u8, c_type, "*")) {
+            _ = try out.write("[*:0]");
+            c_type = c_type[0 .. c_type.len - 1];
+        }
+    }
+
     while (true) {
         if (mem.endsWith(u8, c_type, "*")) {
             _ = try out.write("*");
@@ -153,8 +192,6 @@ fn translateType(allocator: Allocator, @"type": gir.Type, ns: gir.Namespace, out
             break;
         }
     }
-
-    const name = @"type".name.?;
 
     // Predefined (built-in) types
     if (name.ns == null) {

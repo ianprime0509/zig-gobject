@@ -15,6 +15,7 @@ pub fn build(b: *std.build.Builder) !void {
     const libxml2_lib = try libxml2.create(b, target, mode, .{
         .iconv = false,
         .lzma = false,
+        .sax1 = true,
         .zlib = false,
     });
 

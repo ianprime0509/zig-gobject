@@ -40,7 +40,7 @@ pub const Repository = struct {
             }
         }
 
-        return Repository{
+        return .{
             .includes = includes.items,
             .namespaces = namespaces.items,
             .arena = arena,
@@ -70,7 +70,7 @@ fn parseInclude(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !I
         }
     }
 
-    return Include{
+    return .{
         .name = name orelse return error.InvalidGir,
         .version = version orelse return error.InvalidGir,
     };
@@ -78,12 +78,14 @@ fn parseInclude(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !I
 
 pub const Namespace = struct {
     name: []const u8,
+    aliases: []const Alias,
     classes: []const Class,
     records: []const Record,
 };
 
 fn parseNamespace(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Namespace {
     var name: ?[]const u8 = null;
+    var aliases = ArrayList(Alias).init(allocator);
     var classes = ArrayList(Class).init(allocator);
     var records = ArrayList(Record).init(allocator);
 
@@ -96,17 +98,49 @@ fn parseNamespace(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) 
 
     var maybe_child: ?*c.xmlNode = node.children;
     while (maybe_child) |child| : (maybe_child = child.next) {
-        if (nodeIs(child, ns.core, "class")) {
+        if (nodeIs(child, ns.core, "alias")) {
+            try aliases.append(try parseAlias(allocator, doc, child));
+        } else if (nodeIs(child, ns.core, "class")) {
             try classes.append(try parseClass(allocator, doc, child));
         } else if (nodeIs(child, ns.core, "record")) {
             try records.append(try parseRecord(allocator, doc, child));
         }
     }
 
-    return Namespace{
+    return .{
         .name = name orelse return error.InvalidGir,
+        .aliases = aliases.items,
         .classes = classes.items,
         .records = records.items,
+    };
+}
+
+pub const Alias = struct {
+    name: Name,
+    type: Type,
+};
+
+fn parseAlias(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Alias {
+    var name: ?[]const u8 = null;
+    var @"type": ?Type = null;
+
+    var maybe_attr: ?*c.xmlAttr = node.properties;
+    while (maybe_attr) |attr| : (maybe_attr = attr.next) {
+        if (attrIs(attr, null, "name")) {
+            name = try attrContent(allocator, doc, attr);
+        }
+    }
+
+    var maybe_child: ?*c.xmlNode = node.children;
+    while (maybe_child) |child| : (maybe_child = child.next) {
+        if (nodeIs(child, ns.core, "type")) {
+            @"type" = try parseType(allocator, doc, child);
+        }
+    }
+
+    return .{
+        .name = parseName(name orelse return error.InvalidGir),
+        .type = @"type" orelse return error.InvalidGir,
     };
 }
 
@@ -133,7 +167,7 @@ fn parseClass(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Cla
         }
     }
 
-    return Class{
+    return .{
         .name = parseName(name orelse return error.InvalidGir),
         .fields = fields.items,
     };
@@ -162,7 +196,7 @@ fn parseRecord(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Re
         }
     }
 
-    return Record{
+    return .{
         .name = parseName(name orelse return error.InvalidGir),
         .fields = fields.items,
     };
@@ -201,7 +235,7 @@ fn parseField(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Fie
         }
     }
 
-    return Field{
+    return .{
         .name = name orelse return error.InvalidGir,
         .type = @"type" orelse return error.InvalidGir,
     };
@@ -238,7 +272,7 @@ fn parseType(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Type
         }
     };
 
-    return Type{
+    return .{
         .name = parsed_name,
         .c_type = c_type,
     };
@@ -269,7 +303,7 @@ fn parseArrayType(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) 
         }
     }
 
-    return ArrayType{
+    return .{
         .element = &(try allocator.dupe(AnyType, &.{element orelse return error.InvalidGir}))[0],
         .fixed_size = size: {
             if (fixed_size) |size| {
@@ -304,7 +338,7 @@ fn parseCallback(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !
         }
     }
 
-    return Callback{
+    return .{
         .parameters = parameters.items,
         .return_value = return_value orelse return error.InvalidGir,
     };
@@ -347,7 +381,7 @@ fn parseParameter(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) 
         }
     }
 
-    return Parameter{
+    return .{
         .name = name orelse return error.InvalidGir,
         .nullable = nullable,
         .type = @"type" orelse return error.InvalidGir,
@@ -379,7 +413,7 @@ fn parseReturnValue(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode
         }
     }
 
-    return ReturnValue{
+    return .{
         .nullable = nullable,
         .type = @"type" orelse return error.InvalidGir,
     };
@@ -393,12 +427,12 @@ pub const Name = struct {
 fn parseName(raw: []const u8) Name {
     const sep_pos = std.mem.indexOfScalar(u8, raw, '.');
     if (sep_pos) |pos| {
-        return Name{
+        return .{
             .ns = raw[0..pos],
             .local = raw[pos + 1 .. raw.len],
         };
     } else {
-        return Name{
+        return .{
             .ns = null,
             .local = raw,
         };
