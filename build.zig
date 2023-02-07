@@ -40,4 +40,19 @@ pub fn build(b: *std.build.Builder) !void {
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&exe_tests.step);
+
+    const example_exe = b.addExecutable("zig-gobject-example", "src/example.zig");
+    example_exe.setTarget(target);
+    example_exe.setBuildMode(mode);
+    example_exe.linkLibC();
+    example_exe.linkSystemLibrary("gtk4");
+
+    const example_run_cmd = example_exe.run();
+    example_run_cmd.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        example_run_cmd.addArgs(args);
+    }
+
+    const example_run_step = b.step("example-run", "Run the example");
+    example_run_step.dependOn(&example_run_cmd.step);
 }
