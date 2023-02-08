@@ -80,16 +80,26 @@ pub const Namespace = struct {
     name: []const u8,
     aliases: []const Alias,
     classes: []const Class,
+    interfaces: []const Interface,
     records: []const Record,
+    unions: []const Union,
+    bit_fields: []const BitField,
+    enums: []const Enum,
     functions: []const Function,
+    callbacks: []const Callback,
 };
 
 fn parseNamespace(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Namespace {
     var name: ?[]const u8 = null;
     var aliases = ArrayList(Alias).init(allocator);
     var classes = ArrayList(Class).init(allocator);
+    var interfaces = ArrayList(Interface).init(allocator);
     var records = ArrayList(Record).init(allocator);
+    var unions = ArrayList(Union).init(allocator);
+    var bit_fields = ArrayList(BitField).init(allocator);
+    var enums = ArrayList(Enum).init(allocator);
     var functions = ArrayList(Function).init(allocator);
+    var callbacks = ArrayList(Callback).init(allocator);
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
@@ -104,10 +114,20 @@ fn parseNamespace(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) 
             try aliases.append(try parseAlias(allocator, doc, child));
         } else if (nodeIs(child, ns.core, "class")) {
             try classes.append(try parseClass(allocator, doc, child));
+        } else if (nodeIs(child, ns.core, "interface")) {
+            try interfaces.append(try parseInterface(allocator, doc, child));
         } else if (nodeIs(child, ns.core, "record")) {
             try records.append(try parseRecord(allocator, doc, child));
+        } else if (nodeIs(child, ns.core, "union")) {
+            try unions.append(try parseUnion(allocator, doc, child));
+        } else if (nodeIs(child, ns.core, "bitfield")) {
+            try bit_fields.append(try parseBitField(allocator, doc, child));
+        } else if (nodeIs(child, ns.core, "enumeration")) {
+            try enums.append(try parseEnum(allocator, doc, child));
         } else if (nodeIs(child, ns.core, "function")) {
             try functions.append(try parseFunction(allocator, doc, child));
+        } else if (nodeIs(child, ns.core, "callback")) {
+            try callbacks.append(try parseCallback(allocator, doc, child));
         }
     }
 
@@ -115,8 +135,13 @@ fn parseNamespace(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) 
         .name = name orelse return error.InvalidGir,
         .aliases = aliases.items,
         .classes = classes.items,
+        .interfaces = interfaces.items,
         .records = records.items,
+        .unions = unions.items,
+        .bit_fields = bit_fields.items,
+        .enums = enums.items,
         .functions = functions.items,
+        .callbacks = callbacks.items,
     };
 }
 
@@ -198,6 +223,45 @@ fn parseClass(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Cla
     };
 }
 
+pub const Interface = struct {
+    name: []const u8,
+    functions: []const Function,
+    constructors: []const Constructor,
+    methods: []const Method,
+};
+
+fn parseInterface(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Interface {
+    var name: ?[]const u8 = null;
+    var functions = ArrayList(Function).init(allocator);
+    var constructors = ArrayList(Constructor).init(allocator);
+    var methods = ArrayList(Method).init(allocator);
+
+    var maybe_attr: ?*c.xmlAttr = node.properties;
+    while (maybe_attr) |attr| : (maybe_attr = attr.next) {
+        if (attrIs(attr, null, "name")) {
+            name = try attrContent(allocator, doc, attr);
+        }
+    }
+
+    var maybe_child: ?*c.xmlNode = node.children;
+    while (maybe_child) |child| : (maybe_child = child.next) {
+        if (nodeIs(child, ns.core, "function")) {
+            try functions.append(try parseFunction(allocator, doc, child));
+        } else if (nodeIs(child, ns.core, "constructor")) {
+            try constructors.append(try parseConstructor(allocator, doc, child));
+        } else if (nodeIs(child, ns.core, "method")) {
+            try methods.append(try parseMethod(allocator, doc, child));
+        }
+    }
+
+    return .{
+        .name = name orelse return error.InvalidGir,
+        .functions = functions.items,
+        .constructors = constructors.items,
+        .methods = methods.items,
+    };
+}
+
 pub const Record = struct {
     name: []const u8,
     fields: []const Field,
@@ -207,6 +271,50 @@ pub const Record = struct {
 };
 
 fn parseRecord(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Record {
+    var name: ?[]const u8 = null;
+    var fields = ArrayList(Field).init(allocator);
+    var functions = ArrayList(Function).init(allocator);
+    var constructors = ArrayList(Constructor).init(allocator);
+    var methods = ArrayList(Method).init(allocator);
+
+    var maybe_attr: ?*c.xmlAttr = node.properties;
+    while (maybe_attr) |attr| : (maybe_attr = attr.next) {
+        if (attrIs(attr, null, "name")) {
+            name = try attrContent(allocator, doc, attr);
+        }
+    }
+
+    var maybe_child: ?*c.xmlNode = node.children;
+    while (maybe_child) |child| : (maybe_child = child.next) {
+        if (nodeIs(child, ns.core, "field")) {
+            try fields.append(try parseField(allocator, doc, child));
+        } else if (nodeIs(child, ns.core, "function")) {
+            try functions.append(try parseFunction(allocator, doc, child));
+        } else if (nodeIs(child, ns.core, "constructor")) {
+            try constructors.append(try parseConstructor(allocator, doc, child));
+        } else if (nodeIs(child, ns.core, "method")) {
+            try methods.append(try parseMethod(allocator, doc, child));
+        }
+    }
+
+    return .{
+        .name = name orelse return error.InvalidGir,
+        .fields = fields.items,
+        .functions = functions.items,
+        .constructors = constructors.items,
+        .methods = methods.items,
+    };
+}
+
+pub const Union = struct {
+    name: []const u8,
+    fields: []const Field,
+    functions: []const Function,
+    constructors: []const Constructor,
+    methods: []const Method,
+};
+
+fn parseUnion(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Union {
     var name: ?[]const u8 = null;
     var fields = ArrayList(Field).init(allocator);
     var functions = ArrayList(Function).init(allocator);
@@ -281,9 +389,102 @@ fn parseField(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Fie
     };
 }
 
+pub const BitField = struct {
+    name: []const u8,
+    members: []const Member,
+    functions: []const Function,
+};
+
+fn parseBitField(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !BitField {
+    var name: ?[]const u8 = null;
+    var members = ArrayList(Member).init(allocator);
+    var functions = ArrayList(Function).init(allocator);
+
+    var maybe_attr: ?*c.xmlAttr = node.properties;
+    while (maybe_attr) |attr| : (maybe_attr = attr.next) {
+        if (attrIs(attr, null, "name")) {
+            name = try attrContent(allocator, doc, attr);
+        }
+    }
+
+    var maybe_child: ?*c.xmlNode = node.children;
+    while (maybe_child) |child| : (maybe_child = child.next) {
+        if (nodeIs(child, ns.core, "member")) {
+            try members.append(try parseMember(allocator, doc, child));
+        } else if (nodeIs(child, ns.core, "function")) {
+            try functions.append(try parseFunction(allocator, doc, child));
+        }
+    }
+
+    return .{
+        .name = name orelse return error.InvalidGir,
+        .members = members.items,
+        .functions = functions.items,
+    };
+}
+
+pub const Enum = struct {
+    name: []const u8,
+    members: []const Member,
+    functions: []const Function,
+};
+
+fn parseEnum(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Enum {
+    var name: ?[]const u8 = null;
+    var members = ArrayList(Member).init(allocator);
+    var functions = ArrayList(Function).init(allocator);
+
+    var maybe_attr: ?*c.xmlAttr = node.properties;
+    while (maybe_attr) |attr| : (maybe_attr = attr.next) {
+        if (attrIs(attr, null, "name")) {
+            name = try attrContent(allocator, doc, attr);
+        }
+    }
+
+    var maybe_child: ?*c.xmlNode = node.children;
+    while (maybe_child) |child| : (maybe_child = child.next) {
+        if (nodeIs(child, ns.core, "member")) {
+            try members.append(try parseMember(allocator, doc, child));
+        } else if (nodeIs(child, ns.core, "function")) {
+            try functions.append(try parseFunction(allocator, doc, child));
+        }
+    }
+
+    return .{
+        .name = name orelse return error.InvalidGir,
+        .members = members.items,
+        .functions = functions.items,
+    };
+}
+
+pub const Member = struct {
+    name: []const u8,
+    value: i64,
+};
+
+fn parseMember(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Member {
+    var name: ?[]const u8 = null;
+    var value: ?i64 = null;
+
+    var maybe_attr: ?*c.xmlAttr = node.properties;
+    while (maybe_attr) |attr| : (maybe_attr = attr.next) {
+        if (attrIs(attr, null, "name")) {
+            name = try attrContent(allocator, doc, attr);
+        } else if (attrIs(attr, null, "value")) {
+            value = fmt.parseInt(i64, try attrContent(allocator, doc, attr), 10) catch return error.InvalidGir;
+        }
+    }
+
+    return .{
+        .name = name orelse return error.InvalidGir,
+        .value = value orelse return error.InvalidGir,
+    };
+}
+
 pub const Function = struct {
     name: []const u8,
     c_identifier: []const u8,
+    moved_to: ?[]const u8,
     parameters: []const Parameter,
     return_value: ReturnValue,
 };
@@ -291,6 +492,7 @@ pub const Function = struct {
 fn parseFunction(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Function {
     var name: ?[]const u8 = null;
     var c_identifier: ?[]const u8 = null;
+    var moved_to: ?[]const u8 = null;
     var parameters = ArrayList(Parameter).init(allocator);
     var return_value: ?ReturnValue = null;
 
@@ -300,6 +502,8 @@ fn parseFunction(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !
             name = try attrContent(allocator, doc, attr);
         } else if (attrIs(attr, ns.c, "identifier")) {
             c_identifier = try attrContent(allocator, doc, attr);
+        } else if (attrIs(attr, null, "moved-to")) {
+            moved_to = try attrContent(allocator, doc, attr);
         }
     }
 
@@ -315,6 +519,7 @@ fn parseFunction(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !
     return .{
         .name = name orelse return error.InvalidGir,
         .c_identifier = c_identifier orelse return error.InvalidGir,
+        .moved_to = moved_to,
         .parameters = parameters.items,
         .return_value = return_value orelse return error.InvalidGir,
     };
@@ -323,6 +528,7 @@ fn parseFunction(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !
 pub const Constructor = struct {
     name: []const u8,
     c_identifier: []const u8,
+    moved_to: ?[]const u8,
     parameters: []const Parameter,
     return_value: ReturnValue,
 };
@@ -333,6 +539,7 @@ fn parseConstructor(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode
     return .{
         .name = function.name,
         .c_identifier = function.c_identifier,
+        .moved_to = function.moved_to,
         .parameters = function.parameters,
         .return_value = function.return_value,
     };
@@ -341,6 +548,7 @@ fn parseConstructor(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode
 pub const Method = struct {
     name: []const u8,
     c_identifier: []const u8,
+    moved_to: ?[]const u8,
     parameters: []const Parameter,
     return_value: ReturnValue,
 };
@@ -351,6 +559,7 @@ fn parseMethod(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Me
     return .{
         .name = function.name,
         .c_identifier = function.c_identifier,
+        .moved_to = function.moved_to,
         .parameters = function.parameters,
         .return_value = function.return_value,
     };
@@ -431,13 +640,22 @@ fn parseArrayType(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) 
 }
 
 pub const Callback = struct {
+    name: []const u8,
     parameters: []const Parameter,
     return_value: ReturnValue,
 };
 
 fn parseCallback(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Callback {
+    var name: ?[]const u8 = null;
     var parameters = ArrayList(Parameter).init(allocator);
     var return_value: ?ReturnValue = null;
+
+    var maybe_attr: ?*c.xmlAttr = node.properties;
+    while (maybe_attr) |attr| : (maybe_attr = attr.next) {
+        if (attrIs(attr, null, "name")) {
+            name = try attrContent(allocator, doc, attr);
+        }
+    }
 
     var maybe_child: ?*c.xmlNode = node.children;
     while (maybe_child) |child| : (maybe_child = child.next) {
@@ -449,6 +667,7 @@ fn parseCallback(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !
     }
 
     return .{
+        .name = name orelse return error.InvalidGir,
         .parameters = parameters.items,
         .return_value = return_value orelse return error.InvalidGir,
     };

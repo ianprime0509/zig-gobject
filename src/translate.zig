@@ -55,12 +55,19 @@ fn translateRepository(allocator: Allocator, repo: gir.Repository, repos: *Repos
         const file = try out_dir.createFile(file_name, .{});
         defer file.close();
         var bw = io.bufferedWriter(file.writer());
-        const writer = bw.writer();
+        const out = bw.writer();
+
         var seen = StringHashMap(void).init(allocator);
         defer seen.deinit();
-        try translateIncludes(allocator, repo.includes, repos, &seen, in_dir, out_dir, writer);
-        _ = try writer.write("\n");
-        try translateNamespace(allocator, ns, writer);
+        try translateIncludes(allocator, repo.includes, repos, &seen, in_dir, out_dir, out);
+        // Special case: GLib references GObject despite not including it
+        if (mem.eql(u8, ns.name, "GLib")) {
+            _ = try out.write("const gobject = @import(\"gobject.zig\");\n");
+        }
+        _ = try out.write("\n");
+
+        try translateNamespace(allocator, ns, out);
+
         try bw.flush();
         try file.sync();
     }
@@ -97,11 +104,26 @@ fn translateNamespace(allocator: Allocator, ns: gir.Namespace, out: anytype) !vo
     for (ns.classes) |class| {
         try translateClass(allocator, class, ns, out);
     }
+    for (ns.interfaces) |interface| {
+        try translateInterface(allocator, interface, ns, out);
+    }
     for (ns.records) |record| {
         try translateRecord(allocator, record, ns, out);
     }
+    for (ns.unions) |@"union"| {
+        try translateUnion(allocator, @"union", ns, out);
+    }
+    for (ns.enums) |@"enum"| {
+        try translateEnum(allocator, @"enum", ns, out);
+    }
+    for (ns.bit_fields) |bit_field| {
+        try translateBitField(allocator, bit_field, ns, out);
+    }
     for (ns.functions) |function| {
         try translateFunction(allocator, function, ns, "", out);
+    }
+    for (ns.callbacks) |callback| {
+        try translateCallback(allocator, callback, ns, true, out);
     }
 }
 
@@ -112,7 +134,7 @@ fn translateAlias(allocator: Allocator, alias: gir.Alias, ns: gir.Namespace, out
 }
 
 fn translateClass(allocator: Allocator, class: gir.Class, ns: gir.Namespace, out: anytype) !void {
-    try out.print("pub const {s} = struct {{\n", .{class.name});
+    try out.print("pub const {s} = extern struct {{\n", .{class.name});
     try out.print("    const Self = {s};\n\n", .{class.name});
     for (class.fields) |field| {
         try translateField(allocator, field, ns, out);
@@ -153,8 +175,39 @@ fn translateClass(allocator: Allocator, class: gir.Class, ns: gir.Namespace, out
     }
 }
 
+fn translateInterface(allocator: Allocator, interface: gir.Interface, ns: gir.Namespace, out: anytype) !void {
+    try out.print("pub const {s} = opaque {{\n", .{interface.name});
+    try out.print("    const Self = {s};\n\n", .{interface.name});
+    for (interface.functions) |function| {
+        try translateFunction(allocator, function, ns, " " ** 4, out);
+    }
+    if (interface.functions.len > 0) {
+        _ = try out.write("\n");
+    }
+    for (interface.constructors) |constructor| {
+        try translateConstructor(allocator, constructor, ns, " " ** 4, out);
+    }
+    if (interface.constructors.len > 0) {
+        _ = try out.write("\n");
+    }
+    if (interface.methods.len > 0) {
+        try out.print("    pub usingnamespace {s}Methods(Self);\n", .{interface.name});
+    }
+    _ = try out.write("};\n\n");
+
+    if (interface.methods.len > 0) {
+        try out.print("pub fn {s}Methods(comptime Self: type) type {{\n", .{interface.name});
+        _ = try out.write("    return opaque{\n");
+        for (interface.methods) |method| {
+            try translateMethod(allocator, method, ns, " " ** 8, out);
+        }
+        _ = try out.write("    };\n");
+        _ = try out.write("}\n\n");
+    }
+}
+
 fn translateRecord(allocator: Allocator, record: gir.Record, ns: gir.Namespace, out: anytype) !void {
-    try out.print("pub const {s} = struct {{\n", .{record.name});
+    try out.print("pub const {s} = extern struct {{\n", .{record.name});
     try out.print("    const Self = {s};\n\n", .{record.name});
     for (record.fields) |field| {
         try translateField(allocator, field, ns, out);
@@ -180,6 +233,33 @@ fn translateRecord(allocator: Allocator, record: gir.Record, ns: gir.Namespace, 
     _ = try out.write("};\n\n");
 }
 
+fn translateUnion(allocator: Allocator, @"union": gir.Union, ns: gir.Namespace, out: anytype) !void {
+    try out.print("pub const {s} = extern union {{\n", .{@"union".name});
+    try out.print("    const Self = {s};\n\n", .{@"union".name});
+    for (@"union".fields) |field| {
+        try translateField(allocator, field, ns, out);
+    }
+    if (@"union".fields.len > 0) {
+        _ = try out.write("\n");
+    }
+    for (@"union".functions) |function| {
+        try translateFunction(allocator, function, ns, " " ** 4, out);
+    }
+    if (@"union".functions.len > 0) {
+        _ = try out.write("\n");
+    }
+    for (@"union".constructors) |constructor| {
+        try translateConstructor(allocator, constructor, ns, " " ** 4, out);
+    }
+    if (@"union".constructors.len > 0) {
+        _ = try out.write("\n");
+    }
+    for (@"union".methods) |method| {
+        try translateMethod(allocator, method, ns, " " ** 4, out);
+    }
+    _ = try out.write("};\n\n");
+}
+
 fn translateField(allocator: Allocator, field: gir.Field, ns: gir.Namespace, out: anytype) !void {
     try out.print("    {}: ", .{zig.fmtId(field.name)});
     try translateFieldType(allocator, field.type, ns, out);
@@ -190,11 +270,69 @@ fn translateFieldType(allocator: Allocator, @"type": gir.FieldType, ns: gir.Name
     switch (@"type") {
         .simple => |simple_type| try translateType(allocator, simple_type, ns, out),
         .array => |array_type| try translateArrayType(allocator, array_type, ns, out),
-        .callback => |callback| try translateCallback(allocator, callback, ns, out),
+        .callback => |callback| try translateCallback(allocator, callback, ns, false, out),
     }
 }
 
+fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ns: gir.Namespace, out: anytype) !void {
+    var needsI64 = false;
+    for (bit_field.members) |member| {
+        if (member.value >= 1 << 31) {
+            needsI64 = true;
+        }
+    }
+
+    const tagType = if (needsI64) "i64" else "i32";
+    try out.print("pub const {s} = packed struct({s}) {{\n", .{ bit_field.name, tagType });
+    for (bit_field.members) |member| {
+        if (member.value > 0) {
+            try out.print("    {s}: u1,", .{zig.fmtId(member.name)});
+        }
+    }
+
+    try out.print("\n    const Self = {s};\n", .{bit_field.name});
+
+    if (bit_field.functions.len > 0) {
+        _ = try out.write("\n");
+        for (bit_field.functions) |function| {
+            try translateFunction(allocator, function, ns, " " ** 8, out);
+        }
+    }
+
+    _ = try out.write("};\n\n");
+}
+
+fn translateEnum(allocator: Allocator, @"enum": gir.Enum, ns: gir.Namespace, out: anytype) !void {
+    var needsI64 = false;
+    for (@"enum".members) |member| {
+        if (member.value >= 1 << 31) {
+            needsI64 = true;
+        }
+    }
+
+    const tagType = if (needsI64) "i64" else "i32";
+    try out.print("pub const {s} = enum({s}) {{\n", .{ @"enum".name, tagType });
+    for (@"enum".members) |member| {
+        try out.print("    {s} = {},\n", .{ zig.fmtId(member.name), member.value });
+    }
+
+    try out.print("\n    const Self = {s};\n", .{@"enum".name});
+
+    if (@"enum".functions.len > 0) {
+        _ = try out.write("\n");
+        for (@"enum".functions) |function| {
+            try translateFunction(allocator, function, ns, " " ** 8, out);
+        }
+    }
+
+    _ = try out.write("};\n\n");
+}
+
 fn translateFunction(allocator: Allocator, function: gir.Function, ns: gir.Namespace, indent: []const u8, out: anytype) !void {
+    if (function.moved_to != null) {
+        return;
+    }
+
     // extern declaration
     try out.print("{s}extern fn {s}(", .{ indent, zig.fmtId(function.c_identifier) });
 
@@ -229,10 +367,10 @@ fn translateFunction(allocator: Allocator, function: gir.Function, ns: gir.Names
         .simple => |simple_type| try translateType(allocator, simple_type, ns, out),
         .array => |array_type| try translateArrayType(allocator, array_type, ns, out),
     }
-    _ = try out.print(" {{\n{s}    {s}(", .{ indent, zig.fmtId(function.c_identifier) });
+    _ = try out.print(" {{\n{s}    return {s}(", .{ indent, zig.fmtId(function.c_identifier) });
     i = 0;
     while (i < function.parameters.len) : (i += 1) {
-        try out.print("{s}", .{zig.fmtId(function.parameters[i].name)});
+        try translateParameterName(allocator, function.parameters[i].name, out);
         if (i < function.parameters.len - 1) {
             _ = try out.write(", ");
         }
@@ -244,6 +382,7 @@ fn translateConstructor(allocator: Allocator, constructor: gir.Constructor, ns: 
     try translateFunction(allocator, .{
         .name = constructor.name,
         .c_identifier = constructor.c_identifier,
+        .moved_to = constructor.moved_to,
         .parameters = constructor.parameters,
         .return_value = constructor.return_value,
     }, ns, indent, out);
@@ -253,6 +392,7 @@ fn translateMethod(allocator: Allocator, method: gir.Method, ns: gir.Namespace, 
     try translateFunction(allocator, .{
         .name = method.name,
         .c_identifier = method.c_identifier,
+        .moved_to = method.moved_to,
         .parameters = method.parameters,
         .return_value = method.return_value,
     }, ns, indent, out);
@@ -278,9 +418,13 @@ const builtins = std.ComptimeStringMap([]const u8, .{
     .{ "gulong", "c_ulong" },
     .{ "gsize", "usize" },
     .{ "gssize", "isize" },
+    .{ "gunichar2", "u16" },
+    .{ "gunichar", "u32" },
+    .{ "gfloat", "f32" },
+    .{ "gdouble", "f64" },
+    .{ "long double", "c_longdouble" },
     .{ "gpointer", "*anyopaque" },
     .{ "gconstpointer", "*const anyopaque" },
-    .{ "long double", "c_longdouble" },
     .{ "va_list", "@compileError(\"va_list not supported\")" },
     .{ "none", "void" },
 });
@@ -294,7 +438,7 @@ fn translateType(allocator: Allocator, @"type": gir.Type, ns: gir.Namespace, out
     var name = @"type".name.?;
     var c_type = @"type".c_type.?;
 
-    // Special case for GType, which seems to have an inconsistent namespace
+    // Special cases for namespaced types
     if (mem.eql(u8, name.local, "GType")) {
         name = .{ .ns = "gobject", .local = "Type" };
     }
@@ -351,7 +495,11 @@ fn translateArrayType(allocator: Allocator, @"type": gir.ArrayType, ns: gir.Name
     }
 }
 
-fn translateCallback(allocator: Allocator, callback: gir.Callback, ns: gir.Namespace, out: anytype) !void {
+fn translateCallback(allocator: Allocator, callback: gir.Callback, ns: gir.Namespace, named: bool, out: anytype) !void {
+    if (named) {
+        try out.print("pub const {s} = ", .{callback.name});
+    }
+
     _ = try out.write("*const fn (");
     var i: usize = 0;
     while (i < callback.parameters.len) : (i += 1) {
@@ -365,10 +513,15 @@ fn translateCallback(allocator: Allocator, callback: gir.Callback, ns: gir.Names
         .simple => |simple_type| try translateType(allocator, simple_type, ns, out),
         .array => |array_type| try translateArrayType(allocator, array_type, ns, out),
     }
+
+    if (named) {
+        _ = try out.write(";\n\n");
+    }
 }
 
 fn translateParameter(allocator: Allocator, parameter: gir.Parameter, ns: gir.Namespace, out: anytype) !void {
-    try out.print("{}: ", .{zig.fmtId(parameter.name)});
+    try translateParameterName(allocator, parameter.name, out);
+    _ = try out.write(": ");
     if (parameter.instance) {
         // TODO: what if the instance parameter isn't a pointer?
         if (mem.startsWith(u8, parameter.type.simple.c_type.?, "const ")) {
@@ -383,6 +536,12 @@ fn translateParameter(allocator: Allocator, parameter: gir.Parameter, ns: gir.Na
             .varargs => _ = try out.write("@compileError(\"varargs not implemented\")"),
         }
     }
+}
+
+fn translateParameterName(allocator: Allocator, parameterName: []const u8, out: anytype) !void {
+    var translatedName = try fmt.allocPrint(allocator, "p_{s}", .{parameterName});
+    defer allocator.free(translatedName);
+    try out.print("{s}", .{zig.fmtId(translatedName)});
 }
 
 fn translateNameNs(allocator: Allocator, nameNs: ?[]const u8, ns: gir.Namespace, out: anytype) !void {
