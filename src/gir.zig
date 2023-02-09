@@ -576,28 +576,20 @@ pub const Type = struct {
 };
 
 fn parseType(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Type {
-    var name: ?[]const u8 = null;
+    var name: ?Name = null;
     var c_type: ?[]const u8 = null;
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
         if (attrIs(attr, null, "name")) {
-            name = try attrContent(allocator, doc, attr);
+            name = parseName(try attrContent(allocator, doc, attr));
         } else if (attrIs(attr, ns.c, "type")) {
             c_type = try attrContent(allocator, doc, attr);
         }
     }
 
-    const parsed_name = blk: {
-        if (name) |n| {
-            break :blk parseName(n);
-        } else {
-            break :blk null;
-        }
-    };
-
     return .{
-        .name = parsed_name,
+        .name = name,
         .c_type = c_type,
     };
 }
