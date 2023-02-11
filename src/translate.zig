@@ -125,6 +125,9 @@ fn translateNamespace(allocator: Allocator, ns: gir.Namespace, out: anytype) !vo
     for (ns.callbacks) |callback| {
         try translateCallback(allocator, callback, ns, true, out);
     }
+    for (ns.constants) |constant| {
+        try translateConstant(allocator, constant, ns, "", out);
+    }
 }
 
 fn translateAlias(allocator: Allocator, alias: gir.Alias, ns: gir.Namespace, out: anytype) !void {
@@ -134,6 +137,7 @@ fn translateAlias(allocator: Allocator, alias: gir.Alias, ns: gir.Namespace, out
 }
 
 fn translateClass(allocator: Allocator, class: gir.Class, ns: gir.Namespace, out: anytype) !void {
+    // class type
     try out.print("pub const {s} = extern struct {{\n", .{class.name});
     try out.print("    const Self = {s};\n\n", .{class.name});
     for (class.fields) |field| {
@@ -154,15 +158,36 @@ fn translateClass(allocator: Allocator, class: gir.Class, ns: gir.Namespace, out
     if (class.constructors.len > 0) {
         _ = try out.write("\n");
     }
+    for (class.constants) |constant| {
+        try translateConstant(allocator, constant, ns, " " ** 4, out);
+    }
+    if (class.constants.len > 0) {
+        _ = try out.write("\n");
+    }
     try out.print("    pub usingnamespace {s}Methods(Self);\n", .{class.name});
     _ = try out.write("};\n\n");
 
+    // methods mixin
     try out.print("pub fn {s}Methods(comptime Self: type) type {{\n", .{class.name});
+    if (class.methods.len == 0 and class.signals.len == 0 and class.parent == null) {
+        _ = try out.write("_ = Self;\n");
+    }
     _ = try out.write("    return opaque{\n");
     for (class.methods) |method| {
         try translateMethod(allocator, method, ns, " " ** 8, out);
     }
+    for (class.signals) |signal| {
+        try translateSignal(allocator, signal, ns, " " ** 8, out);
+    }
     if (class.parent) |parent| {
+        try out.print("        pub fn as{s}(p_self: *Self) *", .{parent.local});
+        try translateNameNs(allocator, parent.ns, ns, out);
+        try out.print("{s} {{\n", .{parent.local});
+        _ = try out.write("            return @ptrCast(*");
+        try translateNameNs(allocator, parent.ns, ns, out);
+        try out.print("{s}, p_self);\n", .{parent.local});
+        _ = try out.write("        }\n\n");
+
         _ = try out.write("        pub usingnamespace ");
         try translateNameNs(allocator, parent.ns, ns, out);
         try out.print("{s}Methods(Self);\n", .{parent.local});
@@ -172,6 +197,7 @@ fn translateClass(allocator: Allocator, class: gir.Class, ns: gir.Namespace, out
 }
 
 fn translateInterface(allocator: Allocator, interface: gir.Interface, ns: gir.Namespace, out: anytype) !void {
+    // interface type
     try out.print("pub const {s} = opaque {{\n", .{interface.name});
     try out.print("    const Self = {s};\n\n", .{interface.name});
     for (interface.functions) |function| {
@@ -186,20 +212,29 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, ns: gir.Na
     if (interface.constructors.len > 0) {
         _ = try out.write("\n");
     }
-    if (interface.methods.len > 0) {
-        try out.print("    pub usingnamespace {s}Methods(Self);\n", .{interface.name});
+    for (interface.constants) |constant| {
+        try translateConstant(allocator, constant, ns, " " ** 4, out);
     }
+    if (interface.constants.len > 0) {
+        _ = try out.write("\n");
+    }
+    try out.print("    pub usingnamespace {s}Methods(Self);\n", .{interface.name});
     _ = try out.write("};\n\n");
 
-    if (interface.methods.len > 0) {
-        try out.print("pub fn {s}Methods(comptime Self: type) type {{\n", .{interface.name});
-        _ = try out.write("    return opaque{\n");
-        for (interface.methods) |method| {
-            try translateMethod(allocator, method, ns, " " ** 8, out);
-        }
-        _ = try out.write("    };\n");
-        _ = try out.write("}\n\n");
+    // methods mixin
+    try out.print("pub fn {s}Methods(comptime Self: type) type {{\n", .{interface.name});
+    if (interface.methods.len == 0 and interface.signals.len == 0) {
+        _ = try out.write("_ = Self;\n");
     }
+    _ = try out.write("    return opaque{\n");
+    for (interface.methods) |method| {
+        try translateMethod(allocator, method, ns, " " ** 8, out);
+    }
+    for (interface.signals) |signal| {
+        try translateSignal(allocator, signal, ns, " " ** 8, out);
+    }
+    _ = try out.write("    };\n");
+    _ = try out.write("}\n\n");
 }
 
 fn translateRecord(allocator: Allocator, record: gir.Record, ns: gir.Namespace, out: anytype) !void {
@@ -345,14 +380,11 @@ fn translateFunction(allocator: Allocator, function: gir.Function, ns: gir.Names
         }
     }
     _ = try out.write(") callconv(.C) ");
-    switch (function.return_value.type) {
-        .simple => |simple_type| try translateType(allocator, simple_type, ns, out),
-        .array => |array_type| try translateArrayType(allocator, array_type, ns, out),
-    }
+    try translateReturnValue(allocator, function.return_value, ns, out);
     _ = try out.write(";\n\n");
 
     // function rename
-    var fnName = try toCamelCase(allocator, function.name);
+    var fnName = try toCamelCase(allocator, function.name, "_");
     defer allocator.free(fnName);
     try out.print("{s}pub const {s} = {s};\n\n", .{ indent, zig.fmtId(fnName), zig.fmtId(function.c_identifier) });
 }
@@ -379,7 +411,7 @@ fn translateConstructor(allocator: Allocator, constructor: gir.Constructor, ns: 
     _ = try out.write(") callconv(.C) *Self;\n\n");
 
     // constructor rename
-    var fnName = try toCamelCase(allocator, constructor.name);
+    var fnName = try toCamelCase(allocator, constructor.name, "_");
     defer allocator.free(fnName);
     try out.print("{s}pub const {s} = {s};\n\n", .{ indent, zig.fmtId(fnName), zig.fmtId(constructor.c_identifier) });
 }
@@ -392,6 +424,53 @@ fn translateMethod(allocator: Allocator, method: gir.Method, ns: gir.Namespace, 
         .parameters = method.parameters,
         .return_value = method.return_value,
     }, ns, indent, out);
+}
+
+fn translateSignal(allocator: Allocator, signal: gir.Signal, ns: gir.Namespace, indent: []const u8, out: anytype) !void {
+    var upper_signal_name = try toCamelCase(allocator, signal.name, "-");
+    defer allocator.free(upper_signal_name);
+    if (upper_signal_name.len > 0) {
+        upper_signal_name[0] = ascii.toUpper(upper_signal_name[0]);
+    }
+
+    // normal connection
+    try out.print("{s}pub fn connect{s}(p_self: *Self, p_callback: ", .{ indent, upper_signal_name });
+    try translateSignalCallbackType(allocator, signal, ns, out);
+    _ = try out.write(", p_data: ?*anyopaque) c_ulong {\n");
+
+    try out.print("{s}    return ", .{indent});
+    try translateNameNs(allocator, "gobject", ns, out);
+    try out.print("signalConnectData(p_self, \"{}\", @ptrCast(", .{zig.fmtEscapes(signal.name)});
+    try translateNameNs(allocator, "gobject", ns, out);
+    _ = try out.write("Callback, p_callback), p_data, null, .{});\n");
+
+    try out.print("{s}}}\n\n", .{indent});
+}
+
+fn translateSignalCallbackType(allocator: Allocator, signal: gir.Signal, ns: gir.Namespace, out: anytype) !void {
+    _ = try out.write("*const fn (*Self, ");
+    for (signal.parameters) |parameter| {
+        try translateParameter(allocator, parameter, ns, out);
+        _ = try out.write(", ");
+    }
+    _ = try out.write("?*anyopaque) callconv(.C) ");
+    try translateReturnValue(allocator, signal.return_value, ns, out);
+}
+
+fn translateConstant(allocator: Allocator, constant: gir.Constant, ns: gir.Namespace, indent: []const u8, out: anytype) !void {
+    // TODO: it would be more idiomatic to use lowercase constant names, but
+    // there are way too many constant pairs which differ only in case, especially
+    // the names of keyboard keys (e.g. KEY_A and KEY_a in GDK). There is
+    // probably some heuristic we can use to at least lowercase most of them.
+    try out.print("{s}pub const {s}: ", .{ indent, zig.fmtId(constant.name) });
+    try translateAnyType(allocator, constant.type, ns, out);
+    _ = try out.write(" = ");
+    if (constant.type == .simple and constant.type.simple.name != null and mem.eql(u8, constant.type.simple.name.?.local, "utf8")) {
+        try out.print("\"{}\"", .{zig.fmtEscapes(constant.value)});
+    } else {
+        _ = try out.write(constant.value);
+    }
+    _ = try out.write(";\n\n");
 }
 
 const builtins = std.ComptimeStringMap([]const u8, .{
@@ -424,6 +503,13 @@ const builtins = std.ComptimeStringMap([]const u8, .{
     .{ "va_list", "@compileError(\"va_list not supported\")" },
     .{ "none", "void" },
 });
+
+fn translateAnyType(allocator: Allocator, @"type": gir.AnyType, ns: gir.Namespace, out: anytype) !void {
+    switch (@"type") {
+        .simple => |simple| try translateType(allocator, simple, ns, out),
+        .array => |array| try translateArrayType(allocator, array, ns, out),
+    }
+}
 
 fn translateType(allocator: Allocator, @"type": gir.Type, ns: gir.Namespace, out: anytype) !void {
     if (@"type".name == null) {
@@ -506,6 +592,12 @@ fn translateArrayType(allocator: Allocator, @"type": gir.ArrayType, ns: gir.Name
 }
 
 fn translateCallback(allocator: Allocator, callback: gir.Callback, ns: gir.Namespace, named: bool, out: anytype) !void {
+    // TODO: workaround specific to ClosureNotify until https://github.com/ziglang/zig/issues/12325 is fixed
+    if (named and mem.eql(u8, callback.name, "ClosureNotify")) {
+        _ = try out.write("pub const ClosureNotify = ?*const fn (p_data: ?*anyopaque, p_closure: *anyopaque) callconv(.C) void;\n\n");
+        return;
+    }
+
     if (named) {
         try out.print("pub const {s} = ", .{callback.name});
     }
@@ -554,6 +646,13 @@ fn translateParameterName(allocator: Allocator, parameterName: []const u8, out: 
     try out.print("{s}", .{zig.fmtId(translatedName)});
 }
 
+fn translateReturnValue(allocator: Allocator, return_value: gir.ReturnValue, ns: gir.Namespace, out: anytype) !void {
+    if (return_value.nullable) {
+        _ = try out.write("?");
+    }
+    try translateAnyType(allocator, return_value.type, ns, out);
+}
+
 fn translateNameNs(allocator: Allocator, nameNs: ?[]const u8, ns: gir.Namespace, out: anytype) !void {
     if (nameNs != null and !ascii.eqlIgnoreCase(nameNs.?, ns.name)) {
         const type_ns = try ascii.allocLowerString(allocator, nameNs.?);
@@ -562,9 +661,9 @@ fn translateNameNs(allocator: Allocator, nameNs: ?[]const u8, ns: gir.Namespace,
     }
 }
 
-fn toCamelCase(allocator: Allocator, name: []const u8) ![]u8 {
+fn toCamelCase(allocator: Allocator, name: []const u8, word_sep: []const u8) ![]u8 {
     var out = ArrayList(u8).init(allocator);
-    var words = mem.split(u8, name, "_");
+    var words = mem.split(u8, name, word_sep);
     var i: usize = 0;
     while (words.next()) |word| : (i += 1) {
         if (word.len > 0) {

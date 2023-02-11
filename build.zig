@@ -47,6 +47,9 @@ pub fn build(b: *std.build.Builder) !void {
     example_exe.linkLibC();
     example_exe.linkSystemLibrary("gtk4");
 
+    const example_build_step = b.step("example-build", "Build the example");
+    example_build_step.dependOn(&example_exe.step);
+
     const example_run_cmd = example_exe.run();
     example_run_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| {

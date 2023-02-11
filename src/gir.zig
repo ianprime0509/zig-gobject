@@ -87,6 +87,7 @@ pub const Namespace = struct {
     enums: []const Enum,
     functions: []const Function,
     callbacks: []const Callback,
+    constants: []const Constant,
 };
 
 fn parseNamespace(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Namespace {
@@ -100,6 +101,7 @@ fn parseNamespace(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) 
     var enums = ArrayList(Enum).init(allocator);
     var functions = ArrayList(Function).init(allocator);
     var callbacks = ArrayList(Callback).init(allocator);
+    var constants = ArrayList(Constant).init(allocator);
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
@@ -128,6 +130,8 @@ fn parseNamespace(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) 
             try functions.append(try parseFunction(allocator, doc, child));
         } else if (nodeIs(child, ns.core, "callback")) {
             try callbacks.append(try parseCallback(allocator, doc, child));
+        } else if (nodeIs(child, ns.core, "constant")) {
+            try constants.append(try parseConstant(allocator, doc, child));
         }
     }
 
@@ -142,6 +146,7 @@ fn parseNamespace(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) 
         .enums = enums.items,
         .functions = functions.items,
         .callbacks = callbacks.items,
+        .constants = constants.items,
     };
 }
 
@@ -181,6 +186,8 @@ pub const Class = struct {
     functions: []const Function,
     constructors: []const Constructor,
     methods: []const Method,
+    signals: []const Signal,
+    constants: []const Constant,
 };
 
 fn parseClass(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Class {
@@ -190,6 +197,8 @@ fn parseClass(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Cla
     var functions = ArrayList(Function).init(allocator);
     var constructors = ArrayList(Constructor).init(allocator);
     var methods = ArrayList(Method).init(allocator);
+    var signals = ArrayList(Signal).init(allocator);
+    var constants = ArrayList(Constant).init(allocator);
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
@@ -210,6 +219,10 @@ fn parseClass(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Cla
             try constructors.append(try parseConstructor(allocator, doc, child));
         } else if (nodeIs(child, ns.core, "method")) {
             try methods.append(try parseMethod(allocator, doc, child));
+        } else if (nodeIs(child, ns.glib, "signal")) {
+            try signals.append(try parseSignal(allocator, doc, child));
+        } else if (nodeIs(child, ns.core, "constant")) {
+            try constants.append(try parseConstant(allocator, doc, child));
         }
     }
 
@@ -220,6 +233,8 @@ fn parseClass(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Cla
         .functions = functions.items,
         .constructors = constructors.items,
         .methods = methods.items,
+        .signals = signals.items,
+        .constants = constants.items,
     };
 }
 
@@ -228,6 +243,8 @@ pub const Interface = struct {
     functions: []const Function,
     constructors: []const Constructor,
     methods: []const Method,
+    signals: []const Signal,
+    constants: []const Constant,
 };
 
 fn parseInterface(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Interface {
@@ -235,6 +252,8 @@ fn parseInterface(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) 
     var functions = ArrayList(Function).init(allocator);
     var constructors = ArrayList(Constructor).init(allocator);
     var methods = ArrayList(Method).init(allocator);
+    var signals = ArrayList(Signal).init(allocator);
+    var constants = ArrayList(Constant).init(allocator);
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
@@ -251,6 +270,10 @@ fn parseInterface(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) 
             try constructors.append(try parseConstructor(allocator, doc, child));
         } else if (nodeIs(child, ns.core, "method")) {
             try methods.append(try parseMethod(allocator, doc, child));
+        } else if (nodeIs(child, ns.glib, "signal")) {
+            try signals.append(try parseSignal(allocator, doc, child));
+        } else if (nodeIs(child, ns.core, "constant")) {
+            try constants.append(try parseConstant(allocator, doc, child));
         }
     }
 
@@ -259,6 +282,8 @@ fn parseInterface(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) 
         .functions = functions.items,
         .constructors = constructors.items,
         .methods = methods.items,
+        .signals = signals.items,
+        .constants = constants.items,
     };
 }
 
@@ -562,6 +587,76 @@ fn parseMethod(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Me
         .moved_to = function.moved_to,
         .parameters = function.parameters,
         .return_value = function.return_value,
+    };
+}
+
+pub const Signal = struct {
+    name: []const u8,
+    parameters: []const Parameter,
+    return_value: ReturnValue,
+};
+
+fn parseSignal(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Signal {
+    var name: ?[]const u8 = null;
+    var parameters = ArrayList(Parameter).init(allocator);
+    var return_value: ?ReturnValue = null;
+
+    var maybe_attr: ?*c.xmlAttr = node.properties;
+    while (maybe_attr) |attr| : (maybe_attr = attr.next) {
+        if (attrIs(attr, null, "name")) {
+            name = try attrContent(allocator, doc, attr);
+        }
+    }
+
+    var maybe_child: ?*c.xmlNode = node.children;
+    while (maybe_child) |child| : (maybe_child = child.next) {
+        if (nodeIs(child, ns.core, "parameters")) {
+            try parseParameters(allocator, &parameters, doc, child);
+        } else if (nodeIs(child, ns.core, "return-value")) {
+            return_value = try parseReturnValue(allocator, doc, child);
+        }
+    }
+
+    return .{
+        .name = name orelse return error.InvalidGir,
+        .parameters = parameters.items,
+        .return_value = return_value orelse return error.InvalidGir,
+    };
+}
+
+pub const Constant = struct {
+    name: []const u8,
+    value: []const u8,
+    type: AnyType,
+};
+
+fn parseConstant(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Constant {
+    var name: ?[]const u8 = null;
+    var value: ?[]const u8 = null;
+    var @"type": ?AnyType = null;
+
+    var maybe_attr: ?*c.xmlAttr = node.properties;
+    while (maybe_attr) |attr| : (maybe_attr = attr.next) {
+        if (attrIs(attr, null, "name")) {
+            name = try attrContent(allocator, doc, attr);
+        } else if (attrIs(attr, null, "value")) {
+            value = try attrContent(allocator, doc, attr);
+        }
+    }
+
+    var maybe_child: ?*c.xmlNode = node.children;
+    while (maybe_child) |child| : (maybe_child = child.next) {
+        if (nodeIs(child, ns.core, "type")) {
+            @"type" = .{ .simple = try parseType(allocator, doc, child) };
+        } else if (nodeIs(child, ns.core, "array")) {
+            @"type" = .{ .array = try parseArrayType(allocator, doc, child) };
+        }
+    }
+
+    return .{
+        .name = name orelse return error.InvalidGir,
+        .value = value orelse return error.InvalidGir,
+        .type = @"type" orelse return error.InvalidGir,
     };
 }
 
