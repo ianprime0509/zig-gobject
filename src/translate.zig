@@ -283,12 +283,12 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ns: gir.Name
     try out.print("pub const {s} = packed struct({s}) {{\n", .{ bit_field.name, tagType });
     for (bit_field.members) |member| {
         if (member.value > 0) {
-            try out.print("    {s}: bool = false,", .{zig.fmtId(member.name)});
+            try out.print("    {s}: bool = false,\n", .{zig.fmtId(member.name)});
             paddingNeeded -= 1;
         }
     }
     if (paddingNeeded > 0) {
-        try out.print("    _padding: u{} = 0,", .{paddingNeeded});
+        try out.print("    _padding: u{} = 0,\n", .{paddingNeeded});
     }
 
     try out.print("\n    const Self = {s};\n", .{bit_field.name});
@@ -351,32 +351,10 @@ fn translateFunction(allocator: Allocator, function: gir.Function, ns: gir.Names
     }
     _ = try out.write(";\n\n");
 
-    // function wrapper
+    // function rename
     var fnName = try toCamelCase(allocator, function.name);
     defer allocator.free(fnName);
-    try out.print("{s}pub inline fn {s}(", .{ indent, zig.fmtId(fnName) });
-
-    i = 0;
-    while (i < function.parameters.len) : (i += 1) {
-        try translateParameter(allocator, function.parameters[i], ns, out);
-        if (i < function.parameters.len - 1) {
-            _ = try out.write(", ");
-        }
-    }
-    _ = try out.write(") ");
-    switch (function.return_value.type) {
-        .simple => |simple_type| try translateType(allocator, simple_type, ns, out),
-        .array => |array_type| try translateArrayType(allocator, array_type, ns, out),
-    }
-    _ = try out.print(" {{\n{s}    return {s}(", .{ indent, zig.fmtId(function.c_identifier) });
-    i = 0;
-    while (i < function.parameters.len) : (i += 1) {
-        try translateParameterName(allocator, function.parameters[i].name, out);
-        if (i < function.parameters.len - 1) {
-            _ = try out.write(", ");
-        }
-    }
-    _ = try out.print(");\n{s}}}\n\n", .{indent});
+    try out.print("{s}pub const {s} = {s};\n\n", .{ indent, zig.fmtId(fnName), zig.fmtId(function.c_identifier) });
 }
 
 fn translateConstructor(allocator: Allocator, constructor: gir.Constructor, ns: gir.Namespace, indent: []const u8, out: anytype) !void {
@@ -400,27 +378,10 @@ fn translateConstructor(allocator: Allocator, constructor: gir.Constructor, ns: 
     // TODO: consider if the return value is const, or maybe not even a pointer at all
     _ = try out.write(") callconv(.C) *Self;\n\n");
 
-    // constructor wrapper
+    // constructor rename
     var fnName = try toCamelCase(allocator, constructor.name);
     defer allocator.free(fnName);
-    try out.print("{s}pub inline fn {s}(", .{ indent, zig.fmtId(fnName) });
-
-    i = 0;
-    while (i < constructor.parameters.len) : (i += 1) {
-        try translateParameter(allocator, constructor.parameters[i], ns, out);
-        if (i < constructor.parameters.len - 1) {
-            _ = try out.write(", ");
-        }
-    }
-    _ = try out.print(") *Self {{\n{s}    return {s}(", .{ indent, zig.fmtId(constructor.c_identifier) });
-    i = 0;
-    while (i < constructor.parameters.len) : (i += 1) {
-        try translateParameterName(allocator, constructor.parameters[i].name, out);
-        if (i < constructor.parameters.len - 1) {
-            _ = try out.write(", ");
-        }
-    }
-    _ = try out.print(");\n{s}}}\n\n", .{indent});
+    try out.print("{s}pub const {s} = {s};\n\n", .{ indent, zig.fmtId(fnName), zig.fmtId(constructor.c_identifier) });
 }
 
 fn translateMethod(allocator: Allocator, method: gir.Method, ns: gir.Namespace, indent: []const u8, out: anytype) !void {

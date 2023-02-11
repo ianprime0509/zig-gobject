@@ -1,4 +1,5 @@
 const std = @import("std");
+const glib = @import("gir-out/glib.zig");
 const gobject = @import("gir-out/gobject.zig");
 const gtk = @import("gir-out/gtk.zig");
 
@@ -12,11 +13,31 @@ pub fn main() void {
     std.os.exit(@intCast(u8, status));
 }
 
-fn activate(app: *gtk.Application, user_data: *anyopaque) callconv(.C) void {
+fn activate(app: *gtk.Application, user_data: ?*anyopaque) callconv(.C) void {
     _ = user_data;
-    std.log.info("activated", .{});
     var window = gtk.ApplicationWindow.new(app);
     window.setTitle("Window");
     window.setDefaultSize(200, 200);
+
+    var box = gtk.Box.new(gtk.Orientation.vertical, 0);
+    box.setHalign(gtk.Align.center);
+    box.setValign(gtk.Align.center);
+
+    window.setChild(@ptrCast(*gtk.Widget, box));
+
+    var button = gtk.Button.newWithLabel("Hello World");
+
+    _ = gobject.signalConnectData(button, "clicked", @ptrCast(gobject.Callback, &printHello), null, null, .{});
+    // TODO: https://github.com/ziglang/zig/issues/14610
+    // _ = gobject.signalConnectData(button, "clicked", @ptrCast(gobject.Callback, &gtk.Window.destroy), window, null, .{ .swapped = true });
+
+    box.append(@ptrCast(*gtk.Widget, button));
+
     window.show();
+}
+
+fn printHello(widget: *gtk.Widget, data: ?*anyopaque) callconv(.C) void {
+    _ = data;
+    _ = widget;
+    std.debug.print("Hello World\n", .{});
 }
