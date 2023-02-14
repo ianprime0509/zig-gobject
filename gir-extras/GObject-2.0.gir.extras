@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<repository xmlns="https://ianjohnson.dev/zig-gobject/extras">
+  <namespace name="GObject" version="2.0">
+    <function name="callback">
+      <parameter name="p_func" type="anytype" />
+      <return-value type="gobject.Callback" />
+      <!-- TODO: validate that p_func is actually a function pointer -->
+      <body>return @ptrCast(gobject.Callback, p_func);</body>
+    </function>
+  </namespace>
+</repository>

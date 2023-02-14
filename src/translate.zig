@@ -11,44 +11,65 @@ const ArrayList = std.ArrayList;
 const ArenaAllocator = heap.ArenaAllocator;
 const StringHashMap = std.StringHashMap;
 
+const extras = @import("extras.zig");
 const gir = @import("gir.zig");
 
 const Repositories = StringHashMap(gir.Repository);
 
 pub const Error = error{
     InvalidGir,
+    InvalidExtras,
 } || Allocator.Error || fs.File.OpenError || fs.File.WriteError || error{
     FileSystem,
     NotSupported,
 };
 
-pub fn translate(allocator: Allocator, in_dir: fs.Dir, out_dir: fs.Dir, roots: []const []const u8) !void {
+pub fn translate(allocator: Allocator, in_dir: fs.Dir, extras_dir: fs.Dir, out_dir: fs.Dir, roots: []const []const u8) !void {
     var arena = ArenaAllocator.init(allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
     var repos = Repositories.init(allocator);
     for (roots) |root| {
-        _ = try translateRepositoryName(a, root, &repos, in_dir, out_dir);
+        _ = try translateRepositoryName(a, root, &repos, in_dir, extras_dir, out_dir);
     }
 }
 
-fn translateRepositoryName(allocator: Allocator, name: []const u8, repos: *Repositories, in_dir: fs.Dir, out_dir: fs.Dir) !gir.Repository {
+fn translateRepositoryName(allocator: Allocator, name: []const u8, repos: *Repositories, in_dir: fs.Dir, extras_dir: fs.Dir, out_dir: fs.Dir) !gir.Repository {
     if (repos.get(name)) |repo| {
         return repo;
     }
 
-    const path = try in_dir.realpathAlloc(allocator, name);
-    defer allocator.free(path);
-    const path_z = try allocator.dupeZ(u8, path);
-    defer allocator.free(path_z);
-    const repo = try gir.Repository.parseFile(allocator, path_z);
+    const repo = blk: {
+        const path = try realpathAllocZ(allocator, in_dir, name);
+        defer allocator.free(path);
+        break :blk try gir.Repository.parseFile(allocator, path);
+    };
+
+    const extras_repo = blk: {
+        const extras_name = try fmt.allocPrint(allocator, "{s}.extras", .{name});
+        defer allocator.free(extras_name);
+        const path = realpathAllocZ(allocator, extras_dir, extras_name) catch |err| switch (err) {
+            error.FileNotFound => break :blk null,
+            else => return err,
+        };
+        defer allocator.free(path);
+        break :blk try extras.Repository.parseFile(allocator, path);
+    };
+
     try repos.put(try allocator.dupe(u8, name), repo);
-    try translateRepository(allocator, repo, repos, in_dir, out_dir);
+
+    try translateRepository(allocator, repo, extras_repo, repos, in_dir, extras_dir, out_dir);
     return repo;
 }
 
-fn translateRepository(allocator: Allocator, repo: gir.Repository, repos: *Repositories, in_dir: fs.Dir, out_dir: fs.Dir) !void {
+fn realpathAllocZ(allocator: Allocator, dir: fs.Dir, name: []const u8) ![:0]u8 {
+    const path = try dir.realpathAlloc(allocator, name);
+    defer allocator.free(path);
+    return try allocator.dupeZ(u8, path);
+}
+
+fn translateRepository(allocator: Allocator, repo: gir.Repository, maybe_extras_repo: ?extras.Repository, repos: *Repositories, in_dir: fs.Dir, extras_dir: fs.Dir, out_dir: fs.Dir) !void {
     for (repo.namespaces) |ns| {
         const file_name = try fileNameAlloc(allocator, ns.name);
         defer allocator.free(file_name);
@@ -58,7 +79,7 @@ fn translateRepository(allocator: Allocator, repo: gir.Repository, repos: *Repos
         const out = bw.writer();
         var seen = StringHashMap(void).init(allocator);
         defer seen.deinit();
-        try translateIncludes(allocator, repo.includes, repos, &seen, in_dir, out_dir, out);
+        try translateIncludes(allocator, repo.includes, repos, &seen, in_dir, extras_dir, out_dir, out);
         // Special case: GLib references GObject despite not including it
         if (mem.eql(u8, ns.name, "GLib")) {
             _ = try out.write("const gobject = @import(\"gobject.zig\");\n");
@@ -69,14 +90,25 @@ fn translateRepository(allocator: Allocator, repo: gir.Repository, repos: *Repos
         defer allocator.free(ns_lower);
         try out.print("const {s} = @This();\n\n", .{ns_lower});
 
-        try translateNamespace(allocator, ns, out);
+        const extras_ns = blk: {
+            if (maybe_extras_repo) |extras_repo| {
+                for (extras_repo.namespaces) |extras_ns| {
+                    if (mem.eql(u8, ns.name, extras_ns.name) and mem.eql(u8, ns.version, extras_ns.version)) {
+                        break :blk extras_ns;
+                    }
+                }
+            }
+            break :blk null;
+        };
+
+        try translateNamespace(allocator, ns, extras_ns, out);
 
         try bw.flush();
         try file.sync();
     }
 }
 
-fn translateIncludes(allocator: Allocator, includes: []const gir.Include, repos: *Repositories, seen: *StringHashMap(void), in_dir: fs.Dir, out_dir: fs.Dir, out: anytype) Error!void {
+fn translateIncludes(allocator: Allocator, includes: []const gir.Include, repos: *Repositories, seen: *StringHashMap(void), in_dir: fs.Dir, extras_dir: fs.Dir, out_dir: fs.Dir, out: anytype) Error!void {
     for (includes) |include| {
         const include_source = try fmt.allocPrint(allocator, "{s}-{s}.gir", .{ include.name, include.version });
         defer allocator.free(include_source);
@@ -88,8 +120,8 @@ fn translateIncludes(allocator: Allocator, includes: []const gir.Include, repos:
         const include_ns = try ascii.allocLowerString(allocator, include.name);
         defer allocator.free(include_ns);
         try out.print("const {s} = @import(\"{s}\");\n", .{ include_ns, include_file_name });
-        const include_repo = try translateRepositoryName(allocator, include_source, repos, in_dir, out_dir);
-        try translateIncludes(allocator, include_repo.includes, repos, seen, in_dir, out_dir, out);
+        const include_repo = try translateRepositoryName(allocator, include_source, repos, in_dir, extras_dir, out_dir);
+        try translateIncludes(allocator, include_repo.includes, repos, seen, in_dir, extras_dir, out_dir, out);
         try seen.put(try allocator.dupe(u8, include_source), {});
     }
 }
@@ -100,7 +132,7 @@ fn fileNameAlloc(allocator: Allocator, name: []const u8) ![]u8 {
     return file_name;
 }
 
-fn translateNamespace(allocator: Allocator, ns: gir.Namespace, out: anytype) !void {
+fn translateNamespace(allocator: Allocator, ns: gir.Namespace, maybe_extras_ns: ?extras.Namespace, out: anytype) !void {
     for (ns.aliases) |alias| {
         try translateAlias(allocator, alias, out);
     }
@@ -130,6 +162,12 @@ fn translateNamespace(allocator: Allocator, ns: gir.Namespace, out: anytype) !vo
     }
     for (ns.constants) |constant| {
         try translateConstant(allocator, constant, "", out);
+    }
+
+    if (maybe_extras_ns) |extras_ns| {
+        for (extras_ns.functions) |function| {
+            try translateExtraFunction(function, "", out);
+        }
     }
 }
 
@@ -679,4 +717,24 @@ fn toCamelCase(allocator: Allocator, name: []const u8, word_sep: []const u8) ![]
         }
     }
     return out.toOwnedSlice();
+}
+
+fn translateExtraFunction(function: extras.Function, indent: []const u8, out: anytype) !void {
+    try out.print("{s}pub fn {}(", .{ indent, zig.fmtId(function.name) });
+    var i: usize = 0;
+    while (i < function.parameters.len) : (i += 1) {
+        const parameter = function.parameters[i];
+        try out.print("{}: {s}", .{ zig.fmtId(parameter.name), parameter.type });
+        if (i < function.parameters.len - 1) {
+            _ = try out.write(", ");
+        }
+    }
+    try out.print(") {s} {{\n", .{function.return_value.type});
+
+    var lines = mem.split(u8, function.body, "\n");
+    while (lines.next()) |line| {
+        try out.print("{s}    {s}\n", .{ indent, line });
+    }
+
+    try out.print("{s}}}\n\n", .{indent});
 }

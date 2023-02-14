@@ -1,5 +1,6 @@
 const std = @import("std");
 const c = @import("c.zig");
+const xml = @import("xml.zig");
 const fmt = std.fmt;
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
@@ -18,9 +19,13 @@ pub const Repository = struct {
     arena: ArenaAllocator,
 
     pub fn parseFile(allocator: Allocator, file: [:0]const u8) !Repository {
-        const doc = c.xmlParseFile(@ptrCast([*c]const u8, file)) orelse return error.InvalidGir;
+        const doc = xml.parseFile(file) catch return error.InvalidGir;
         defer c.xmlFreeDoc(doc);
         return try parseDoc(allocator, doc);
+    }
+
+    pub fn deinit(self: *Repository) void {
+        self.arena.deinit();
     }
 
     fn parseDoc(a: Allocator, doc: *c.xmlDoc) !Repository {
@@ -33,9 +38,9 @@ pub const Repository = struct {
 
         var maybe_child: ?*c.xmlNode = node.children;
         while (maybe_child) |child| : (maybe_child = child.next) {
-            if (nodeIs(child, ns.core, "include")) {
+            if (xml.nodeIs(child, ns.core, "include")) {
                 try includes.append(try parseInclude(allocator, doc, child));
-            } else if (nodeIs(child, ns.core, "namespace")) {
+            } else if (xml.nodeIs(child, ns.core, "namespace")) {
                 try namespaces.append(try parseNamespace(allocator, doc, child));
             }
         }
@@ -45,10 +50,6 @@ pub const Repository = struct {
             .namespaces = namespaces.items,
             .arena = arena,
         };
-    }
-
-    pub fn deinit(self: *Repository) void {
-        self.arena.deinit();
     }
 };
 
@@ -63,10 +64,10 @@ fn parseInclude(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !I
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
-        if (attrIs(attr, null, "name")) {
-            name = try attrContent(allocator, doc, attr);
-        } else if (attrIs(attr, null, "version")) {
-            version = try attrContent(allocator, doc, attr);
+        if (xml.attrIs(attr, null, "name")) {
+            name = try xml.attrContent(allocator, doc, attr);
+        } else if (xml.attrIs(attr, null, "version")) {
+            version = try xml.attrContent(allocator, doc, attr);
         }
     }
 
@@ -78,6 +79,7 @@ fn parseInclude(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !I
 
 pub const Namespace = struct {
     name: []const u8,
+    version: []const u8,
     aliases: []const Alias,
     classes: []const Class,
     interfaces: []const Interface,
@@ -92,6 +94,7 @@ pub const Namespace = struct {
 
 fn parseNamespace(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Namespace {
     var name: ?[]const u8 = null;
+    var version: ?[]const u8 = null;
     var aliases = ArrayList(Alias).init(allocator);
     var classes = ArrayList(Class).init(allocator);
     var interfaces = ArrayList(Interface).init(allocator);
@@ -105,8 +108,10 @@ fn parseNamespace(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) 
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
-        if (attrIs(attr, null, "name")) {
-            name = try attrContent(allocator, doc, attr);
+        if (xml.attrIs(attr, null, "name")) {
+            name = try xml.attrContent(allocator, doc, attr);
+        } else if (xml.attrIs(attr, null, "version")) {
+            version = try xml.attrContent(allocator, doc, attr);
         }
     }
 
@@ -116,31 +121,32 @@ fn parseNamespace(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) 
 
     var maybe_child: ?*c.xmlNode = node.children;
     while (maybe_child) |child| : (maybe_child = child.next) {
-        if (nodeIs(child, ns.core, "alias")) {
+        if (xml.nodeIs(child, ns.core, "alias")) {
             try aliases.append(try parseAlias(allocator, doc, child, name.?));
-        } else if (nodeIs(child, ns.core, "class")) {
+        } else if (xml.nodeIs(child, ns.core, "class")) {
             try classes.append(try parseClass(allocator, doc, child, name.?));
-        } else if (nodeIs(child, ns.core, "interface")) {
+        } else if (xml.nodeIs(child, ns.core, "interface")) {
             try interfaces.append(try parseInterface(allocator, doc, child, name.?));
-        } else if (nodeIs(child, ns.core, "record")) {
+        } else if (xml.nodeIs(child, ns.core, "record")) {
             try records.append(try parseRecord(allocator, doc, child, name.?));
-        } else if (nodeIs(child, ns.core, "union")) {
+        } else if (xml.nodeIs(child, ns.core, "union")) {
             try unions.append(try parseUnion(allocator, doc, child, name.?));
-        } else if (nodeIs(child, ns.core, "bitfield")) {
+        } else if (xml.nodeIs(child, ns.core, "bitfield")) {
             try bit_fields.append(try parseBitField(allocator, doc, child, name.?));
-        } else if (nodeIs(child, ns.core, "enumeration")) {
+        } else if (xml.nodeIs(child, ns.core, "enumeration")) {
             try enums.append(try parseEnum(allocator, doc, child, name.?));
-        } else if (nodeIs(child, ns.core, "function")) {
+        } else if (xml.nodeIs(child, ns.core, "function")) {
             try functions.append(try parseFunction(allocator, doc, child, name.?));
-        } else if (nodeIs(child, ns.core, "callback")) {
+        } else if (xml.nodeIs(child, ns.core, "callback")) {
             try callbacks.append(try parseCallback(allocator, doc, child, name.?));
-        } else if (nodeIs(child, ns.core, "constant")) {
+        } else if (xml.nodeIs(child, ns.core, "constant")) {
             try constants.append(try parseConstant(allocator, doc, child, name.?));
         }
     }
 
     return .{
         .name = name.?,
+        .version = version orelse return error.InvalidGir,
         .aliases = aliases.items,
         .classes = classes.items,
         .interfaces = interfaces.items,
@@ -165,14 +171,14 @@ fn parseAlias(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, curr
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
-        if (attrIs(attr, null, "name")) {
-            name = try attrContent(allocator, doc, attr);
+        if (xml.attrIs(attr, null, "name")) {
+            name = try xml.attrContent(allocator, doc, attr);
         }
     }
 
     var maybe_child: ?*c.xmlNode = node.children;
     while (maybe_child) |child| : (maybe_child = child.next) {
-        if (nodeIs(child, ns.core, "type")) {
+        if (xml.nodeIs(child, ns.core, "type")) {
             @"type" = try parseType(allocator, doc, child, current_ns);
         }
     }
@@ -206,26 +212,26 @@ fn parseClass(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, curr
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
-        if (attrIs(attr, null, "name")) {
-            name = try attrContent(allocator, doc, attr);
-        } else if (attrIs(attr, null, "parent")) {
-            parent = parseName(try attrContent(allocator, doc, attr), current_ns);
+        if (xml.attrIs(attr, null, "name")) {
+            name = try xml.attrContent(allocator, doc, attr);
+        } else if (xml.attrIs(attr, null, "parent")) {
+            parent = parseName(try xml.attrContent(allocator, doc, attr), current_ns);
         }
     }
 
     var maybe_child: ?*c.xmlNode = node.children;
     while (maybe_child) |child| : (maybe_child = child.next) {
-        if (nodeIs(child, ns.core, "field")) {
+        if (xml.nodeIs(child, ns.core, "field")) {
             try fields.append(try parseField(allocator, doc, child, current_ns));
-        } else if (nodeIs(child, ns.core, "function")) {
+        } else if (xml.nodeIs(child, ns.core, "function")) {
             try functions.append(try parseFunction(allocator, doc, child, current_ns));
-        } else if (nodeIs(child, ns.core, "constructor")) {
+        } else if (xml.nodeIs(child, ns.core, "constructor")) {
             try constructors.append(try parseConstructor(allocator, doc, child, current_ns));
-        } else if (nodeIs(child, ns.core, "method")) {
+        } else if (xml.nodeIs(child, ns.core, "method")) {
             try methods.append(try parseMethod(allocator, doc, child, current_ns));
-        } else if (nodeIs(child, ns.glib, "signal")) {
+        } else if (xml.nodeIs(child, ns.glib, "signal")) {
             try signals.append(try parseSignal(allocator, doc, child, current_ns));
-        } else if (nodeIs(child, ns.core, "constant")) {
+        } else if (xml.nodeIs(child, ns.core, "constant")) {
             try constants.append(try parseConstant(allocator, doc, child, current_ns));
         }
     }
@@ -261,22 +267,22 @@ fn parseInterface(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, 
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
-        if (attrIs(attr, null, "name")) {
-            name = try attrContent(allocator, doc, attr);
+        if (xml.attrIs(attr, null, "name")) {
+            name = try xml.attrContent(allocator, doc, attr);
         }
     }
 
     var maybe_child: ?*c.xmlNode = node.children;
     while (maybe_child) |child| : (maybe_child = child.next) {
-        if (nodeIs(child, ns.core, "function")) {
+        if (xml.nodeIs(child, ns.core, "function")) {
             try functions.append(try parseFunction(allocator, doc, child, current_ns));
-        } else if (nodeIs(child, ns.core, "constructor")) {
+        } else if (xml.nodeIs(child, ns.core, "constructor")) {
             try constructors.append(try parseConstructor(allocator, doc, child, current_ns));
-        } else if (nodeIs(child, ns.core, "method")) {
+        } else if (xml.nodeIs(child, ns.core, "method")) {
             try methods.append(try parseMethod(allocator, doc, child, current_ns));
-        } else if (nodeIs(child, ns.glib, "signal")) {
+        } else if (xml.nodeIs(child, ns.glib, "signal")) {
             try signals.append(try parseSignal(allocator, doc, child, current_ns));
-        } else if (nodeIs(child, ns.core, "constant")) {
+        } else if (xml.nodeIs(child, ns.core, "constant")) {
             try constants.append(try parseConstant(allocator, doc, child, current_ns));
         }
     }
@@ -308,20 +314,20 @@ fn parseRecord(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, cur
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
-        if (attrIs(attr, null, "name")) {
-            name = try attrContent(allocator, doc, attr);
+        if (xml.attrIs(attr, null, "name")) {
+            name = try xml.attrContent(allocator, doc, attr);
         }
     }
 
     var maybe_child: ?*c.xmlNode = node.children;
     while (maybe_child) |child| : (maybe_child = child.next) {
-        if (nodeIs(child, ns.core, "field")) {
+        if (xml.nodeIs(child, ns.core, "field")) {
             try fields.append(try parseField(allocator, doc, child, current_ns));
-        } else if (nodeIs(child, ns.core, "function")) {
+        } else if (xml.nodeIs(child, ns.core, "function")) {
             try functions.append(try parseFunction(allocator, doc, child, current_ns));
-        } else if (nodeIs(child, ns.core, "constructor")) {
+        } else if (xml.nodeIs(child, ns.core, "constructor")) {
             try constructors.append(try parseConstructor(allocator, doc, child, current_ns));
-        } else if (nodeIs(child, ns.core, "method")) {
+        } else if (xml.nodeIs(child, ns.core, "method")) {
             try methods.append(try parseMethod(allocator, doc, child, current_ns));
         }
     }
@@ -352,20 +358,20 @@ fn parseUnion(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, curr
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
-        if (attrIs(attr, null, "name")) {
-            name = try attrContent(allocator, doc, attr);
+        if (xml.attrIs(attr, null, "name")) {
+            name = try xml.attrContent(allocator, doc, attr);
         }
     }
 
     var maybe_child: ?*c.xmlNode = node.children;
     while (maybe_child) |child| : (maybe_child = child.next) {
-        if (nodeIs(child, ns.core, "field")) {
+        if (xml.nodeIs(child, ns.core, "field")) {
             try fields.append(try parseField(allocator, doc, child, current_ns));
-        } else if (nodeIs(child, ns.core, "function")) {
+        } else if (xml.nodeIs(child, ns.core, "function")) {
             try functions.append(try parseFunction(allocator, doc, child, current_ns));
-        } else if (nodeIs(child, ns.core, "constructor")) {
+        } else if (xml.nodeIs(child, ns.core, "constructor")) {
             try constructors.append(try parseConstructor(allocator, doc, child, current_ns));
-        } else if (nodeIs(child, ns.core, "method")) {
+        } else if (xml.nodeIs(child, ns.core, "method")) {
             try methods.append(try parseMethod(allocator, doc, child, current_ns));
         }
     }
@@ -396,18 +402,18 @@ fn parseField(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, curr
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
-        if (attrIs(attr, null, "name")) {
-            name = try attrContent(allocator, doc, attr);
+        if (xml.attrIs(attr, null, "name")) {
+            name = try xml.attrContent(allocator, doc, attr);
         }
     }
 
     var maybe_child: ?*c.xmlNode = node.children;
     while (maybe_child) |child| : (maybe_child = child.next) {
-        if (nodeIs(child, ns.core, "type")) {
+        if (xml.nodeIs(child, ns.core, "type")) {
             @"type" = .{ .simple = try parseType(allocator, doc, child, current_ns) };
-        } else if (nodeIs(child, ns.core, "array")) {
+        } else if (xml.nodeIs(child, ns.core, "array")) {
             @"type" = .{ .array = try parseArrayType(allocator, doc, child, current_ns) };
-        } else if (nodeIs(child, ns.core, "callback")) {
+        } else if (xml.nodeIs(child, ns.core, "callback")) {
             @"type" = .{ .callback = try parseCallback(allocator, doc, child, current_ns) };
         }
     }
@@ -431,16 +437,16 @@ fn parseBitField(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, c
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
-        if (attrIs(attr, null, "name")) {
-            name = try attrContent(allocator, doc, attr);
+        if (xml.attrIs(attr, null, "name")) {
+            name = try xml.attrContent(allocator, doc, attr);
         }
     }
 
     var maybe_child: ?*c.xmlNode = node.children;
     while (maybe_child) |child| : (maybe_child = child.next) {
-        if (nodeIs(child, ns.core, "member")) {
+        if (xml.nodeIs(child, ns.core, "member")) {
             try members.append(try parseMember(allocator, doc, child));
-        } else if (nodeIs(child, ns.core, "function")) {
+        } else if (xml.nodeIs(child, ns.core, "function")) {
             try functions.append(try parseFunction(allocator, doc, child, current_ns));
         }
     }
@@ -465,16 +471,16 @@ fn parseEnum(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, curre
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
-        if (attrIs(attr, null, "name")) {
-            name = try attrContent(allocator, doc, attr);
+        if (xml.attrIs(attr, null, "name")) {
+            name = try xml.attrContent(allocator, doc, attr);
         }
     }
 
     var maybe_child: ?*c.xmlNode = node.children;
     while (maybe_child) |child| : (maybe_child = child.next) {
-        if (nodeIs(child, ns.core, "member")) {
+        if (xml.nodeIs(child, ns.core, "member")) {
             try members.append(try parseMember(allocator, doc, child));
-        } else if (nodeIs(child, ns.core, "function")) {
+        } else if (xml.nodeIs(child, ns.core, "function")) {
             try functions.append(try parseFunction(allocator, doc, child, current_ns));
         }
     }
@@ -497,10 +503,10 @@ fn parseMember(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Me
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
-        if (attrIs(attr, null, "name")) {
-            name = try attrContent(allocator, doc, attr);
-        } else if (attrIs(attr, null, "value")) {
-            value = fmt.parseInt(i64, try attrContent(allocator, doc, attr), 10) catch return error.InvalidGir;
+        if (xml.attrIs(attr, null, "name")) {
+            name = try xml.attrContent(allocator, doc, attr);
+        } else if (xml.attrIs(attr, null, "value")) {
+            value = fmt.parseInt(i64, try xml.attrContent(allocator, doc, attr), 10) catch return error.InvalidGir;
         }
     }
 
@@ -527,20 +533,20 @@ fn parseFunction(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, c
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
-        if (attrIs(attr, null, "name")) {
-            name = try attrContent(allocator, doc, attr);
-        } else if (attrIs(attr, ns.c, "identifier")) {
-            c_identifier = try attrContent(allocator, doc, attr);
-        } else if (attrIs(attr, null, "moved-to")) {
-            moved_to = try attrContent(allocator, doc, attr);
+        if (xml.attrIs(attr, null, "name")) {
+            name = try xml.attrContent(allocator, doc, attr);
+        } else if (xml.attrIs(attr, ns.c, "identifier")) {
+            c_identifier = try xml.attrContent(allocator, doc, attr);
+        } else if (xml.attrIs(attr, null, "moved-to")) {
+            moved_to = try xml.attrContent(allocator, doc, attr);
         }
     }
 
     var maybe_child: ?*c.xmlNode = node.children;
     while (maybe_child) |child| : (maybe_child = child.next) {
-        if (nodeIs(child, ns.core, "parameters")) {
+        if (xml.nodeIs(child, ns.core, "parameters")) {
             try parseParameters(allocator, &parameters, doc, child, current_ns);
-        } else if (nodeIs(child, ns.core, "return-value")) {
+        } else if (xml.nodeIs(child, ns.core, "return-value")) {
             return_value = try parseReturnValue(allocator, doc, child, current_ns);
         }
     }
@@ -607,16 +613,16 @@ fn parseSignal(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, cur
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
-        if (attrIs(attr, null, "name")) {
-            name = try attrContent(allocator, doc, attr);
+        if (xml.attrIs(attr, null, "name")) {
+            name = try xml.attrContent(allocator, doc, attr);
         }
     }
 
     var maybe_child: ?*c.xmlNode = node.children;
     while (maybe_child) |child| : (maybe_child = child.next) {
-        if (nodeIs(child, ns.core, "parameters")) {
+        if (xml.nodeIs(child, ns.core, "parameters")) {
             try parseParameters(allocator, &parameters, doc, child, current_ns);
-        } else if (nodeIs(child, ns.core, "return-value")) {
+        } else if (xml.nodeIs(child, ns.core, "return-value")) {
             return_value = try parseReturnValue(allocator, doc, child, current_ns);
         }
     }
@@ -641,18 +647,18 @@ fn parseConstant(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, c
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
-        if (attrIs(attr, null, "name")) {
-            name = try attrContent(allocator, doc, attr);
-        } else if (attrIs(attr, null, "value")) {
-            value = try attrContent(allocator, doc, attr);
+        if (xml.attrIs(attr, null, "name")) {
+            name = try xml.attrContent(allocator, doc, attr);
+        } else if (xml.attrIs(attr, null, "value")) {
+            value = try xml.attrContent(allocator, doc, attr);
         }
     }
 
     var maybe_child: ?*c.xmlNode = node.children;
     while (maybe_child) |child| : (maybe_child = child.next) {
-        if (nodeIs(child, ns.core, "type")) {
+        if (xml.nodeIs(child, ns.core, "type")) {
             @"type" = .{ .simple = try parseType(allocator, doc, child, current_ns) };
-        } else if (nodeIs(child, ns.core, "array")) {
+        } else if (xml.nodeIs(child, ns.core, "array")) {
             @"type" = .{ .array = try parseArrayType(allocator, doc, child, current_ns) };
         }
     }
@@ -680,10 +686,10 @@ fn parseType(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, curre
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
-        if (attrIs(attr, null, "name")) {
-            name = parseName(try attrContent(allocator, doc, attr), current_ns);
-        } else if (attrIs(attr, ns.c, "type")) {
-            c_type = try attrContent(allocator, doc, attr);
+        if (xml.attrIs(attr, null, "name")) {
+            name = parseName(try xml.attrContent(allocator, doc, attr), current_ns);
+        } else if (xml.attrIs(attr, ns.c, "type")) {
+            c_type = try xml.attrContent(allocator, doc, attr);
         }
     }
 
@@ -704,16 +710,16 @@ fn parseArrayType(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, 
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
-        if (attrIs(attr, null, "fixed-size")) {
-            fixed_size = try attrContent(allocator, doc, attr);
+        if (xml.attrIs(attr, null, "fixed-size")) {
+            fixed_size = try xml.attrContent(allocator, doc, attr);
         }
     }
 
     var maybe_child: ?*c.xmlNode = node.children;
     while (maybe_child) |child| : (maybe_child = child.next) {
-        if (nodeIs(child, ns.core, "type")) {
+        if (xml.nodeIs(child, ns.core, "type")) {
             element = .{ .simple = try parseType(allocator, doc, child, current_ns) };
-        } else if (nodeIs(child, ns.core, "array")) {
+        } else if (xml.nodeIs(child, ns.core, "array")) {
             element = .{ .array = try parseArrayType(allocator, doc, child, current_ns) };
         }
     }
@@ -743,16 +749,16 @@ fn parseCallback(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, c
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
-        if (attrIs(attr, null, "name")) {
-            name = try attrContent(allocator, doc, attr);
+        if (xml.attrIs(attr, null, "name")) {
+            name = try xml.attrContent(allocator, doc, attr);
         }
     }
 
     var maybe_child: ?*c.xmlNode = node.children;
     while (maybe_child) |child| : (maybe_child = child.next) {
-        if (nodeIs(child, ns.core, "parameters")) {
+        if (xml.nodeIs(child, ns.core, "parameters")) {
             try parseParameters(allocator, &parameters, doc, child, current_ns);
-        } else if (nodeIs(child, ns.core, "return-value")) {
+        } else if (xml.nodeIs(child, ns.core, "return-value")) {
             return_value = try parseReturnValue(allocator, doc, child, current_ns);
         }
     }
@@ -780,8 +786,8 @@ pub const ParameterType = union(enum) {
 fn parseParameters(allocator: Allocator, parameters: *ArrayList(Parameter), doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !void {
     var maybe_param: ?*c.xmlNode = node.children;
     while (maybe_param) |param| : (maybe_param = param.next) {
-        if (nodeIs(param, ns.core, "parameter") or nodeIs(param, ns.core, "instance-parameter")) {
-            try parameters.append(try parseParameter(allocator, doc, param, current_ns, nodeIs(param, ns.core, "instance-parameter")));
+        if (xml.nodeIs(param, ns.core, "parameter") or xml.nodeIs(param, ns.core, "instance-parameter")) {
+            try parameters.append(try parseParameter(allocator, doc, param, current_ns, xml.nodeIs(param, ns.core, "instance-parameter")));
         }
     }
 }
@@ -793,20 +799,20 @@ fn parseParameter(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, 
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
-        if (attrIs(attr, null, "name")) {
-            name = try attrContent(allocator, doc, attr);
-        } else if (attrIs(attr, null, "nullable")) {
-            nullable = mem.eql(u8, try attrContent(allocator, doc, attr), "1");
+        if (xml.attrIs(attr, null, "name")) {
+            name = try xml.attrContent(allocator, doc, attr);
+        } else if (xml.attrIs(attr, null, "nullable")) {
+            nullable = mem.eql(u8, try xml.attrContent(allocator, doc, attr), "1");
         }
     }
 
     var maybe_child: ?*c.xmlNode = node.children;
     while (maybe_child) |child| : (maybe_child = child.next) {
-        if (nodeIs(child, ns.core, "type")) {
+        if (xml.nodeIs(child, ns.core, "type")) {
             @"type" = .{ .simple = try parseType(allocator, doc, child, current_ns) };
-        } else if (nodeIs(child, ns.core, "array")) {
+        } else if (xml.nodeIs(child, ns.core, "array")) {
             @"type" = .{ .array = try parseArrayType(allocator, doc, child, current_ns) };
-        } else if (nodeIs(child, ns.core, "varargs")) {
+        } else if (xml.nodeIs(child, ns.core, "varargs")) {
             @"type" = .{ .varargs = {} };
         }
     }
@@ -830,16 +836,16 @@ fn parseReturnValue(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
-        if (attrIs(attr, null, "nullable")) {
-            nullable = mem.eql(u8, try attrContent(allocator, doc, attr), "1");
+        if (xml.attrIs(attr, null, "nullable")) {
+            nullable = mem.eql(u8, try xml.attrContent(allocator, doc, attr), "1");
         }
     }
 
     var maybe_child: ?*c.xmlNode = node.children;
     while (maybe_child) |child| : (maybe_child = child.next) {
-        if (nodeIs(child, ns.core, "type")) {
+        if (xml.nodeIs(child, ns.core, "type")) {
             @"type" = .{ .simple = try parseType(allocator, doc, child, current_ns) };
-        } else if (nodeIs(child, ns.core, "array")) {
+        } else if (xml.nodeIs(child, ns.core, "array")) {
             @"type" = .{ .array = try parseArrayType(allocator, doc, child, current_ns) };
         }
     }
@@ -871,44 +877,4 @@ fn parseName(raw: []const u8, current_ns: []const u8) Name {
             .local = raw,
         };
     }
-}
-
-fn nodeIs(node: *const c.xmlNode, ns_name: ?[:0]const u8, local_name: [:0]const u8) bool {
-    if (!std.mem.eql(u8, local_name, std.mem.sliceTo(node.name, 0))) {
-        return false;
-    }
-    if (ns_name) |n| {
-        return node.ns != null and std.mem.eql(u8, n, std.mem.sliceTo(node.ns.*.href, 0));
-    } else {
-        return node.ns == null;
-    }
-}
-
-fn nodeContent(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) ![]u8 {
-    const content = c.xmlNodeListGetString(doc, node, 1);
-    defer xmlFree(content);
-    if (content) |str| {
-        return try allocator.dupe(u8, std.mem.sliceTo(str, 0));
-    } else {
-        return try allocator.dupe(u8, "");
-    }
-}
-
-fn attrIs(attr: *const c.xmlAttr, ns_name: ?[:0]const u8, local_name: [:0]const u8) bool {
-    if (!std.mem.eql(u8, local_name, std.mem.sliceTo(attr.name, 0))) {
-        return false;
-    }
-    if (ns_name) |n| {
-        return attr.ns != null and std.mem.eql(u8, n, std.mem.sliceTo(attr.ns.*.href, 0));
-    } else {
-        return attr.ns == null;
-    }
-}
-
-fn attrContent(allocator: Allocator, doc: *c.xmlDoc, attr: *const c.xmlAttr) ![]u8 {
-    return try nodeContent(allocator, doc, attr.children);
-}
-
-fn xmlFree(ptr: ?*anyopaque) void {
-    c.xmlFree.?(ptr);
 }

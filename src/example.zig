@@ -27,7 +27,8 @@ fn activate(app: *gtk.Application, user_data: ?*anyopaque) callconv(.C) void {
 
     _ = button.connectClicked(&printHello, null);
     // TODO: https://github.com/ziglang/zig/issues/14610
-    // _ = gobject.signalConnectData(button, "clicked", @ptrCast(gobject.Callback, &gtk.Window.destroy), window, null, .{ .swapped = true });
+    // _ = gobject.signalConnectData(button, "clicked", gobject.callback(&gtk.Window.destroy), window, null, .{ .swapped = true });
+    _ = button.connectClicked(&closeWindow, window);
 
     box.append(button.asWidget());
 
@@ -38,4 +39,9 @@ fn printHello(widget: *gtk.Button, data: ?*anyopaque) callconv(.C) void {
     _ = data;
     _ = widget;
     std.debug.print("Hello World\n", .{});
+}
+
+fn closeWindow(widget: *gtk.Button, data: ?*anyopaque) callconv(.C) void {
+    _ = widget;
+    @ptrCast(*gtk.Window, @alignCast(@alignOf(*gtk.Window), data.?)).destroy();
 }
