@@ -475,9 +475,10 @@ fn translateSignal(allocator: Allocator, signal: gir.Signal, indent: []const u8,
     }
 
     // normal connection
-    try out.print("{s}pub fn connect{s}(p_self: *Self, p_callback: ", .{ indent, upper_signal_name });
+    try out.print("{s}pub fn connect{s}(p_self: *Self, comptime T: type, p_callback: ", .{ indent, upper_signal_name });
+    // TODO: verify that T is a pointer type or compatible
     try translateSignalCallbackType(allocator, signal, out);
-    _ = try out.write(", p_data: ?*anyopaque) c_ulong {\n");
+    _ = try out.write(", p_data: T) c_ulong {\n");
 
     try out.print("{s}    return ", .{indent});
     try translateNameNs(allocator, "gobject", out);
@@ -494,7 +495,7 @@ fn translateSignalCallbackType(allocator: Allocator, signal: gir.Signal, out: an
         try translateParameter(allocator, parameter, out);
         _ = try out.write(", ");
     }
-    _ = try out.write("?*anyopaque) callconv(.C) ");
+    _ = try out.write("T) callconv(.C) ");
     try translateReturnValue(allocator, signal.return_value, out);
 }
 
