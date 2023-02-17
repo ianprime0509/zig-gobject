@@ -1,43 +1,31 @@
 const std = @import("std");
-const glib = @import("gir-out/glib.zig");
-const gobject = @import("gir-out/gobject.zig");
-const gtk = @import("gir-out/gtk.zig");
 
-pub fn main() void {
-    var app = gtk.Application.new("org.gtk.example", .{});
-    defer app.unref();
-    _ = app.connectActivate(?*anyopaque, &activate, null);
-    const status = app.run(@intCast(c_int, std.os.argv.len), std.os.argv.ptr);
-    std.os.exit(@intCast(u8, status));
-}
+const Example = struct {
+    name: []const u8,
+    main: *const fn () void,
+};
 
-fn activate(app: *gtk.Application, _: ?*anyopaque) callconv(.C) void {
-    var window = gtk.ApplicationWindow.new(app);
-    window.setTitle("Window");
-    window.setDefaultSize(200, 200);
+const examples: []const Example = &.{
+    .{ .name = "Hello world", .main = &@import("examples/hello_world.zig").main },
+    // .{ .name = "Custom drawing", .main = &@import("examples/custom_drawing.zig").main },
+};
 
-    var box = gtk.Box.new(gtk.Orientation.vertical, 0);
-    box.setHalign(gtk.Align.center);
-    box.setValign(gtk.Align.center);
+pub fn main() !void {
+    const stdin = std.io.getStdIn().reader();
+    const stdout = std.io.getStdOut().writer();
 
-    window.setChild(box.asWidget());
+    _ = try stdout.write("Available examples:\n");
+    var i: usize = 0;
+    for (examples) |example| {
+        try stdout.print("{} - {s}\n", .{ i, example.name });
+    }
+    _ = try stdout.write("Choose an example: ");
 
-    var button = gtk.Button.newWithLabel("Hello World");
-
-    _ = button.connectClicked(?*anyopaque, &printHello, null);
-    // TODO: https://github.com/ziglang/zig/issues/14610
-    // _ = gobject.signalConnectData(button, "clicked", gobject.callback(&gtk.Window.destroy), window, null, .{ .swapped = true });
-    _ = button.connectClicked(*gtk.ApplicationWindow, &closeWindow, window);
-
-    box.append(button.asWidget());
-
-    window.show();
-}
-
-fn printHello(_: *gtk.Button, _: ?*anyopaque) callconv(.C) void {
-    std.debug.print("Hello World\n", .{});
-}
-
-fn closeWindow(_: *gtk.Button, window: *gtk.ApplicationWindow) callconv(.C) void {
-    window.destroy();
+    var buf: [16]u8 = undefined;
+    const input = try stdin.readUntilDelimiter(&buf, '\n');
+    const choice = try std.fmt.parseInt(usize, input, 10);
+    if (choice >= examples.len) {
+        return error.OutOfBounds;
+    }
+    examples[choice].main();
 }

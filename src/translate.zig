@@ -173,7 +173,7 @@ fn translateNamespace(allocator: Allocator, ns: gir.Namespace, maybe_extras_ns: 
 
 fn translateAlias(allocator: Allocator, alias: gir.Alias, out: anytype) !void {
     try out.print("pub const {s} = ", .{alias.name});
-    try translateType(allocator, alias.type, out);
+    try translateType(allocator, alias.type, false, out);
     _ = try out.write(";\n\n");
 }
 
@@ -340,7 +340,7 @@ fn translateField(allocator: Allocator, field: gir.Field, out: anytype) !void {
 
 fn translateFieldType(allocator: Allocator, @"type": gir.FieldType, out: anytype) !void {
     switch (@"type") {
-        .simple => |simple_type| try translateType(allocator, simple_type, out),
+        .simple => |simple_type| try translateType(allocator, simple_type, false, out),
         .array => |array_type| try translateArrayType(allocator, array_type, out),
         .callback => |callback| try translateCallback(allocator, callback, false, out),
     }
@@ -505,7 +505,7 @@ fn translateConstant(allocator: Allocator, constant: gir.Constant, indent: []con
     // the names of keyboard keys (e.g. KEY_A and KEY_a in GDK). There is
     // probably some heuristic we can use to at least lowercase most of them.
     try out.print("{s}pub const {s}: ", .{ indent, zig.fmtId(constant.name) });
-    try translateAnyType(allocator, constant.type, out);
+    try translateAnyType(allocator, constant.type, false, out);
     _ = try out.write(" = ");
     if (constant.type == .simple and constant.type.simple.name != null and mem.eql(u8, constant.type.simple.name.?.local, "utf8")) {
         try out.print("\"{}\"", .{zig.fmtEscapes(constant.value)});
@@ -546,14 +546,14 @@ const builtins = std.ComptimeStringMap([]const u8, .{
     .{ "none", "void" },
 });
 
-fn translateAnyType(allocator: Allocator, @"type": gir.AnyType, out: anytype) !void {
+fn translateAnyType(allocator: Allocator, @"type": gir.AnyType, nullable: bool, out: anytype) !void {
     switch (@"type") {
-        .simple => |simple| try translateType(allocator, simple, out),
+        .simple => |simple| try translateType(allocator, simple, nullable, out),
         .array => |array| try translateArrayType(allocator, array, out),
     }
 }
 
-fn translateType(allocator: Allocator, @"type": gir.Type, out: anytype) !void {
+fn translateType(allocator: Allocator, @"type": gir.Type, nullable: bool, out: anytype) !void {
     if (@"type".name == null) {
         _ = try out.write("@compileError(\"type not implemented\")");
         return;
@@ -588,7 +588,12 @@ fn translateType(allocator: Allocator, @"type": gir.Type, out: anytype) !void {
             c_type = "char*";
         }
         if (mem.endsWith(u8, c_type, "*")) {
-            pointer = true;
+            if (!pointer) {
+                if (nullable) {
+                    _ = try out.write("?");
+                }
+                pointer = true;
+            }
             _ = try out.write("[*:0]");
             c_type = c_type[0 .. c_type.len - 1];
         }
@@ -596,7 +601,12 @@ fn translateType(allocator: Allocator, @"type": gir.Type, out: anytype) !void {
 
     while (true) {
         if (mem.endsWith(u8, c_type, "*")) {
-            pointer = true;
+            if (!pointer) {
+                if (nullable) {
+                    _ = try out.write("?");
+                }
+                pointer = true;
+            }
             _ = try out.write("*");
             c_type = c_type[0 .. c_type.len - 1];
         } else if (mem.startsWith(u8, c_type, "const ")) {
@@ -628,7 +638,7 @@ fn translateArrayType(allocator: Allocator, @"type": gir.ArrayType, out: anytype
         _ = try out.write("[*]");
     }
     switch (@"type".element.*) {
-        .simple => |simple_type| try translateType(allocator, simple_type, out),
+        .simple => |simple_type| try translateType(allocator, simple_type, false, out),
         .array => |array_type| try translateArrayType(allocator, array_type, out),
     }
 }
@@ -654,7 +664,7 @@ fn translateCallback(allocator: Allocator, callback: gir.Callback, named: bool, 
     }
     _ = try out.write(") callconv(.C) ");
     switch (callback.return_value.type) {
-        .simple => |simple_type| try translateType(allocator, simple_type, out),
+        .simple => |simple_type| try translateType(allocator, simple_type, callback.return_value.nullable, out),
         .array => |array_type| try translateArrayType(allocator, array_type, out),
     }
 
@@ -675,7 +685,7 @@ fn translateParameter(allocator: Allocator, parameter: gir.Parameter, out: anyty
         }
     } else {
         switch (parameter.type) {
-            .simple => |simple_type| try translateType(allocator, simple_type, out),
+            .simple => |simple_type| try translateType(allocator, simple_type, parameter.nullable, out),
             .array => |array_type| try translateArrayType(allocator, array_type, out),
             .varargs => _ = try out.write("@compileError(\"varargs not implemented\")"),
         }
@@ -692,7 +702,7 @@ fn translateReturnValue(allocator: Allocator, return_value: gir.ReturnValue, out
     if (return_value.nullable) {
         _ = try out.write("?");
     }
-    try translateAnyType(allocator, return_value.type, out);
+    try translateAnyType(allocator, return_value.type, return_value.nullable, out);
 }
 
 fn translateNameNs(allocator: Allocator, nameNs: ?[]const u8, out: anytype) !void {
