@@ -119,11 +119,13 @@ fn parseFunction(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !
 pub const Parameter = struct {
     name: []const u8,
     type: []const u8,
+    @"comptime": bool,
 };
 
 fn parseParameter(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Parameter {
     var name: ?[]const u8 = null;
     var @"type": ?[]const u8 = null;
+    var @"comptime": bool = false;
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
@@ -131,12 +133,15 @@ fn parseParameter(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) 
             name = try xml.attrContent(allocator, doc, attr);
         } else if (xml.attrIs(attr, null, "type")) {
             @"type" = try xml.attrContent(allocator, doc, attr);
+        } else if (xml.attrIs(attr, null, "comptime")) {
+            @"comptime" = std.mem.eql(u8, try xml.attrContent(allocator, doc, attr), "1");
         }
     }
 
     return .{
         .name = name orelse return error.InvalidExtras,
         .type = @"type" orelse return error.InvalidExtras,
+        .@"comptime" = @"comptime",
     };
 }
 

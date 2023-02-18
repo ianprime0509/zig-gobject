@@ -180,13 +180,20 @@ fn translateAlias(allocator: Allocator, alias: gir.Alias, out: anytype) !void {
 fn translateClass(allocator: Allocator, class: gir.Class, out: anytype) !void {
     // class type
     try out.print("pub const {s} = extern struct {{\n", .{class.name});
-    try out.print("    const Self = {s};\n\n", .{class.name});
+
+    if (class.type_struct) |type_struct| {
+        try out.print("    pub const Class = {s};\n", .{type_struct});
+    }
+    try out.print("    const Self = {s};\n", .{class.name});
+    _ = try out.write("\n");
+
     for (class.fields) |field| {
         try translateField(allocator, field, out);
     }
     if (class.fields.len > 0) {
         _ = try out.write("\n");
     }
+    try translateFunction(allocator, class.getTypeFunction(), " " ** 4, out);
     for (class.functions) |function| {
         try translateFunction(allocator, function, " " ** 4, out);
     }
@@ -211,7 +218,7 @@ fn translateClass(allocator: Allocator, class: gir.Class, out: anytype) !void {
     // methods mixin
     try out.print("pub fn {s}Methods(comptime Self: type) type {{\n", .{class.name});
     if (class.methods.len == 0 and class.signals.len == 0 and class.parent == null) {
-        _ = try out.write("_ = Self;\n");
+        _ = try out.write("    _ = Self;\n");
     }
     _ = try out.write("    return opaque{\n");
     for (class.methods) |method| {
@@ -235,12 +242,39 @@ fn translateClass(allocator: Allocator, class: gir.Class, out: anytype) !void {
     }
     _ = try out.write("    };\n");
     _ = try out.write("}\n\n");
+
+    // virtual methods mixin
+    if (class.type_struct) |type_struct| {
+        try out.print("pub fn {s}VirtualMethods(comptime Self: type, comptime Instance: type) type {{\n", .{class.name});
+        if (class.virtual_methods.len == 0 and class.parent == null) {
+            _ = try out.write("    _ = Self;\n");
+            _ = try out.write("    _ = Instance;\n");
+        }
+        _ = try out.write("    return opaque{\n");
+        for (class.virtual_methods) |virtual_method| {
+            try translateVirtualMethod(allocator, virtual_method, type_struct, class.name, " " ** 8, out);
+        }
+        if (class.parent) |parent| {
+            _ = try out.write("        pub usingnamespace ");
+            try translateNameNs(allocator, parent.ns, out);
+            try out.print("{s}VirtualMethods(Self, Instance);\n", .{parent.local});
+        }
+        _ = try out.write("    };\n");
+        _ = try out.write("}\n\n");
+    }
 }
 
 fn translateInterface(allocator: Allocator, interface: gir.Interface, out: anytype) !void {
     // interface type
     try out.print("pub const {s} = opaque {{\n", .{interface.name});
-    try out.print("    const Self = {s};\n\n", .{interface.name});
+
+    if (interface.type_struct) |type_struct| {
+        try out.print("    pub const Iface = {s};\n", .{type_struct});
+    }
+    try out.print("    const Self = {s};\n", .{interface.name});
+    _ = try out.write("\n");
+
+    try translateFunction(allocator, interface.getTypeFunction(), " " ** 4, out);
     for (interface.functions) |function| {
         try translateFunction(allocator, function, " " ** 4, out);
     }
@@ -265,7 +299,7 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, out: anyty
     // methods mixin
     try out.print("pub fn {s}Methods(comptime Self: type) type {{\n", .{interface.name});
     if (interface.methods.len == 0 and interface.signals.len == 0) {
-        _ = try out.write("_ = Self;\n");
+        _ = try out.write("    _ = Self;\n");
     }
     _ = try out.write("    return opaque{\n");
     for (interface.methods) |method| {
@@ -276,11 +310,30 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, out: anyty
     }
     _ = try out.write("    };\n");
     _ = try out.write("}\n\n");
+
+    // virtual methods mixin
+    if (interface.type_struct) |type_struct| {
+        try out.print("pub fn {s}VirtualMethods(comptime Self: type, comptime Instance: type) type {{\n", .{interface.name});
+        if (interface.virtual_methods.len == 0) {
+            _ = try out.write("    _ = Self;\n");
+            _ = try out.write("    _ = Instance;\n");
+        }
+        _ = try out.write("    return opaque{\n");
+        for (interface.virtual_methods) |virtual_method| {
+            try translateVirtualMethod(allocator, virtual_method, type_struct, interface.name, " " ** 8, out);
+        }
+        _ = try out.write("    };\n");
+        _ = try out.write("}\n\n");
+    }
 }
 
 fn translateRecord(allocator: Allocator, record: gir.Record, out: anytype) !void {
     try out.print("pub const {s} = extern struct {{\n", .{record.name});
-    try out.print("    const Self = {s};\n\n", .{record.name});
+    if (record.is_gtype_struct_for) |is_gtype_struct_for| {
+        try out.print("    pub const Instance = {s};\n", .{is_gtype_struct_for});
+    }
+    try out.print("    const Self = {s};\n", .{record.name});
+    _ = try out.write("\n");
     for (record.fields) |field| {
         try translateField(allocator, field, out);
     }
@@ -301,6 +354,9 @@ fn translateRecord(allocator: Allocator, record: gir.Record, out: anytype) !void
     }
     for (record.methods) |method| {
         try translateMethod(allocator, method, " " ** 4, out);
+    }
+    if (record.is_gtype_struct_for) |is_gtype_struct_for| {
+        try out.print("    pub usingnamespace {s}VirtualMethods(Self, Instance);\n", .{is_gtype_struct_for});
     }
     _ = try out.write("};\n\n");
 }
@@ -340,7 +396,7 @@ fn translateField(allocator: Allocator, field: gir.Field, out: anytype) !void {
 
 fn translateFieldType(allocator: Allocator, @"type": gir.FieldType, out: anytype) !void {
     switch (@"type") {
-        .simple => |simple_type| try translateType(allocator, simple_type, false, out),
+        .simple => |simple_type| try translateType(allocator, simple_type, true, out),
         .array => |array_type| try translateArrayType(allocator, array_type, out),
         .callback => |callback| try translateCallback(allocator, callback, false, out),
     }
@@ -415,7 +471,7 @@ fn translateFunction(allocator: Allocator, function: gir.Function, indent: []con
 
     var i: usize = 0;
     while (i < function.parameters.len) : (i += 1) {
-        try translateParameter(allocator, function.parameters[i], out);
+        try translateParameter(allocator, function.parameters[i], "Self", out);
         if (i < function.parameters.len - 1) {
             _ = try out.write(", ");
         }
@@ -443,7 +499,7 @@ fn translateConstructor(allocator: Allocator, constructor: gir.Constructor, inde
 
     var i: usize = 0;
     while (i < constructor.parameters.len) : (i += 1) {
-        try translateParameter(allocator, constructor.parameters[i], out);
+        try translateParameter(allocator, constructor.parameters[i], "Self", out);
         if (i < constructor.parameters.len - 1) {
             _ = try out.write(", ");
         }
@@ -465,6 +521,39 @@ fn translateMethod(allocator: Allocator, method: gir.Method, indent: []const u8,
         .parameters = method.parameters,
         .return_value = method.return_value,
     }, indent, out);
+}
+
+fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMethod, container_type: []const u8, instance_type: []const u8, indent: []const u8, out: anytype) !void {
+    var upper_method_name = try toCamelCase(allocator, virtual_method.name, "_");
+    defer allocator.free(upper_method_name);
+    if (upper_method_name.len > 0) {
+        upper_method_name[0] = ascii.toUpper(upper_method_name[0]);
+    }
+
+    // implementation
+    try out.print("{s}pub fn implement{s}(p_self: *Self, p_implementation: ", .{ indent, upper_method_name });
+    try translateVirtualMethodImplementationType(allocator, virtual_method, "Instance", out);
+    _ = try out.write(") void {\n");
+
+    try out.print("{s}    @ptrCast(*{s}, p_self).{} = @ptrCast(", .{ indent, container_type, zig.fmtId(virtual_method.name) });
+    try translateVirtualMethodImplementationType(allocator, virtual_method, instance_type, out);
+    _ = try out.write(", p_implementation);\n");
+
+    try out.print("{s}}}\n\n", .{indent});
+}
+
+fn translateVirtualMethodImplementationType(allocator: Allocator, virtual_method: gir.VirtualMethod, instance_type: []const u8, out: anytype) !void {
+    _ = try out.write("*const fn (");
+    var i: usize = 0;
+    for (virtual_method.parameters) |parameter| {
+        try translateParameter(allocator, parameter, instance_type, out);
+        if (i < virtual_method.parameters.len - 1) {
+            _ = try out.write(", ");
+        }
+        i += 1;
+    }
+    _ = try out.write(") callconv(.C) ");
+    try translateReturnValue(allocator, virtual_method.return_value, out);
 }
 
 fn translateSignal(allocator: Allocator, signal: gir.Signal, indent: []const u8, out: anytype) !void {
@@ -492,7 +581,7 @@ fn translateSignal(allocator: Allocator, signal: gir.Signal, indent: []const u8,
 fn translateSignalCallbackType(allocator: Allocator, signal: gir.Signal, out: anytype) !void {
     _ = try out.write("*const fn (*Self, ");
     for (signal.parameters) |parameter| {
-        try translateParameter(allocator, parameter, out);
+        try translateParameter(allocator, parameter, "Self", out);
         _ = try out.write(", ");
     }
     _ = try out.write("T) callconv(.C) ");
@@ -587,15 +676,21 @@ fn translateType(allocator: Allocator, @"type": gir.Type, nullable: bool, out: a
         if (c_type.len == 0) {
             c_type = "char*";
         }
-        if (mem.endsWith(u8, c_type, "*")) {
+        // TODO: this is getting ridiculous; I really need to come up with a
+        // coherent way of translating types rather than all this ad-hoc nonsense
+        while (mem.endsWith(u8, c_type, "*")) {
             if (!pointer) {
                 if (nullable) {
                     _ = try out.write("?");
                 }
                 pointer = true;
             }
-            _ = try out.write("[*:0]");
             c_type = c_type[0 .. c_type.len - 1];
+            if (mem.endsWith(u8, c_type, "*")) {
+                _ = try out.write("[*]");
+            } else {
+                _ = try out.write("[*:0]");
+            }
         }
     }
 
@@ -657,7 +752,7 @@ fn translateCallback(allocator: Allocator, callback: gir.Callback, named: bool, 
     _ = try out.write("?*const fn (");
     var i: usize = 0;
     while (i < callback.parameters.len) : (i += 1) {
-        try translateParameter(allocator, callback.parameters[i], out);
+        try translateParameter(allocator, callback.parameters[i], "Self", out);
         if (i < callback.parameters.len - 1) {
             _ = try out.write(", ");
         }
@@ -673,21 +768,26 @@ fn translateCallback(allocator: Allocator, callback: gir.Callback, named: bool, 
     }
 }
 
-fn translateParameter(allocator: Allocator, parameter: gir.Parameter, out: anytype) !void {
+fn translateParameter(allocator: Allocator, parameter: gir.Parameter, self_type: []const u8, out: anytype) !void {
+    if (parameter.type == .varargs) {
+        _ = try out.write("...");
+        return;
+    }
+
     try translateParameterName(allocator, parameter.name, out);
     _ = try out.write(": ");
     if (parameter.instance) {
         // TODO: what if the instance parameter isn't a pointer?
         if (mem.startsWith(u8, parameter.type.simple.c_type.?, "const ")) {
-            _ = try out.write("*const Self");
+            try out.print("*const {s}", .{self_type});
         } else {
-            _ = try out.write("*Self");
+            try out.print("*{s}", .{self_type});
         }
     } else {
         switch (parameter.type) {
             .simple => |simple_type| try translateType(allocator, simple_type, parameter.nullable, out),
             .array => |array_type| try translateArrayType(allocator, array_type, out),
-            .varargs => _ = try out.write("@compileError(\"varargs not implemented\")"),
+            .varargs => unreachable, // handled above
         }
     }
 }
@@ -735,6 +835,9 @@ fn translateExtraFunction(function: extras.Function, indent: []const u8, out: an
     var i: usize = 0;
     while (i < function.parameters.len) : (i += 1) {
         const parameter = function.parameters[i];
+        if (parameter.@"comptime") {
+            _ = try out.write("comptime ");
+        }
         try out.print("{}: {s}", .{ zig.fmtId(parameter.name), parameter.type });
         if (i < function.parameters.len - 1) {
             _ = try out.write(", ");

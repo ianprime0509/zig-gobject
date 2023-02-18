@@ -21,7 +21,9 @@ pub fn build(b: *std.Build) !void {
     libxml2_lib.link(exe);
     exe.install();
 
-    const run_cmd = exe.run();
+    const run_cmd = b.addRunArtifact(exe);
+    // See https://github.com/ziglang/zig/issues/14666
+    run_cmd.condition = .always;
     run_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| {
         run_cmd.addArgs(args);
@@ -51,7 +53,8 @@ pub fn build(b: *std.Build) !void {
     const example_build_step = b.step("example-build", "Build the example");
     example_build_step.dependOn(&example_exe.step);
 
-    const example_run_cmd = example_exe.run();
+    const example_run_cmd = b.addRunArtifact(example_exe);
+    example_run_cmd.condition = .always;
     example_run_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| {
         example_run_cmd.addArgs(args);

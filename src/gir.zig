@@ -196,8 +196,26 @@ pub const Class = struct {
     functions: []const Function,
     constructors: []const Constructor,
     methods: []const Method,
+    virtual_methods: []const VirtualMethod,
     signals: []const Signal,
     constants: []const Constant,
+    get_type: []const u8,
+    type_struct: ?[]const u8,
+
+    const Self = @This();
+
+    pub fn getTypeFunction(self: Self) Function {
+        return .{
+            .name = "get_type",
+            .c_identifier = self.get_type,
+            .moved_to = null,
+            .parameters = &.{},
+            .return_value = .{ .nullable = false, .type = .{ .simple = .{
+                .name = .{ .ns = "GObject", .local = "Type" },
+                .c_type = "GType",
+            } } },
+        };
+    }
 };
 
 fn parseClass(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Class {
@@ -207,8 +225,11 @@ fn parseClass(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, curr
     var functions = ArrayList(Function).init(allocator);
     var constructors = ArrayList(Constructor).init(allocator);
     var methods = ArrayList(Method).init(allocator);
+    var virtual_methods = ArrayList(VirtualMethod).init(allocator);
     var signals = ArrayList(Signal).init(allocator);
     var constants = ArrayList(Constant).init(allocator);
+    var get_type: ?[]const u8 = null;
+    var type_struct: ?[]const u8 = null;
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
@@ -216,6 +237,10 @@ fn parseClass(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, curr
             name = try xml.attrContent(allocator, doc, attr);
         } else if (xml.attrIs(attr, null, "parent")) {
             parent = parseName(try xml.attrContent(allocator, doc, attr), current_ns);
+        } else if (xml.attrIs(attr, ns.glib, "get-type")) {
+            get_type = try xml.attrContent(allocator, doc, attr);
+        } else if (xml.attrIs(attr, ns.glib, "type-struct")) {
+            type_struct = try xml.attrContent(allocator, doc, attr);
         }
     }
 
@@ -229,6 +254,8 @@ fn parseClass(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, curr
             try constructors.append(try parseConstructor(allocator, doc, child, current_ns));
         } else if (xml.nodeIs(child, ns.core, "method")) {
             try methods.append(try parseMethod(allocator, doc, child, current_ns));
+        } else if (xml.nodeIs(child, ns.core, "virtual-method")) {
+            try virtual_methods.append(try parseVirtualMethod(allocator, doc, child, current_ns));
         } else if (xml.nodeIs(child, ns.glib, "signal")) {
             try signals.append(try parseSignal(allocator, doc, child, current_ns));
         } else if (xml.nodeIs(child, ns.core, "constant")) {
@@ -243,8 +270,11 @@ fn parseClass(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, curr
         .functions = functions.items,
         .constructors = constructors.items,
         .methods = methods.items,
+        .virtual_methods = virtual_methods.items,
         .signals = signals.items,
         .constants = constants.items,
+        .get_type = get_type orelse return error.InvalidGir,
+        .type_struct = type_struct,
     };
 }
 
@@ -253,8 +283,26 @@ pub const Interface = struct {
     functions: []const Function,
     constructors: []const Constructor,
     methods: []const Method,
+    virtual_methods: []const VirtualMethod,
     signals: []const Signal,
     constants: []const Constant,
+    get_type: []const u8,
+    type_struct: ?[]const u8,
+
+    const Self = @This();
+
+    pub fn getTypeFunction(self: Self) Function {
+        return .{
+            .name = "get_type",
+            .c_identifier = self.get_type,
+            .moved_to = null,
+            .parameters = &.{},
+            .return_value = .{ .nullable = false, .type = .{ .simple = .{
+                .name = .{ .ns = "GObject", .local = "Type" },
+                .c_type = "GType",
+            } } },
+        };
+    }
 };
 
 fn parseInterface(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Interface {
@@ -262,13 +310,20 @@ fn parseInterface(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, 
     var functions = ArrayList(Function).init(allocator);
     var constructors = ArrayList(Constructor).init(allocator);
     var methods = ArrayList(Method).init(allocator);
+    var virtual_methods = ArrayList(VirtualMethod).init(allocator);
     var signals = ArrayList(Signal).init(allocator);
     var constants = ArrayList(Constant).init(allocator);
+    var get_type: ?[]const u8 = null;
+    var type_struct: ?[]const u8 = null;
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
         if (xml.attrIs(attr, null, "name")) {
             name = try xml.attrContent(allocator, doc, attr);
+        } else if (xml.attrIs(attr, ns.glib, "get-type")) {
+            get_type = try xml.attrContent(allocator, doc, attr);
+        } else if (xml.attrIs(attr, ns.glib, "type-struct")) {
+            type_struct = try xml.attrContent(allocator, doc, attr);
         }
     }
 
@@ -280,6 +335,8 @@ fn parseInterface(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, 
             try constructors.append(try parseConstructor(allocator, doc, child, current_ns));
         } else if (xml.nodeIs(child, ns.core, "method")) {
             try methods.append(try parseMethod(allocator, doc, child, current_ns));
+        } else if (xml.nodeIs(child, ns.core, "virtual-method")) {
+            try virtual_methods.append(try parseVirtualMethod(allocator, doc, child, current_ns));
         } else if (xml.nodeIs(child, ns.glib, "signal")) {
             try signals.append(try parseSignal(allocator, doc, child, current_ns));
         } else if (xml.nodeIs(child, ns.core, "constant")) {
@@ -292,8 +349,11 @@ fn parseInterface(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, 
         .functions = functions.items,
         .constructors = constructors.items,
         .methods = methods.items,
+        .virtual_methods = virtual_methods.items,
         .signals = signals.items,
         .constants = constants.items,
+        .get_type = get_type orelse return error.InvalidGir,
+        .type_struct = type_struct,
     };
 }
 
@@ -303,6 +363,7 @@ pub const Record = struct {
     functions: []const Function,
     constructors: []const Constructor,
     methods: []const Method,
+    is_gtype_struct_for: ?[]const u8,
 };
 
 fn parseRecord(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Record {
@@ -311,11 +372,14 @@ fn parseRecord(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, cur
     var functions = ArrayList(Function).init(allocator);
     var constructors = ArrayList(Constructor).init(allocator);
     var methods = ArrayList(Method).init(allocator);
+    var is_gtype_struct_for: ?[]const u8 = null;
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
         if (xml.attrIs(attr, null, "name")) {
             name = try xml.attrContent(allocator, doc, attr);
+        } else if (xml.attrIs(attr, ns.glib, "is-gtype-struct-for")) {
+            is_gtype_struct_for = try xml.attrContent(allocator, doc, attr);
         }
     }
 
@@ -338,6 +402,7 @@ fn parseRecord(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, cur
         .functions = functions.items,
         .constructors = constructors.items,
         .methods = methods.items,
+        .is_gtype_struct_for = is_gtype_struct_for,
     };
 }
 
@@ -597,6 +662,40 @@ fn parseMethod(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, cur
         .moved_to = function.moved_to,
         .parameters = function.parameters,
         .return_value = function.return_value,
+    };
+}
+
+pub const VirtualMethod = struct {
+    name: []const u8,
+    parameters: []const Parameter,
+    return_value: ReturnValue,
+};
+
+fn parseVirtualMethod(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !VirtualMethod {
+    var name: ?[]const u8 = null;
+    var parameters = ArrayList(Parameter).init(allocator);
+    var return_value: ?ReturnValue = null;
+
+    var maybe_attr: ?*c.xmlAttr = node.properties;
+    while (maybe_attr) |attr| : (maybe_attr = attr.next) {
+        if (xml.attrIs(attr, null, "name")) {
+            name = try xml.attrContent(allocator, doc, attr);
+        }
+    }
+
+    var maybe_child: ?*c.xmlNode = node.children;
+    while (maybe_child) |child| : (maybe_child = child.next) {
+        if (xml.nodeIs(child, ns.core, "parameters")) {
+            try parseParameters(allocator, &parameters, doc, child, current_ns);
+        } else if (xml.nodeIs(child, ns.core, "return-value")) {
+            return_value = try parseReturnValue(allocator, doc, child, current_ns);
+        }
+    }
+
+    return .{
+        .name = name orelse return error.InvalidGir,
+        .parameters = parameters.items,
+        .return_value = return_value orelse return error.InvalidGir,
     };
 }
 

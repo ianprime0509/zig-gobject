@@ -3,9 +3,58 @@
   <namespace name="GObject" version="2.0">
     <function name="callback">
       <parameter name="p_func" type="anytype" />
-      <return-value type="gobject.Callback" />
+      <return-value type="Callback" />
       <!-- TODO: validate that p_func is actually a function pointer -->
-      <body>return @ptrCast(gobject.Callback, p_func);</body>
+      <body>return @ptrCast(Callback, p_func);</body>
+    </function>
+    <function name="registerType">
+      <parameter name="Self" type="type" comptime="1" />
+      <parameter name="options" type="struct { Parent: type, name: ?[:0]const u8 = null, flags: TypeFlags = .{} }" comptime="1" />
+      <return-value type="fn () Type" />
+      <!-- TODO: various validations, maybe support class_data? -->
+      <body>const self_info = @typeInfo(Self);
+if (self_info != .Struct or self_info.Struct.layout != .Extern) {
+    @compileError("an instance type must be an extern struct");
+}
+if (!@hasDecl(Self, "Class")) {
+    @compileError("a class type must have a member named Class pointing to the class record");
+}
+
+const class_info = @typeInfo(Self.Class);
+if (class_info != .Struct or class_info.Struct.layout != .Extern) {
+    @compileError("a class type must be an extern struct");
+}
+
+return struct {
+    var registered_type: Type = 0;
+
+    pub fn getType() Type {
+        if (registered_type == 0) {
+            const info = TypeInfo{
+                .class_size = @sizeOf(Self.Class),
+                .base_init = if (@hasDecl(Self, "baseInit")) @ptrCast(BaseInitFunc, &amp;Self.baseInit) else null,
+                .base_finalize = if (@hasDecl(Self, "baseFinalize")) @ptrCast(BaseFinalizeFunc, &amp;Self.baseFinalize) else null,
+                .class_init = if (@hasDecl(Self.Class, "init")) @ptrCast(ClassInitFunc, &amp;Self.Class.init) else null,
+                .class_finalize = if (@hasDecl(Self.Class, "finalize")) @ptrCast(ClassFinalizeFunc, &amp;Self.Class.finalize) else null,
+                .class_data = null,
+                .instance_size = @sizeOf(Self),
+                .n_preallocs = 0,
+                .instance_init = if (@hasDecl(Self, "init")) @ptrCast(InstanceInitFunc, &amp;Self.init) else null,
+                .value_table = null,
+            };
+            const type_name = if (options.name) |name| name else blk: {
+              var self_name: [:0]const u8 = @typeName(Self);
+              const last_dot = @import("std").mem.lastIndexOfScalar(u8, self_name, '.');
+              if (last_dot) |pos| {
+                  self_name = self_name[pos + 1 ..];
+              }
+              break :blk self_name;
+            };
+            registered_type = typeRegisterStatic(options.Parent.getType(), type_name, &amp;info, options.flags);
+        }
+        return registered_type;
+    }
+}.getType;</body>
     </function>
   </namespace>
 </repository>

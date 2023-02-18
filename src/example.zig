@@ -8,6 +8,7 @@ const Example = struct {
 const examples: []const Example = &.{
     .{ .name = "Hello world", .main = &@import("examples/hello_world.zig").main },
     // .{ .name = "Custom drawing", .main = &@import("examples/custom_drawing.zig").main },
+    .{ .name = "Custom class", .main = &@import("examples/custom_class.zig").main },
 };
 
 pub fn main() !void {
@@ -18,6 +19,7 @@ pub fn main() !void {
     var i: usize = 0;
     for (examples) |example| {
         try stdout.print("{} - {s}\n", .{ i, example.name });
+        i += 1;
     }
     _ = try stdout.write("Choose an example: ");
 
