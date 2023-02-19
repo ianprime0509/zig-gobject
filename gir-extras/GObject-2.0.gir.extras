@@ -1,13 +1,18 @@
 <?xml version="1.0"?>
 <repository xmlns="https://ianjohnson.dev/zig-gobject/extras">
   <namespace name="GObject" version="2.0">
-    <function name="callback">
-      <parameter name="p_func" type="anytype" />
-      <return-value type="Callback" />
-      <!-- TODO: validate that p_func is actually a function pointer -->
-      <body>return @ptrCast(Callback, p_func);</body>
-    </function>
     <function name="registerType">
+      <doc>Registers a new class type in the GObject type system.
+
+The `Self` parameter is the instance struct for the type. There are several constraints on this type:
+
+- It must be an `extern struct`, and the first member must be of type `Parent`
+- It must have a public declaration named `Parent` referring to the parent type (creating new fundamental types is not currently supported)
+- `Parent` must be a valid GObject type
+- It must have a public declaration named `Class` referring to the class struct
+- `Class` must be an `extern struct`, and the first member must be of type `Parent.Class`
+
+Implementations of lifecycle methods such as `init`, etc. are taken from the corresponding methods in `Self` and `Class`, if available.</doc>
       <parameter name="Self" type="type" comptime="1" />
       <parameter name="options" type="struct { name: ?[:0]const u8 = null, flags: TypeFlags = .{} }" comptime="1" />
       <return-value type="fn () Type" />
@@ -66,6 +71,7 @@ return struct {
     </function>
     <class name="Object">
       <method name="as">
+        <doc>Safely casts this object to an instance of `T`, emitting a compilation error if the safety of the cast cannot be guaranteed.</doc>
         <parameter name="p_self" type="*Self" />
         <parameter name="T" type="type" comptime="1" />
         <return-value type="*T" />

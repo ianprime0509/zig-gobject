@@ -163,11 +163,13 @@ fn parseNamespace(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) 
 pub const Alias = struct {
     name: []const u8,
     type: Type,
+    documentation: ?Documentation,
 };
 
 fn parseAlias(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Alias {
     var name: ?[]const u8 = null;
     var @"type": ?Type = null;
+    var documentation: ?Documentation = null;
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
@@ -180,12 +182,15 @@ fn parseAlias(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, curr
     while (maybe_child) |child| : (maybe_child = child.next) {
         if (xml.nodeIs(child, ns.core, "type")) {
             @"type" = try parseType(allocator, doc, child, current_ns);
+        } else if (xml.nodeIs(child, ns.core, "doc")) {
+            documentation = try parseDocumentation(allocator, doc, child);
         }
     }
 
     return .{
         .name = name orelse return error.InvalidGir,
         .type = @"type" orelse return error.InvalidGir,
+        .documentation = documentation,
     };
 }
 
@@ -201,6 +206,7 @@ pub const Class = struct {
     constants: []const Constant,
     get_type: []const u8,
     type_struct: ?[]const u8,
+    documentation: ?Documentation,
 
     const Self = @This();
 
@@ -210,10 +216,15 @@ pub const Class = struct {
             .c_identifier = self.get_type,
             .moved_to = null,
             .parameters = &.{},
-            .return_value = .{ .nullable = false, .type = .{ .simple = .{
-                .name = .{ .ns = "GObject", .local = "Type" },
-                .c_type = "GType",
-            } } },
+            .return_value = .{
+                .nullable = false,
+                .type = .{ .simple = .{
+                    .name = .{ .ns = "GObject", .local = "Type" },
+                    .c_type = "GType",
+                } },
+                .documentation = null,
+            },
+            .documentation = null,
         };
     }
 };
@@ -230,6 +241,7 @@ fn parseClass(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, curr
     var constants = ArrayList(Constant).init(allocator);
     var get_type: ?[]const u8 = null;
     var type_struct: ?[]const u8 = null;
+    var documentation: ?Documentation = null;
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
@@ -260,6 +272,8 @@ fn parseClass(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, curr
             try signals.append(try parseSignal(allocator, doc, child, current_ns));
         } else if (xml.nodeIs(child, ns.core, "constant")) {
             try constants.append(try parseConstant(allocator, doc, child, current_ns));
+        } else if (xml.nodeIs(child, ns.core, "doc")) {
+            documentation = try parseDocumentation(allocator, doc, child);
         }
     }
 
@@ -275,6 +289,7 @@ fn parseClass(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, curr
         .constants = constants.items,
         .get_type = get_type orelse return error.InvalidGir,
         .type_struct = type_struct,
+        .documentation = documentation,
     };
 }
 
@@ -288,6 +303,7 @@ pub const Interface = struct {
     constants: []const Constant,
     get_type: []const u8,
     type_struct: ?[]const u8,
+    documentation: ?Documentation,
 
     const Self = @This();
 
@@ -297,10 +313,15 @@ pub const Interface = struct {
             .c_identifier = self.get_type,
             .moved_to = null,
             .parameters = &.{},
-            .return_value = .{ .nullable = false, .type = .{ .simple = .{
-                .name = .{ .ns = "GObject", .local = "Type" },
-                .c_type = "GType",
-            } } },
+            .return_value = .{
+                .nullable = false,
+                .type = .{ .simple = .{
+                    .name = .{ .ns = "GObject", .local = "Type" },
+                    .c_type = "GType",
+                } },
+                .documentation = null,
+            },
+            .documentation = null,
         };
     }
 };
@@ -315,6 +336,7 @@ fn parseInterface(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, 
     var constants = ArrayList(Constant).init(allocator);
     var get_type: ?[]const u8 = null;
     var type_struct: ?[]const u8 = null;
+    var documentation: ?Documentation = null;
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
@@ -341,6 +363,8 @@ fn parseInterface(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, 
             try signals.append(try parseSignal(allocator, doc, child, current_ns));
         } else if (xml.nodeIs(child, ns.core, "constant")) {
             try constants.append(try parseConstant(allocator, doc, child, current_ns));
+        } else if (xml.nodeIs(child, ns.core, "doc")) {
+            documentation = try parseDocumentation(allocator, doc, child);
         }
     }
 
@@ -354,6 +378,7 @@ fn parseInterface(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, 
         .constants = constants.items,
         .get_type = get_type orelse return error.InvalidGir,
         .type_struct = type_struct,
+        .documentation = documentation,
     };
 }
 
@@ -364,6 +389,7 @@ pub const Record = struct {
     constructors: []const Constructor,
     methods: []const Method,
     is_gtype_struct_for: ?[]const u8,
+    documentation: ?Documentation,
 };
 
 fn parseRecord(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Record {
@@ -373,6 +399,7 @@ fn parseRecord(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, cur
     var constructors = ArrayList(Constructor).init(allocator);
     var methods = ArrayList(Method).init(allocator);
     var is_gtype_struct_for: ?[]const u8 = null;
+    var documentation: ?Documentation = null;
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
@@ -393,6 +420,8 @@ fn parseRecord(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, cur
             try constructors.append(try parseConstructor(allocator, doc, child, current_ns));
         } else if (xml.nodeIs(child, ns.core, "method")) {
             try methods.append(try parseMethod(allocator, doc, child, current_ns));
+        } else if (xml.nodeIs(child, ns.core, "doc")) {
+            documentation = try parseDocumentation(allocator, doc, child);
         }
     }
 
@@ -403,6 +432,7 @@ fn parseRecord(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, cur
         .constructors = constructors.items,
         .methods = methods.items,
         .is_gtype_struct_for = is_gtype_struct_for,
+        .documentation = documentation,
     };
 }
 
@@ -412,6 +442,7 @@ pub const Union = struct {
     functions: []const Function,
     constructors: []const Constructor,
     methods: []const Method,
+    documentation: ?Documentation,
 };
 
 fn parseUnion(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Union {
@@ -420,6 +451,7 @@ fn parseUnion(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, curr
     var functions = ArrayList(Function).init(allocator);
     var constructors = ArrayList(Constructor).init(allocator);
     var methods = ArrayList(Method).init(allocator);
+    var documentation: ?Documentation = null;
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
@@ -438,6 +470,8 @@ fn parseUnion(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, curr
             try constructors.append(try parseConstructor(allocator, doc, child, current_ns));
         } else if (xml.nodeIs(child, ns.core, "method")) {
             try methods.append(try parseMethod(allocator, doc, child, current_ns));
+        } else if (xml.nodeIs(child, ns.core, "doc")) {
+            documentation = try parseDocumentation(allocator, doc, child);
         }
     }
 
@@ -447,12 +481,14 @@ fn parseUnion(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, curr
         .functions = functions.items,
         .constructors = constructors.items,
         .methods = methods.items,
+        .documentation = documentation,
     };
 }
 
 pub const Field = struct {
     name: []const u8,
     type: FieldType,
+    documentation: ?Documentation,
 };
 
 pub const FieldType = union(enum) {
@@ -464,6 +500,7 @@ pub const FieldType = union(enum) {
 fn parseField(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Field {
     var name: ?[]const u8 = null;
     var @"type": ?FieldType = null;
+    var documentation: ?Documentation = null;
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
@@ -480,12 +517,15 @@ fn parseField(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, curr
             @"type" = .{ .array = try parseArrayType(allocator, doc, child, current_ns) };
         } else if (xml.nodeIs(child, ns.core, "callback")) {
             @"type" = .{ .callback = try parseCallback(allocator, doc, child, current_ns) };
+        } else if (xml.nodeIs(child, ns.core, "doc")) {
+            documentation = try parseDocumentation(allocator, doc, child);
         }
     }
 
     return .{
         .name = name orelse return error.InvalidGir,
         .type = @"type" orelse return error.InvalidGir,
+        .documentation = documentation,
     };
 }
 
@@ -493,12 +533,14 @@ pub const BitField = struct {
     name: []const u8,
     members: []const Member,
     functions: []const Function,
+    documentation: ?Documentation,
 };
 
 fn parseBitField(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !BitField {
     var name: ?[]const u8 = null;
     var members = ArrayList(Member).init(allocator);
     var functions = ArrayList(Function).init(allocator);
+    var documentation: ?Documentation = null;
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
@@ -513,6 +555,8 @@ fn parseBitField(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, c
             try members.append(try parseMember(allocator, doc, child));
         } else if (xml.nodeIs(child, ns.core, "function")) {
             try functions.append(try parseFunction(allocator, doc, child, current_ns));
+        } else if (xml.nodeIs(child, ns.core, "doc")) {
+            documentation = try parseDocumentation(allocator, doc, child);
         }
     }
 
@@ -520,6 +564,7 @@ fn parseBitField(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, c
         .name = name orelse return error.InvalidGir,
         .members = members.items,
         .functions = functions.items,
+        .documentation = documentation,
     };
 }
 
@@ -527,12 +572,14 @@ pub const Enum = struct {
     name: []const u8,
     members: []const Member,
     functions: []const Function,
+    documentation: ?Documentation,
 };
 
 fn parseEnum(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Enum {
     var name: ?[]const u8 = null;
     var members = ArrayList(Member).init(allocator);
     var functions = ArrayList(Function).init(allocator);
+    var documentation: ?Documentation = null;
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
@@ -547,6 +594,8 @@ fn parseEnum(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, curre
             try members.append(try parseMember(allocator, doc, child));
         } else if (xml.nodeIs(child, ns.core, "function")) {
             try functions.append(try parseFunction(allocator, doc, child, current_ns));
+        } else if (xml.nodeIs(child, ns.core, "doc")) {
+            documentation = try parseDocumentation(allocator, doc, child);
         }
     }
 
@@ -554,17 +603,20 @@ fn parseEnum(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, curre
         .name = name orelse return error.InvalidGir,
         .members = members.items,
         .functions = functions.items,
+        .documentation = documentation,
     };
 }
 
 pub const Member = struct {
     name: []const u8,
     value: i64,
+    documentation: ?Documentation,
 };
 
 fn parseMember(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Member {
     var name: ?[]const u8 = null;
     var value: ?i64 = null;
+    var documentation: ?Documentation = null;
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
@@ -575,9 +627,17 @@ fn parseMember(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Me
         }
     }
 
+    var maybe_child: ?*c.xmlNode = node.children;
+    while (maybe_child) |child| : (maybe_child = child.next) {
+        if (xml.nodeIs(child, ns.core, "doc")) {
+            documentation = try parseDocumentation(allocator, doc, child);
+        }
+    }
+
     return .{
         .name = name orelse return error.InvalidGir,
         .value = value orelse return error.InvalidGir,
+        .documentation = documentation,
     };
 }
 
@@ -587,6 +647,7 @@ pub const Function = struct {
     moved_to: ?[]const u8,
     parameters: []const Parameter,
     return_value: ReturnValue,
+    documentation: ?Documentation,
 };
 
 fn parseFunction(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Function {
@@ -595,6 +656,7 @@ fn parseFunction(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, c
     var moved_to: ?[]const u8 = null;
     var parameters = ArrayList(Parameter).init(allocator);
     var return_value: ?ReturnValue = null;
+    var documentation: ?Documentation = null;
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
@@ -613,6 +675,8 @@ fn parseFunction(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, c
             try parseParameters(allocator, &parameters, doc, child, current_ns);
         } else if (xml.nodeIs(child, ns.core, "return-value")) {
             return_value = try parseReturnValue(allocator, doc, child, current_ns);
+        } else if (xml.nodeIs(child, ns.core, "documentation")) {
+            documentation = try parseDocumentation(allocator, doc, child);
         }
     }
 
@@ -622,6 +686,7 @@ fn parseFunction(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, c
         .moved_to = moved_to,
         .parameters = parameters.items,
         .return_value = return_value orelse return error.InvalidGir,
+        .documentation = documentation,
     };
 }
 
@@ -631,6 +696,7 @@ pub const Constructor = struct {
     moved_to: ?[]const u8,
     parameters: []const Parameter,
     return_value: ReturnValue,
+    documentation: ?Documentation,
 };
 
 fn parseConstructor(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Constructor {
@@ -642,6 +708,7 @@ fn parseConstructor(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode
         .moved_to = function.moved_to,
         .parameters = function.parameters,
         .return_value = function.return_value,
+        .documentation = function.documentation,
     };
 }
 
@@ -651,6 +718,7 @@ pub const Method = struct {
     moved_to: ?[]const u8,
     parameters: []const Parameter,
     return_value: ReturnValue,
+    documentation: ?Documentation,
 };
 
 fn parseMethod(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Method {
@@ -662,6 +730,7 @@ fn parseMethod(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, cur
         .moved_to = function.moved_to,
         .parameters = function.parameters,
         .return_value = function.return_value,
+        .documentation = function.documentation,
     };
 }
 
@@ -669,12 +738,14 @@ pub const VirtualMethod = struct {
     name: []const u8,
     parameters: []const Parameter,
     return_value: ReturnValue,
+    documentation: ?Documentation,
 };
 
 fn parseVirtualMethod(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !VirtualMethod {
     var name: ?[]const u8 = null;
     var parameters = ArrayList(Parameter).init(allocator);
     var return_value: ?ReturnValue = null;
+    var documentation: ?Documentation = null;
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
@@ -689,6 +760,8 @@ fn parseVirtualMethod(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNo
             try parseParameters(allocator, &parameters, doc, child, current_ns);
         } else if (xml.nodeIs(child, ns.core, "return-value")) {
             return_value = try parseReturnValue(allocator, doc, child, current_ns);
+        } else if (xml.nodeIs(child, ns.core, "doc")) {
+            documentation = try parseDocumentation(allocator, doc, child);
         }
     }
 
@@ -696,6 +769,7 @@ fn parseVirtualMethod(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNo
         .name = name orelse return error.InvalidGir,
         .parameters = parameters.items,
         .return_value = return_value orelse return error.InvalidGir,
+        .documentation = documentation,
     };
 }
 
@@ -703,12 +777,14 @@ pub const Signal = struct {
     name: []const u8,
     parameters: []const Parameter,
     return_value: ReturnValue,
+    documentation: ?Documentation,
 };
 
 fn parseSignal(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Signal {
     var name: ?[]const u8 = null;
     var parameters = ArrayList(Parameter).init(allocator);
     var return_value: ?ReturnValue = null;
+    var documentation: ?Documentation = null;
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
@@ -723,6 +799,8 @@ fn parseSignal(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, cur
             try parseParameters(allocator, &parameters, doc, child, current_ns);
         } else if (xml.nodeIs(child, ns.core, "return-value")) {
             return_value = try parseReturnValue(allocator, doc, child, current_ns);
+        } else if (xml.nodeIs(child, ns.core, "doc")) {
+            documentation = try parseDocumentation(allocator, doc, child);
         }
     }
 
@@ -730,6 +808,7 @@ fn parseSignal(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, cur
         .name = name orelse return error.InvalidGir,
         .parameters = parameters.items,
         .return_value = return_value orelse return error.InvalidGir,
+        .documentation = documentation,
     };
 }
 
@@ -737,12 +816,14 @@ pub const Constant = struct {
     name: []const u8,
     value: []const u8,
     type: AnyType,
+    documentation: ?Documentation,
 };
 
 fn parseConstant(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Constant {
     var name: ?[]const u8 = null;
     var value: ?[]const u8 = null;
     var @"type": ?AnyType = null;
+    var documentation: ?Documentation = null;
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
@@ -759,6 +840,8 @@ fn parseConstant(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, c
             @"type" = .{ .simple = try parseType(allocator, doc, child, current_ns) };
         } else if (xml.nodeIs(child, ns.core, "array")) {
             @"type" = .{ .array = try parseArrayType(allocator, doc, child, current_ns) };
+        } else if (xml.nodeIs(child, ns.core, "doc")) {
+            documentation = try parseDocumentation(allocator, doc, child);
         }
     }
 
@@ -766,6 +849,7 @@ fn parseConstant(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, c
         .name = name orelse return error.InvalidGir,
         .value = value orelse return error.InvalidGir,
         .type = @"type" orelse return error.InvalidGir,
+        .documentation = documentation,
     };
 }
 
@@ -839,12 +923,14 @@ pub const Callback = struct {
     name: []const u8,
     parameters: []const Parameter,
     return_value: ReturnValue,
+    documentation: ?Documentation,
 };
 
 fn parseCallback(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Callback {
     var name: ?[]const u8 = null;
     var parameters = ArrayList(Parameter).init(allocator);
     var return_value: ?ReturnValue = null;
+    var documentation: ?Documentation = null;
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
@@ -859,6 +945,8 @@ fn parseCallback(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, c
             try parseParameters(allocator, &parameters, doc, child, current_ns);
         } else if (xml.nodeIs(child, ns.core, "return-value")) {
             return_value = try parseReturnValue(allocator, doc, child, current_ns);
+        } else if (xml.nodeIs(child, ns.core, "doc")) {
+            documentation = try parseDocumentation(allocator, doc, child);
         }
     }
 
@@ -866,6 +954,7 @@ fn parseCallback(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, c
         .name = name orelse return error.InvalidGir,
         .parameters = parameters.items,
         .return_value = return_value orelse return error.InvalidGir,
+        .documentation = documentation,
     };
 }
 
@@ -874,6 +963,7 @@ pub const Parameter = struct {
     nullable: bool,
     type: ParameterType,
     instance: bool,
+    documentation: ?Documentation,
 };
 
 pub const ParameterType = union(enum) {
@@ -895,6 +985,7 @@ fn parseParameter(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, 
     var name: ?[]const u8 = null;
     var nullable = false;
     var @"type": ?ParameterType = null;
+    var documentation: ?Documentation = null;
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
@@ -913,6 +1004,8 @@ fn parseParameter(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, 
             @"type" = .{ .array = try parseArrayType(allocator, doc, child, current_ns) };
         } else if (xml.nodeIs(child, ns.core, "varargs")) {
             @"type" = .{ .varargs = {} };
+        } else if (xml.nodeIs(child, ns.core, "doc")) {
+            documentation = try parseDocumentation(allocator, doc, child);
         }
     }
 
@@ -921,17 +1014,20 @@ fn parseParameter(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, 
         .nullable = nullable,
         .type = @"type" orelse return error.InvalidGir,
         .instance = instance,
+        .documentation = documentation,
     };
 }
 
 pub const ReturnValue = struct {
     nullable: bool,
     type: AnyType,
+    documentation: ?Documentation,
 };
 
 fn parseReturnValue(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !ReturnValue {
     var nullable = false;
     var @"type": ?AnyType = null;
+    var documentation: ?Documentation = null;
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
@@ -946,13 +1042,24 @@ fn parseReturnValue(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode
             @"type" = .{ .simple = try parseType(allocator, doc, child, current_ns) };
         } else if (xml.nodeIs(child, ns.core, "array")) {
             @"type" = .{ .array = try parseArrayType(allocator, doc, child, current_ns) };
+        } else if (xml.nodeIs(child, ns.core, "doc")) {
+            documentation = try parseDocumentation(allocator, doc, node);
         }
     }
 
     return .{
         .nullable = nullable,
         .type = @"type" orelse return error.InvalidGir,
+        .documentation = documentation,
     };
+}
+
+pub const Documentation = struct {
+    text: []const u8,
+};
+
+fn parseDocumentation(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Documentation {
+    return .{ .text = try xml.nodeContent(allocator, doc, node.children) };
 }
 
 pub const Name = struct {

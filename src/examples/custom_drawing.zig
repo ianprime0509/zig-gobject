@@ -32,7 +32,7 @@ fn activate(app: *gtk.Application, _: ?*anyopaque) callconv(.C) void {
 
     drawing_area.setDrawFunc(&drawCb, null, null);
 
-    _ = gobject.signalConnectData(drawing_area, "resize", gobject.callback(&resizeCb), null, null, .{ .after = true });
+    _ = gobject.signalConnectData(drawing_area, "resize", @ptrCast(*gobject.Callback, &resizeCb), null, null, .{ .after = true });
 
     const drag = gtk.GestureDrag.new();
     drag.setButton(gdk.BUTTON_PRIMARY);

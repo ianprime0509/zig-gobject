@@ -50,6 +50,7 @@ pub const Namespace = struct {
     interfaces: []const Interface,
     records: []const Record,
     functions: []const Function,
+    documentation: ?Documentation,
 };
 
 fn parseNamespace(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Namespace {
@@ -59,6 +60,7 @@ fn parseNamespace(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) 
     var interfaces = ArrayList(Interface).init(allocator);
     var records = ArrayList(Record).init(allocator);
     var functions = ArrayList(Function).init(allocator);
+    var documentation: ?Documentation = null;
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
@@ -79,6 +81,8 @@ fn parseNamespace(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) 
             try records.append(try parseRecord(allocator, doc, child));
         } else if (xml.nodeIs(child, ns, "function")) {
             try functions.append(try parseFunction(allocator, doc, child));
+        } else if (xml.nodeIs(child, ns, "doc")) {
+            documentation = try parseDocumentation(allocator, doc, child);
         }
     }
 
@@ -89,6 +93,7 @@ fn parseNamespace(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) 
         .interfaces = interfaces.items,
         .records = records.items,
         .functions = functions.items,
+        .documentation = documentation,
     };
 }
 
@@ -96,12 +101,14 @@ pub const Class = struct {
     name: []const u8,
     functions: []const Function,
     methods: []const Method,
+    documentation: ?Documentation,
 };
 
 fn parseClass(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Class {
     var name: ?[]const u8 = null;
     var functions = ArrayList(Function).init(allocator);
     var methods = ArrayList(Method).init(allocator);
+    var documentation: ?Documentation = null;
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
@@ -116,6 +123,8 @@ fn parseClass(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Cla
             try functions.append(try parseFunction(allocator, doc, child));
         } else if (xml.nodeIs(child, ns, "method")) {
             try methods.append(try parseMethod(allocator, doc, child));
+        } else if (xml.nodeIs(child, ns, "doc")) {
+            documentation = try parseDocumentation(allocator, doc, child);
         }
     }
 
@@ -123,6 +132,7 @@ fn parseClass(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Cla
         .name = name orelse return error.InvalidExtras,
         .functions = functions.items,
         .methods = methods.items,
+        .documentation = documentation,
     };
 }
 
@@ -130,6 +140,7 @@ pub const Interface = struct {
     name: []const u8,
     functions: []const Function,
     methods: []const Method,
+    documentation: ?Documentation,
 };
 
 fn parseInterface(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Interface {
@@ -139,6 +150,7 @@ fn parseInterface(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) 
         .name = class.name,
         .functions = class.functions,
         .methods = class.methods,
+        .documentation = class.documentation,
     };
 }
 
@@ -146,6 +158,7 @@ pub const Record = struct {
     name: []const u8,
     functions: []const Function,
     methods: []const Method,
+    documentation: ?Documentation,
 };
 
 fn parseRecord(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Record {
@@ -155,6 +168,7 @@ fn parseRecord(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Re
         .name = class.name,
         .functions = class.functions,
         .methods = class.methods,
+        .documentation = class.documentation,
     };
 }
 
@@ -163,6 +177,7 @@ pub const Function = struct {
     parameters: []const Parameter,
     return_value: ReturnValue,
     body: []const u8,
+    documentation: ?Documentation,
 };
 
 fn parseFunction(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Function {
@@ -170,6 +185,7 @@ fn parseFunction(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !
     var parameters = ArrayList(Parameter).init(allocator);
     var return_value: ?ReturnValue = null;
     var body: ?[]const u8 = null;
+    var documentation: ?Documentation = null;
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
@@ -186,6 +202,8 @@ fn parseFunction(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !
             return_value = try parseReturnValue(allocator, doc, child);
         } else if (xml.nodeIs(child, ns, "body")) {
             body = try xml.nodeContent(allocator, doc, child.children);
+        } else if (xml.nodeIs(child, ns, "doc")) {
+            documentation = try parseDocumentation(allocator, doc, child);
         }
     }
 
@@ -194,6 +212,7 @@ fn parseFunction(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !
         .parameters = parameters.items,
         .return_value = return_value orelse return error.InvalidExtras,
         .body = body orelse return error.InvalidExtras,
+        .documentation = documentation,
     };
 }
 
@@ -202,6 +221,7 @@ pub const Method = struct {
     parameters: []const Parameter,
     return_value: ReturnValue,
     body: []const u8,
+    documentation: ?Documentation,
 };
 
 fn parseMethod(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Method {
@@ -212,6 +232,7 @@ fn parseMethod(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Me
         .parameters = function.parameters,
         .return_value = function.return_value,
         .body = function.body,
+        .documentation = function.documentation,
     };
 }
 
@@ -259,4 +280,12 @@ fn parseReturnValue(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode
     return .{
         .type = @"type" orelse return error.InvalidExtras,
     };
+}
+
+pub const Documentation = struct {
+    text: []const u8,
+};
+
+fn parseDocumentation(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Documentation {
+    return .{ .text = try xml.nodeContent(allocator, doc, node.children) };
 }

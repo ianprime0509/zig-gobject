@@ -77,6 +77,24 @@ fn translateRepository(allocator: Allocator, repo: gir.Repository, maybe_extras_
         defer file.close();
         var bw = io.bufferedWriter(file.writer());
         const out = bw.writer();
+
+        const maybe_extras_ns = blk: {
+            if (maybe_extras_repo) |extras_repo| {
+                for (extras_repo.namespaces) |extras_ns| {
+                    if (mem.eql(u8, ns.name, extras_ns.name) and mem.eql(u8, ns.version, extras_ns.version)) {
+                        break :blk extras_ns;
+                    }
+                }
+            }
+            break :blk null;
+        };
+        if (maybe_extras_ns) |extras_ns| {
+            if (extras_ns.documentation) |doc| {
+                try translateExtraDocumentation(doc, true, "", out);
+                _ = try out.write("\n");
+            }
+        }
+
         var seen = StringHashMap(void).init(allocator);
         defer seen.deinit();
         try translateIncludes(allocator, repo.includes, repos, &seen, in_dir, extras_dir, out_dir, out);
@@ -90,18 +108,7 @@ fn translateRepository(allocator: Allocator, repo: gir.Repository, maybe_extras_
         defer allocator.free(ns_lower);
         try out.print("const {s} = @This();\n\n", .{ns_lower});
 
-        const extras_ns = blk: {
-            if (maybe_extras_repo) |extras_repo| {
-                for (extras_repo.namespaces) |extras_ns| {
-                    if (mem.eql(u8, ns.name, extras_ns.name) and mem.eql(u8, ns.version, extras_ns.version)) {
-                        break :blk extras_ns;
-                    }
-                }
-            }
-            break :blk null;
-        };
-
-        try translateNamespace(allocator, ns, extras_ns, out);
+        try translateNamespace(allocator, ns, maybe_extras_ns, out);
 
         try bw.flush();
         try file.sync();
@@ -187,6 +194,7 @@ fn translateNamespace(allocator: Allocator, ns: gir.Namespace, maybe_extras_ns: 
 }
 
 fn translateAlias(allocator: Allocator, alias: gir.Alias, out: anytype) !void {
+    try translateDocumentation(alias.documentation, "", out);
     try out.print("pub const {s} = ", .{alias.name});
     try translateType(allocator, alias.type, false, out);
     _ = try out.write(";\n\n");
@@ -194,6 +202,10 @@ fn translateAlias(allocator: Allocator, alias: gir.Alias, out: anytype) !void {
 
 fn translateClass(allocator: Allocator, class: gir.Class, maybe_extras_class: ?extras.Class, out: anytype) !void {
     // class type
+    try translateDocumentation(class.documentation, "", out);
+    if (maybe_extras_class) |extras_class| {
+        try translateExtraDocumentation(extras_class.documentation, false, "", out);
+    }
     try out.print("pub const {s} = extern struct {{\n", .{class.name});
 
     if (class.parent) |parent| {
@@ -287,6 +299,10 @@ fn translateClass(allocator: Allocator, class: gir.Class, maybe_extras_class: ?e
 
 fn translateInterface(allocator: Allocator, interface: gir.Interface, maybe_extras_interface: ?extras.Interface, out: anytype) !void {
     // interface type
+    try translateDocumentation(interface.documentation, "", out);
+    if (maybe_extras_interface) |extras_interface| {
+        try translateExtraDocumentation(extras_interface.documentation, false, "", out);
+    }
     try out.print("pub const {s} = opaque {{\n", .{interface.name});
 
     if (interface.type_struct) |type_struct| {
@@ -361,7 +377,13 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, maybe_extr
 }
 
 fn translateRecord(allocator: Allocator, record: gir.Record, maybe_extras_record: ?extras.Record, out: anytype) !void {
+    // record type
+    try translateDocumentation(record.documentation, "", out);
+    if (maybe_extras_record) |extras_record| {
+        try translateExtraDocumentation(extras_record.documentation, false, "", out);
+    }
     try out.print("pub const {s} = extern struct {{\n", .{record.name});
+
     if (record.is_gtype_struct_for) |is_gtype_struct_for| {
         try out.print("    pub const Instance = {s};\n", .{is_gtype_struct_for});
     }
@@ -422,6 +444,7 @@ fn translateRecord(allocator: Allocator, record: gir.Record, maybe_extras_record
 }
 
 fn translateUnion(allocator: Allocator, @"union": gir.Union, out: anytype) !void {
+    try translateDocumentation(@"union".documentation, "", out);
     try out.print("pub const {s} = extern union {{\n", .{@"union".name});
     try out.print("    const Self = {s};\n\n", .{@"union".name});
     for (@"union".fields) |field| {
@@ -449,6 +472,7 @@ fn translateUnion(allocator: Allocator, @"union": gir.Union, out: anytype) !void
 }
 
 fn translateField(allocator: Allocator, field: gir.Field, out: anytype) !void {
+    try translateDocumentation(field.documentation, " " ** 4, out);
     try out.print("    {}: ", .{zig.fmtId(field.name)});
     try translateFieldType(allocator, field.type, out);
     _ = try out.write(",\n");
@@ -470,6 +494,7 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, out: anytype
         }
     }
 
+    try translateDocumentation(bit_field.documentation, "", out);
     const tagType = if (needsI64) "i64" else "i32";
     var paddingNeeded: usize = if (needsI64) 64 else 32;
     try out.print("pub const {s} = packed struct({s}) {{\n", .{ bit_field.name, tagType });
@@ -503,6 +528,7 @@ fn translateEnum(allocator: Allocator, @"enum": gir.Enum, out: anytype) !void {
         }
     }
 
+    try translateDocumentation(@"enum".documentation, "", out);
     const tagType = if (needsI64) "i64" else "i32";
     try out.print("pub const {s} = enum({s}) {{\n", .{ @"enum".name, tagType });
     for (@"enum".members) |member| {
@@ -542,9 +568,10 @@ fn translateFunction(allocator: Allocator, function: gir.Function, indent: []con
     }
     _ = try out.write(") callconv(.C) ");
     try translateReturnValue(allocator, function.return_value, out);
-    _ = try out.write(";\n\n");
+    _ = try out.write(";\n");
 
     // function rename
+    try translateDocumentation(function.documentation, indent, out);
     var fnName = try toCamelCase(allocator, function.name, "_");
     defer allocator.free(fnName);
     try out.print("{s}pub const {s} = {s};\n\n", .{ indent, zig.fmtId(fnName), zig.fmtId(function.c_identifier) });
@@ -573,9 +600,10 @@ fn translateConstructor(allocator: Allocator, constructor: gir.Constructor, inde
         }
     }
     // TODO: consider if the return value is const, or maybe not even a pointer at all
-    _ = try out.write(") callconv(.C) *Self;\n\n");
+    _ = try out.write(") callconv(.C) *Self;\n");
 
     // constructor rename
+    try translateDocumentation(constructor.documentation, indent, out);
     var fnName = try toCamelCase(allocator, constructor.name, "_");
     defer allocator.free(fnName);
     try out.print("{s}pub const {s} = {s};\n\n", .{ indent, zig.fmtId(fnName), zig.fmtId(constructor.c_identifier) });
@@ -602,6 +630,7 @@ fn translateMethod(allocator: Allocator, method: gir.Method, indent: []const u8,
         .moved_to = method.moved_to,
         .parameters = method.parameters,
         .return_value = method.return_value,
+        .documentation = method.documentation,
     }, indent, out);
 }
 
@@ -613,6 +642,7 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
     }
 
     // implementation
+    try translateDocumentation(virtual_method.documentation, indent, out);
     try out.print("{s}pub fn implement{s}(p_self: *Self, p_implementation: ", .{ indent, upper_method_name });
     try translateVirtualMethodImplementationType(allocator, virtual_method, "Instance", out);
     _ = try out.write(") void {\n");
@@ -646,6 +676,7 @@ fn translateSignal(allocator: Allocator, signal: gir.Signal, indent: []const u8,
     }
 
     // normal connection
+    try translateDocumentation(signal.documentation, indent, out);
     try out.print("{s}pub fn connect{s}(p_self: *Self, comptime T: type, p_callback: ", .{ indent, upper_signal_name });
     // TODO: verify that T is a pointer type or compatible
     try translateSignalCallbackType(allocator, signal, out);
@@ -675,6 +706,7 @@ fn translateConstant(allocator: Allocator, constant: gir.Constant, indent: []con
     // there are way too many constant pairs which differ only in case, especially
     // the names of keyboard keys (e.g. KEY_A and KEY_a in GDK). There is
     // probably some heuristic we can use to at least lowercase most of them.
+    try translateDocumentation(constant.documentation, indent, out);
     try out.print("{s}pub const {s}: ", .{ indent, zig.fmtId(constant.name) });
     try translateAnyType(allocator, constant.type, false, out);
     _ = try out.write(" = ");
@@ -828,6 +860,7 @@ fn translateCallback(allocator: Allocator, callback: gir.Callback, named: bool, 
     }
 
     if (named) {
+        try translateDocumentation(callback.documentation, "", out);
         try out.print("pub const {s} = ", .{callback.name});
     }
 
@@ -887,6 +920,15 @@ fn translateReturnValue(allocator: Allocator, return_value: gir.ReturnValue, out
     try translateAnyType(allocator, return_value.type, return_value.nullable, out);
 }
 
+fn translateDocumentation(documentation: ?gir.Documentation, indent: []const u8, out: anytype) !void {
+    if (documentation) |doc| {
+        var lines = mem.split(u8, doc.text, "\n");
+        while (lines.next()) |line| {
+            try out.print("{s}/// {s}\n", .{ indent, line });
+        }
+    }
+}
+
 fn translateNameNs(allocator: Allocator, nameNs: ?[]const u8, out: anytype) !void {
     if (nameNs != null) {
         const type_ns = try ascii.allocLowerString(allocator, nameNs.?);
@@ -913,6 +955,7 @@ fn toCamelCase(allocator: Allocator, name: []const u8, word_sep: []const u8) ![]
 }
 
 fn translateExtraFunction(function: extras.Function, indent: []const u8, out: anytype) !void {
+    try translateExtraDocumentation(function.documentation, false, indent, out);
     try out.print("{s}pub fn {}(", .{ indent, zig.fmtId(function.name) });
     var i: usize = 0;
     while (i < function.parameters.len) : (i += 1) {
@@ -941,5 +984,19 @@ fn translateExtraMethod(method: extras.Method, indent: []const u8, out: anytype)
         .parameters = method.parameters,
         .return_value = method.return_value,
         .body = method.body,
+        .documentation = method.documentation,
     }, indent, out);
+}
+
+fn translateExtraDocumentation(documentation: ?extras.Documentation, container: bool, indent: []const u8, out: anytype) !void {
+    if (documentation) |doc| {
+        var lines = mem.split(u8, doc.text, "\n");
+        while (lines.next()) |line| {
+            if (container) {
+                try out.print("{s}//! {s}\n", .{ indent, line });
+            } else {
+                try out.print("{s}/// {s}\n", .{ indent, line });
+            }
+        }
+    }
 }
