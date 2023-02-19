@@ -181,6 +181,11 @@ fn translateClass(allocator: Allocator, class: gir.Class, out: anytype) !void {
     // class type
     try out.print("pub const {s} = extern struct {{\n", .{class.name});
 
+    if (class.parent) |parent| {
+        _ = try out.write("    pub const Parent = ");
+        try translateNameNs(allocator, parent.ns, out);
+        try out.print("{s};\n", .{parent.local});
+    }
     if (class.type_struct) |type_struct| {
         try out.print("    pub const Class = {s};\n", .{type_struct});
     }
@@ -212,15 +217,16 @@ fn translateClass(allocator: Allocator, class: gir.Class, out: anytype) !void {
     if (class.constants.len > 0) {
         _ = try out.write("\n");
     }
-    try out.print("    pub usingnamespace {s}Methods(Self);\n", .{class.name});
+    try out.print("    pub const Methods = {s}Methods;\n", .{class.name});
+    _ = try out.write("    pub usingnamespace Methods(Self);\n");
     _ = try out.write("};\n\n");
 
     // methods mixin
-    try out.print("pub fn {s}Methods(comptime Self: type) type {{\n", .{class.name});
+    try out.print("fn {s}Methods(comptime Self: type) type {{\n", .{class.name});
     if (class.methods.len == 0 and class.signals.len == 0 and class.parent == null) {
         _ = try out.write("    _ = Self;\n");
     }
-    _ = try out.write("    return opaque{\n");
+    _ = try out.write("    return struct{\n");
     for (class.methods) |method| {
         try translateMethod(allocator, method, " " ** 8, out);
     }
@@ -228,36 +234,28 @@ fn translateClass(allocator: Allocator, class: gir.Class, out: anytype) !void {
         try translateSignal(allocator, signal, " " ** 8, out);
     }
     if (class.parent) |parent| {
-        try out.print("        pub fn as{s}(p_self: *Self) *", .{parent.local});
-        try translateNameNs(allocator, parent.ns, out);
-        try out.print("{s} {{\n", .{parent.local});
-        _ = try out.write("            return @ptrCast(*");
-        try translateNameNs(allocator, parent.ns, out);
-        try out.print("{s}, p_self);\n", .{parent.local});
+        try out.print("        pub fn as{s}(p_self: *Self) *{s}.Parent {{\n", .{ parent.local, class.name });
+        try out.print("            return @ptrCast(*{s}.Parent, p_self);\n", .{class.name});
         _ = try out.write("        }\n\n");
 
-        _ = try out.write("        pub usingnamespace ");
-        try translateNameNs(allocator, parent.ns, out);
-        try out.print("{s}Methods(Self);\n", .{parent.local});
+        try out.print("        pub usingnamespace {s}.Parent.Methods(Self);\n", .{class.name});
     }
     _ = try out.write("    };\n");
     _ = try out.write("}\n\n");
 
     // virtual methods mixin
     if (class.type_struct) |type_struct| {
-        try out.print("pub fn {s}VirtualMethods(comptime Self: type, comptime Instance: type) type {{\n", .{class.name});
-        if (class.virtual_methods.len == 0 and class.parent == null) {
+        try out.print("fn {s}VirtualMethods(comptime Self: type, comptime Instance: type) type {{\n", .{class.name});
+        if (countTranslatableMethods(class.methods) == 0 and class.parent == null) {
             _ = try out.write("    _ = Self;\n");
             _ = try out.write("    _ = Instance;\n");
         }
-        _ = try out.write("    return opaque{\n");
+        _ = try out.write("    return struct{\n");
         for (class.virtual_methods) |virtual_method| {
             try translateVirtualMethod(allocator, virtual_method, type_struct, class.name, " " ** 8, out);
         }
-        if (class.parent) |parent| {
-            _ = try out.write("        pub usingnamespace ");
-            try translateNameNs(allocator, parent.ns, out);
-            try out.print("{s}VirtualMethods(Self, Instance);\n", .{parent.local});
+        if (class.parent != null) {
+            try out.print("        pub usingnamespace {s}.Parent.Class.VirtualMethods(Self, Instance);\n", .{class.name});
         }
         _ = try out.write("    };\n");
         _ = try out.write("}\n\n");
@@ -293,15 +291,16 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, out: anyty
     if (interface.constants.len > 0) {
         _ = try out.write("\n");
     }
-    try out.print("    pub usingnamespace {s}Methods(Self);\n", .{interface.name});
+    try out.print("    pub const Methods = {s}Methods;\n", .{interface.name});
+    _ = try out.write("    pub usingnamespace Methods(Self);\n");
     _ = try out.write("};\n\n");
 
     // methods mixin
-    try out.print("pub fn {s}Methods(comptime Self: type) type {{\n", .{interface.name});
-    if (interface.methods.len == 0 and interface.signals.len == 0) {
+    try out.print("fn {s}Methods(comptime Self: type) type {{\n", .{interface.name});
+    if (countTranslatableMethods(interface.methods) == 0 and interface.signals.len == 0) {
         _ = try out.write("    _ = Self;\n");
     }
-    _ = try out.write("    return opaque{\n");
+    _ = try out.write("    return struct{\n");
     for (interface.methods) |method| {
         try translateMethod(allocator, method, " " ** 8, out);
     }
@@ -313,12 +312,12 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, out: anyty
 
     // virtual methods mixin
     if (interface.type_struct) |type_struct| {
-        try out.print("pub fn {s}VirtualMethods(comptime Self: type, comptime Instance: type) type {{\n", .{interface.name});
+        try out.print("fn {s}VirtualMethods(comptime Self: type, comptime Instance: type) type {{\n", .{interface.name});
         if (interface.virtual_methods.len == 0) {
             _ = try out.write("    _ = Self;\n");
             _ = try out.write("    _ = Instance;\n");
         }
-        _ = try out.write("    return opaque{\n");
+        _ = try out.write("    return struct{\n");
         for (interface.virtual_methods) |virtual_method| {
             try translateVirtualMethod(allocator, virtual_method, type_struct, interface.name, " " ** 8, out);
         }
@@ -352,13 +351,28 @@ fn translateRecord(allocator: Allocator, record: gir.Record, out: anytype) !void
     if (record.constructors.len > 0) {
         _ = try out.write("\n");
     }
-    for (record.methods) |method| {
-        try translateMethod(allocator, method, " " ** 4, out);
-    }
+    try out.print("    pub const Methods = {s}Methods;\n", .{record.name});
+    _ = try out.write("    pub usingnamespace Methods(Self);\n");
     if (record.is_gtype_struct_for) |is_gtype_struct_for| {
-        try out.print("    pub usingnamespace {s}VirtualMethods(Self, Instance);\n", .{is_gtype_struct_for});
+        try out.print("    pub const VirtualMethods = {s}VirtualMethods;\n", .{is_gtype_struct_for});
+        _ = try out.write("    pub usingnamespace VirtualMethods(Self, Instance);\n");
     }
     _ = try out.write("};\n\n");
+
+    // methods mixin
+    try out.print("fn {s}Methods(comptime Self: type) type {{\n", .{record.name});
+    if (countTranslatableMethods(record.methods) == 0 and record.is_gtype_struct_for == null) {
+        _ = try out.write("    _ = Self;\n");
+    }
+    _ = try out.write("    return struct{\n");
+    for (record.methods) |method| {
+        try translateMethod(allocator, method, " " ** 8, out);
+    }
+    if (record.is_gtype_struct_for) |is_gtype_struct_for| {
+        try out.print("        pub usingnamespace if (@hasDecl({s}, \"Parent\")) {s}.Parent.Class.Methods(Self) else struct{{}};\n", .{ is_gtype_struct_for, is_gtype_struct_for });
+    }
+    _ = try out.write("    };\n");
+    _ = try out.write("}\n\n");
 }
 
 fn translateUnion(allocator: Allocator, @"union": gir.Union, out: anytype) !void {
@@ -461,8 +475,12 @@ fn translateEnum(allocator: Allocator, @"enum": gir.Enum, out: anytype) !void {
     _ = try out.write("};\n\n");
 }
 
+fn isFunctionTranslatable(function: gir.Function) bool {
+    return function.moved_to == null;
+}
+
 fn translateFunction(allocator: Allocator, function: gir.Function, indent: []const u8, out: anytype) !void {
-    if (function.moved_to != null) {
+    if (!isFunctionTranslatable(function)) {
         return;
     }
 
@@ -486,11 +504,15 @@ fn translateFunction(allocator: Allocator, function: gir.Function, indent: []con
     try out.print("{s}pub const {s} = {s};\n\n", .{ indent, zig.fmtId(fnName), zig.fmtId(function.c_identifier) });
 }
 
+fn isConstructorTranslatable(constructor: gir.Constructor) bool {
+    return constructor.moved_to == null;
+}
+
 fn translateConstructor(allocator: Allocator, constructor: gir.Constructor, indent: []const u8, out: anytype) !void {
     // TODO: reduce duplication with translateFunction; we need to override the
     // return type here due to many GTK constructors returning just "Widget"
     // instead of their actual type
-    if (constructor.moved_to != null) {
+    if (!isConstructorTranslatable(constructor)) {
         return;
     }
 
@@ -511,6 +533,20 @@ fn translateConstructor(allocator: Allocator, constructor: gir.Constructor, inde
     var fnName = try toCamelCase(allocator, constructor.name, "_");
     defer allocator.free(fnName);
     try out.print("{s}pub const {s} = {s};\n\n", .{ indent, zig.fmtId(fnName), zig.fmtId(constructor.c_identifier) });
+}
+
+fn isMethodTranslatable(method: gir.Method) bool {
+    return method.moved_to == null;
+}
+
+fn countTranslatableMethods(methods: []const gir.Method) usize {
+    var n: usize = 0;
+    for (methods) |method| {
+        if (isMethodTranslatable(method)) {
+            n += 1;
+        }
+    }
+    return n;
 }
 
 fn translateMethod(allocator: Allocator, method: gir.Method, indent: []const u8, out: anytype) !void {

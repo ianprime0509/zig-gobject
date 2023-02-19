@@ -9,17 +9,25 @@
     </function>
     <function name="registerType">
       <parameter name="Self" type="type" comptime="1" />
-      <parameter name="options" type="struct { Parent: type, name: ?[:0]const u8 = null, flags: TypeFlags = .{} }" comptime="1" />
+      <parameter name="options" type="struct { name: ?[:0]const u8 = null, flags: TypeFlags = .{} }" comptime="1" />
       <return-value type="fn () Type" />
       <!-- TODO: various validations, maybe support class_data? -->
       <body>const self_info = @typeInfo(Self);
 if (self_info != .Struct or self_info.Struct.layout != .Extern) {
     @compileError("an instance type must be an extern struct");
 }
+
+if (!@hasDecl(Self, "Parent")) {
+    @compileError("a class type must have a member named Parent pointing to the parent type");
+}
+const parent_info = @typeInfo(Self.Parent);
+if (parent_info != .Struct or parent_info.Struct.layout != .Extern or !@hasDecl(Self.Parent, "getType")) {
+    @compileError("the defined parent type " ++ @typeName(Self.Parent) ++ " does not appear to be a GObject class type");
+}
+
 if (!@hasDecl(Self, "Class")) {
     @compileError("a class type must have a member named Class pointing to the class record");
 }
-
 const class_info = @typeInfo(Self.Class);
 if (class_info != .Struct or class_info.Struct.layout != .Extern) {
     @compileError("a class type must be an extern struct");
@@ -50,7 +58,7 @@ return struct {
               }
               break :blk self_name;
             };
-            registered_type = typeRegisterStatic(options.Parent.getType(), type_name, &amp;info, options.flags);
+            registered_type = typeRegisterStatic(Self.Parent.getType(), type_name, &amp;info, options.flags);
         }
         return registered_type;
     }

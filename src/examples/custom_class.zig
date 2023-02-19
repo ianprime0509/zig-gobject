@@ -5,11 +5,12 @@ const gobject = @import("../gir-out/gobject.zig");
 const glib = @import("../gir-out/glib.zig");
 
 const ExampleApplication = extern struct {
-    parent_instance: gtk.Application,
+    parent_instance: Parent,
 
+    pub const Parent = gtk.Application;
     const Self = @This();
 
-    pub const getType = gobject.registerType(Self, .{ .Parent = gtk.Application });
+    pub const getType = gobject.registerType(Self, .{});
 
     pub fn new() *Self {
         return @ptrCast(*Self, gobject.Object.new(
@@ -30,21 +31,22 @@ const ExampleApplication = extern struct {
         win.present();
     }
 
-    pub usingnamespace gtk.ApplicationMethods(Self);
+    pub usingnamespace Parent.Methods(Self);
 
     pub const Class = extern struct {
-        parent_class: gtk.ApplicationClass,
+        parent_class: Parent.Class,
 
         pub fn init(self: *Class) callconv(.C) void {
             self.implementActivate(&ExampleApplication.activateImpl);
         }
 
-        pub usingnamespace gtk.ApplicationVirtualMethods(Class, Self);
+        pub usingnamespace Parent.Class.Methods(Class);
+        pub usingnamespace Parent.Class.VirtualMethods(Class, Self);
     };
 };
 
 const ExampleApplicationWindow = extern struct {
-    parent_instance: gtk.ApplicationWindow,
+    parent_instance: Parent,
 
     const template =
         \\<?xml version="1.0" encoding="UTF-8"?>
@@ -64,9 +66,10 @@ const ExampleApplicationWindow = extern struct {
         \\</interface>
     ;
 
+    pub const Parent = gtk.ApplicationWindow;
     const Self = @This();
 
-    pub const getType = gobject.registerType(Self, .{ .Parent = gtk.ApplicationWindow });
+    pub const getType = gobject.registerType(Self, .{});
 
     pub fn new(app: *ExampleApplication) *Self {
         return @ptrCast(*Self, gobject.Object.new(
@@ -81,17 +84,17 @@ const ExampleApplicationWindow = extern struct {
         self.initTemplate();
     }
 
-    pub usingnamespace gtk.ApplicationWindowMethods(Self);
+    pub usingnamespace Parent.Methods(Self);
 
     pub const Class = extern struct {
-        parent_class: gtk.ApplicationWindowClass,
+        parent_class: Parent.Class,
 
         pub fn init(self: *Class) callconv(.C) void {
-            // TODO: "inheritance" of class methods
-            @ptrCast(*gtk.WidgetClass, self).setTemplate(glib.Bytes.newStatic(@constCast(template), template.len));
+            self.setTemplate(glib.Bytes.newStatic(@constCast(template), template.len));
         }
 
-        pub usingnamespace gtk.ApplicationWindowVirtualMethods(Class, Self);
+        pub usingnamespace Parent.Class.Methods(Class);
+        pub usingnamespace Parent.Class.VirtualMethods(Class, Self);
     };
 };
 
