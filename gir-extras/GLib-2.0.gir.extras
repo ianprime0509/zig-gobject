@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<repository xmlns="https://ianjohnson.dev/zig-gobject/extras">
+  <namespace name="GLib" version="2.0">
+    <record name="Bytes">
+      <function name="newFromSlice">
+        <parameter name="p_bytes" type="[]const u8" />
+        <return-value type="*Bytes" />
+        <!-- TODO: the const cast is only needed due to a mistranslation of the array type in new -->
+        <body>return new(@constCast(p_bytes.ptr), p_bytes.len);</body>
+      </function>
+    </record>
+  </namespace>
+</repository>

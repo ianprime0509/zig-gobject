@@ -64,5 +64,25 @@ return struct {
     }
 }.getType;</body>
     </function>
+    <class name="Object">
+      <method name="as">
+        <parameter name="p_self" type="*Self" />
+        <parameter name="T" type="type" comptime="1" />
+        <return-value type="*T" />
+        <body>if (T == Self) {
+    return p_self;
+}
+
+comptime var curr_type = Self;
+inline while (@hasDecl(curr_type, "Parent")) {
+    curr_type = curr_type.Parent;
+    if (curr_type == T) {
+        return @ptrCast(*T, p_self);
+    }
+}
+
+@compileError("type is not guaranteed to be compatible with " ++ @typeName(T));</body>
+      </method>
+    </class>
   </namespace>
 </repository>

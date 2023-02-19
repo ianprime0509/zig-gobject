@@ -22,7 +22,7 @@ fn activate(app: *gtk.Application, _: ?*anyopaque) callconv(.C) void {
     box.setHalign(gtk.Align.center);
     box.setValign(gtk.Align.center);
 
-    window.setChild(box.asWidget());
+    window.setChild(box.as(gtk.Widget));
 
     var button = gtk.Button.newWithLabel("Hello World");
 
@@ -31,7 +31,7 @@ fn activate(app: *gtk.Application, _: ?*anyopaque) callconv(.C) void {
     // _ = gobject.signalConnectData(button, "clicked", gobject.callback(&gtk.Window.destroy), window, null, .{ .swapped = true });
     _ = button.connectClicked(*gtk.ApplicationWindow, &closeWindow, window);
 
-    box.append(button.asWidget());
+    box.append(button.as(gtk.Widget));
 
     window.show();
 }

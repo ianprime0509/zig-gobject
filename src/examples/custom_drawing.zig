@@ -23,12 +23,12 @@ fn activate(app: *gtk.Application, _: ?*anyopaque) callconv(.C) void {
     _ = window.connectDestroy(?*anyopaque, &closeWindow, null);
 
     const frame = gtk.Frame.new(null);
-    window.setChild(frame.asWidget());
+    window.setChild(frame.as(gtk.Widget));
 
     const drawing_area = gtk.DrawingArea.new();
     drawing_area.setSizeRequest(100, 100);
 
-    frame.setChild(drawing_area.asWidget());
+    frame.setChild(drawing_area.as(gtk.Widget));
 
     drawing_area.setDrawFunc(&drawCb, null, null);
 
@@ -36,14 +36,14 @@ fn activate(app: *gtk.Application, _: ?*anyopaque) callconv(.C) void {
 
     const drag = gtk.GestureDrag.new();
     drag.setButton(gdk.BUTTON_PRIMARY);
-    drawing_area.addController(drag.asEventController());
+    drawing_area.addController(drag.as(gtk.EventController));
     _ = drag.connectDragBegin(*gtk.DrawingArea, &dragBegin, drawing_area);
     _ = drag.connectDragUpdate(*gtk.DrawingArea, &dragUpdate, drawing_area);
     _ = drag.connectDragEnd(*gtk.DrawingArea, &dragEnd, drawing_area);
 
     const press = gtk.GestureClick.new();
     press.setButton(gdk.BUTTON_SECONDARY);
-    drawing_area.addController(press.asEventController());
+    drawing_area.addController(press.as(gtk.EventController));
     _ = press.connectPressed(*gtk.DrawingArea, &pressed, drawing_area);
 
     window.show();

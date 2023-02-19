@@ -46,12 +46,18 @@ pub const Repository = struct {
 pub const Namespace = struct {
     name: []const u8,
     version: []const u8,
+    classes: []const Class,
+    interfaces: []const Interface,
+    records: []const Record,
     functions: []const Function,
 };
 
 fn parseNamespace(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Namespace {
     var name: ?[]const u8 = null;
     var version: ?[]const u8 = null;
+    var classes = ArrayList(Class).init(allocator);
+    var interfaces = ArrayList(Interface).init(allocator);
+    var records = ArrayList(Record).init(allocator);
     var functions = ArrayList(Function).init(allocator);
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
@@ -65,7 +71,13 @@ fn parseNamespace(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) 
 
     var maybe_child: ?*c.xmlNode = node.children;
     while (maybe_child) |child| : (maybe_child = child.next) {
-        if (xml.nodeIs(child, ns, "function")) {
+        if (xml.nodeIs(child, ns, "class")) {
+            try classes.append(try parseClass(allocator, doc, child));
+        } else if (xml.nodeIs(child, ns, "interface")) {
+            try interfaces.append(try parseInterface(allocator, doc, child));
+        } else if (xml.nodeIs(child, ns, "record")) {
+            try records.append(try parseRecord(allocator, doc, child));
+        } else if (xml.nodeIs(child, ns, "function")) {
             try functions.append(try parseFunction(allocator, doc, child));
         }
     }
@@ -73,7 +85,76 @@ fn parseNamespace(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) 
     return .{
         .name = name orelse return error.InvalidExtras,
         .version = version orelse return error.InvalidExtras,
+        .classes = classes.items,
+        .interfaces = interfaces.items,
+        .records = records.items,
         .functions = functions.items,
+    };
+}
+
+pub const Class = struct {
+    name: []const u8,
+    functions: []const Function,
+    methods: []const Method,
+};
+
+fn parseClass(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Class {
+    var name: ?[]const u8 = null;
+    var functions = ArrayList(Function).init(allocator);
+    var methods = ArrayList(Method).init(allocator);
+
+    var maybe_attr: ?*c.xmlAttr = node.properties;
+    while (maybe_attr) |attr| : (maybe_attr = attr.next) {
+        if (xml.attrIs(attr, null, "name")) {
+            name = try xml.attrContent(allocator, doc, attr);
+        }
+    }
+
+    var maybe_child: ?*c.xmlNode = node.children;
+    while (maybe_child) |child| : (maybe_child = child.next) {
+        if (xml.nodeIs(child, ns, "function")) {
+            try functions.append(try parseFunction(allocator, doc, child));
+        } else if (xml.nodeIs(child, ns, "method")) {
+            try methods.append(try parseMethod(allocator, doc, child));
+        }
+    }
+
+    return .{
+        .name = name orelse return error.InvalidExtras,
+        .functions = functions.items,
+        .methods = methods.items,
+    };
+}
+
+pub const Interface = struct {
+    name: []const u8,
+    functions: []const Function,
+    methods: []const Method,
+};
+
+fn parseInterface(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Interface {
+    // Interfaces currently have the same structure as classes
+    const class = try parseClass(allocator, doc, node);
+    return .{
+        .name = class.name,
+        .functions = class.functions,
+        .methods = class.methods,
+    };
+}
+
+pub const Record = struct {
+    name: []const u8,
+    functions: []const Function,
+    methods: []const Method,
+};
+
+fn parseRecord(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Record {
+    // Records currently have the same structure as classes
+    const class = try parseClass(allocator, doc, node);
+    return .{
+        .name = class.name,
+        .functions = class.functions,
+        .methods = class.methods,
     };
 }
 
@@ -113,6 +194,24 @@ fn parseFunction(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !
         .parameters = parameters.items,
         .return_value = return_value orelse return error.InvalidExtras,
         .body = body orelse return error.InvalidExtras,
+    };
+}
+
+pub const Method = struct {
+    name: []const u8,
+    parameters: []const Parameter,
+    return_value: ReturnValue,
+    body: []const u8,
+};
+
+fn parseMethod(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Method {
+    // Methods currently have the same structure as functions
+    const function = try parseFunction(allocator, doc, node);
+    return .{
+        .name = function.name,
+        .parameters = function.parameters,
+        .return_value = function.return_value,
+        .body = function.body,
     };
 }
 

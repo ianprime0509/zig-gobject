@@ -133,17 +133,38 @@ fn fileNameAlloc(allocator: Allocator, name: []const u8) ![]u8 {
 }
 
 fn translateNamespace(allocator: Allocator, ns: gir.Namespace, maybe_extras_ns: ?extras.Namespace, out: anytype) !void {
+    var extras_classes = StringHashMap(extras.Class).init(allocator);
+    defer extras_classes.deinit();
+    var extras_interfaces = StringHashMap(extras.Interface).init(allocator);
+    defer extras_interfaces.deinit();
+    var extras_records = StringHashMap(extras.Record).init(allocator);
+    defer extras_records.deinit();
+    if (maybe_extras_ns) |extras_ns| {
+        for (extras_ns.classes) |class| {
+            try extras_classes.put(class.name, class);
+        }
+        for (extras_ns.interfaces) |interface| {
+            try extras_interfaces.put(interface.name, interface);
+        }
+        for (extras_ns.records) |record| {
+            try extras_records.put(record.name, record);
+        }
+        for (extras_ns.functions) |function| {
+            try translateExtraFunction(function, "", out);
+        }
+    }
+
     for (ns.aliases) |alias| {
         try translateAlias(allocator, alias, out);
     }
     for (ns.classes) |class| {
-        try translateClass(allocator, class, out);
+        try translateClass(allocator, class, extras_classes.get(class.name), out);
     }
     for (ns.interfaces) |interface| {
-        try translateInterface(allocator, interface, out);
+        try translateInterface(allocator, interface, extras_interfaces.get(interface.name), out);
     }
     for (ns.records) |record| {
-        try translateRecord(allocator, record, out);
+        try translateRecord(allocator, record, extras_records.get(record.name), out);
     }
     for (ns.unions) |@"union"| {
         try translateUnion(allocator, @"union", out);
@@ -163,12 +184,6 @@ fn translateNamespace(allocator: Allocator, ns: gir.Namespace, maybe_extras_ns: 
     for (ns.constants) |constant| {
         try translateConstant(allocator, constant, "", out);
     }
-
-    if (maybe_extras_ns) |extras_ns| {
-        for (extras_ns.functions) |function| {
-            try translateExtraFunction(function, "", out);
-        }
-    }
 }
 
 fn translateAlias(allocator: Allocator, alias: gir.Alias, out: anytype) !void {
@@ -177,7 +192,7 @@ fn translateAlias(allocator: Allocator, alias: gir.Alias, out: anytype) !void {
     _ = try out.write(";\n\n");
 }
 
-fn translateClass(allocator: Allocator, class: gir.Class, out: anytype) !void {
+fn translateClass(allocator: Allocator, class: gir.Class, maybe_extras_class: ?extras.Class, out: anytype) !void {
     // class type
     try out.print("pub const {s} = extern struct {{\n", .{class.name});
 
@@ -198,6 +213,13 @@ fn translateClass(allocator: Allocator, class: gir.Class, out: anytype) !void {
     if (class.fields.len > 0) {
         _ = try out.write("\n");
     }
+
+    if (maybe_extras_class) |extras_class| {
+        for (extras_class.functions) |function| {
+            try translateExtraFunction(function, " " ** 4, out);
+        }
+    }
+
     try translateFunction(allocator, class.getTypeFunction(), " " ** 4, out);
     for (class.functions) |function| {
         try translateFunction(allocator, function, " " ** 4, out);
@@ -223,21 +245,22 @@ fn translateClass(allocator: Allocator, class: gir.Class, out: anytype) !void {
 
     // methods mixin
     try out.print("fn {s}Methods(comptime Self: type) type {{\n", .{class.name});
-    if (class.methods.len == 0 and class.signals.len == 0 and class.parent == null) {
+    if (countTranslatableMethods(class.methods) == 0 and class.signals.len == 0 and class.parent == null and (maybe_extras_class == null or maybe_extras_class.?.methods.len == 0)) {
         _ = try out.write("    _ = Self;\n");
     }
     _ = try out.write("    return struct{\n");
+    if (maybe_extras_class) |extras_class| {
+        for (extras_class.methods) |method| {
+            try translateExtraMethod(method, " " ** 8, out);
+        }
+    }
     for (class.methods) |method| {
         try translateMethod(allocator, method, " " ** 8, out);
     }
     for (class.signals) |signal| {
         try translateSignal(allocator, signal, " " ** 8, out);
     }
-    if (class.parent) |parent| {
-        try out.print("        pub fn as{s}(p_self: *Self) *{s}.Parent {{\n", .{ parent.local, class.name });
-        try out.print("            return @ptrCast(*{s}.Parent, p_self);\n", .{class.name});
-        _ = try out.write("        }\n\n");
-
+    if (class.parent != null) {
         try out.print("        pub usingnamespace {s}.Parent.Methods(Self);\n", .{class.name});
     }
     _ = try out.write("    };\n");
@@ -262,7 +285,7 @@ fn translateClass(allocator: Allocator, class: gir.Class, out: anytype) !void {
     }
 }
 
-fn translateInterface(allocator: Allocator, interface: gir.Interface, out: anytype) !void {
+fn translateInterface(allocator: Allocator, interface: gir.Interface, maybe_extras_interface: ?extras.Interface, out: anytype) !void {
     // interface type
     try out.print("pub const {s} = opaque {{\n", .{interface.name});
 
@@ -271,6 +294,12 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, out: anyty
     }
     try out.print("    const Self = {s};\n", .{interface.name});
     _ = try out.write("\n");
+
+    if (maybe_extras_interface) |extras_interface| {
+        for (extras_interface.functions) |function| {
+            try translateExtraFunction(function, " " ** 4, out);
+        }
+    }
 
     try translateFunction(allocator, interface.getTypeFunction(), " " ** 4, out);
     for (interface.functions) |function| {
@@ -297,10 +326,15 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, out: anyty
 
     // methods mixin
     try out.print("fn {s}Methods(comptime Self: type) type {{\n", .{interface.name});
-    if (countTranslatableMethods(interface.methods) == 0 and interface.signals.len == 0) {
+    if (countTranslatableMethods(interface.methods) == 0 and interface.signals.len == 0 and (maybe_extras_interface == null or maybe_extras_interface.?.methods.len == 0)) {
         _ = try out.write("    _ = Self;\n");
     }
     _ = try out.write("    return struct{\n");
+    if (maybe_extras_interface) |extras_interface| {
+        for (extras_interface.methods) |method| {
+            try translateExtraMethod(method, " " ** 8, out);
+        }
+    }
     for (interface.methods) |method| {
         try translateMethod(allocator, method, " " ** 8, out);
     }
@@ -326,7 +360,7 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, out: anyty
     }
 }
 
-fn translateRecord(allocator: Allocator, record: gir.Record, out: anytype) !void {
+fn translateRecord(allocator: Allocator, record: gir.Record, maybe_extras_record: ?extras.Record, out: anytype) !void {
     try out.print("pub const {s} = extern struct {{\n", .{record.name});
     if (record.is_gtype_struct_for) |is_gtype_struct_for| {
         try out.print("    pub const Instance = {s};\n", .{is_gtype_struct_for});
@@ -339,6 +373,13 @@ fn translateRecord(allocator: Allocator, record: gir.Record, out: anytype) !void
     if (record.fields.len > 0) {
         _ = try out.write("\n");
     }
+
+    if (maybe_extras_record) |extras_record| {
+        for (extras_record.functions) |function| {
+            try translateExtraFunction(function, " " ** 4, out);
+        }
+    }
+
     for (record.functions) |function| {
         try translateFunction(allocator, function, " " ** 4, out);
     }
@@ -361,10 +402,15 @@ fn translateRecord(allocator: Allocator, record: gir.Record, out: anytype) !void
 
     // methods mixin
     try out.print("fn {s}Methods(comptime Self: type) type {{\n", .{record.name});
-    if (countTranslatableMethods(record.methods) == 0 and record.is_gtype_struct_for == null) {
+    if (countTranslatableMethods(record.methods) == 0 and record.is_gtype_struct_for == null and (maybe_extras_record == null or maybe_extras_record.?.methods.len == 0)) {
         _ = try out.write("    _ = Self;\n");
     }
     _ = try out.write("    return struct{\n");
+    if (maybe_extras_record) |extras_record| {
+        for (extras_record.methods) |method| {
+            try translateExtraMethod(method, " " ** 8, out);
+        }
+    }
     for (record.methods) |method| {
         try translateMethod(allocator, method, " " ** 8, out);
     }
@@ -887,4 +933,13 @@ fn translateExtraFunction(function: extras.Function, indent: []const u8, out: an
     }
 
     try out.print("{s}}}\n\n", .{indent});
+}
+
+fn translateExtraMethod(method: extras.Method, indent: []const u8, out: anytype) !void {
+    try translateExtraFunction(.{
+        .name = method.name,
+        .parameters = method.parameters,
+        .return_value = method.return_value,
+        .body = method.body,
+    }, indent, out);
 }

@@ -90,7 +90,7 @@ const ExampleApplicationWindow = extern struct {
         parent_class: Parent.Class,
 
         pub fn init(self: *Class) callconv(.C) void {
-            self.setTemplate(glib.Bytes.newStatic(@constCast(template), template.len));
+            self.setTemplate(glib.Bytes.newFromSlice(template));
         }
 
         pub usingnamespace Parent.Class.Methods(Class);
