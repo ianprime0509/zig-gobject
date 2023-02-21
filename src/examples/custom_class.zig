@@ -1,8 +1,8 @@
 const std = @import("std");
-const gtk = @import("../gir-out/gtk.zig");
-const gio = @import("../gir-out/gio.zig");
-const gobject = @import("../gir-out/gobject.zig");
-const glib = @import("../gir-out/glib.zig");
+const gtk = @import("../gir-out/gtk-4.0.zig");
+const gio = @import("../gir-out/gio-2.0.zig");
+const gobject = @import("../gir-out/gobject-2.0.zig");
+const glib = @import("../gir-out/glib-2.0.zig");
 
 const ExampleApplication = extern struct {
     parent_instance: Parent,

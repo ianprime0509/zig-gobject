@@ -4,10 +4,10 @@
 // proper gobject-introspection metadata
 
 const std = @import("std");
-const gtk = @import("../gir-out/gtk.zig");
-const gdk = @import("../gir-out/gdk.zig");
-const cairo = @import("../gir-out/cairo.zig");
-const gobject = @import("../gir-out/gobject.zig");
+const gtk = @import("../gir-out/gtk-4.0.zig");
+const gdk = @import("../gir-out/gdk-4.0.zig");
+const cairo = @import("../gir-out/cairo-1.0.zig");
+const gobject = @import("../gir-out/gobject-2.0.zig");
 
 pub fn main() void {
     const app = gtk.Application.new("org.gtk.example", .{});

@@ -1,14 +1,31 @@
 const std = @import("std");
 const fs = std.fs;
+const log = std.log;
+const process = std.process;
 
 const gir = @import("gir.zig");
 const translate = @import("translate.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var in_dir = try fs.cwd().openDir("lib/gir-files", .{});
-    var extras_dir = try fs.cwd().openDir("gir-extras", .{});
-    var out_dir = try fs.cwd().openDir("src/gir-out", .{});
+    const allocator = gpa.allocator();
+
+    const args = try process.argsAlloc(allocator);
+    defer process.argsFree(allocator, args);
+    if (args.len < 4) {
+        return error.NotEnoughArguments;
+    }
+    var in_dir = try fs.cwd().openDir(args[1], .{});
+    defer in_dir.close();
+    var extras_dir = try fs.cwd().openDir(args[2], .{});
+    defer extras_dir.close();
+    var out_dir = try fs.cwd().makeOpenPath(args[3], .{});
     defer out_dir.close();
-    try translate.translate(gpa.allocator(), in_dir, extras_dir, out_dir, &.{"Gtk-4.0.gir"});
+
+    const translation = try translate.translate(gpa.allocator(), .{
+        .input = in_dir,
+        .extras = extras_dir,
+        .output = out_dir,
+    }, args[4..]);
+    defer translation.deinit();
 }

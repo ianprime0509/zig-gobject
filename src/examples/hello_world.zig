@@ -1,9 +1,9 @@
 // https://docs.gtk.org/gtk4/getting_started.html#hello-world
 
 const std = @import("std");
-const glib = @import("../gir-out/glib.zig");
-const gobject = @import("../gir-out/gobject.zig");
-const gtk = @import("../gir-out/gtk.zig");
+const glib = @import("../gir-out/glib-2.0.zig");
+const gobject = @import("../gir-out/gobject-2.0.zig");
+const gtk = @import("../gir-out/gtk-4.0.zig");
 
 pub fn main() void {
     var app = gtk.Application.new("org.gtk.example", .{});
