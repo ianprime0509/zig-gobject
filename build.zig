@@ -41,6 +41,39 @@ pub fn build(b: *std.Build) !void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&exe_tests.step);
 
+    var gir_dir_path = try b.build_root.join(b.allocator, &.{ "lib", "gir-files" });
+    var gir_files = blk: {
+        var files = std.ArrayList([]u8).init(b.allocator);
+        var gir_dir = try std.fs.cwd().openIterableDir(gir_dir_path, .{});
+        defer gir_dir.close();
+        var gir_dir_iter = gir_dir.iterate();
+        while (try gir_dir_iter.next()) |entry| {
+            if (std.mem.endsWith(u8, entry.name, ".gir")) {
+                try files.append(try b.allocator.dupe(u8, entry.name[0 .. entry.name.len - ".gir".len]));
+            }
+        }
+        break :blk files;
+    };
+
+    const codegen_cmd = b.addRunArtifact(exe);
+    var gir_dependencies = blk: {
+        var deps = std.ArrayList([]u8).init(b.allocator);
+        for (gir_files.items) |file| {
+            var file_name = try std.fmt.allocPrint(b.allocator, "{s}.gir", .{file});
+            defer b.allocator.free(file_name);
+            try deps.append(try b.build_root.join(b.allocator, &.{ "lib", "gir-files", file_name }));
+        }
+        break :blk deps;
+    };
+    codegen_cmd.extra_file_dependencies = gir_dependencies.items;
+    codegen_cmd.addArg(gir_dir_path);
+    codegen_cmd.addArg(try b.build_root.join(b.allocator, &.{"gir-extras"}));
+    codegen_cmd.addArg(try b.build_root.join(b.allocator, &.{ "src", "gir-out" }));
+    codegen_cmd.addArgs(gir_files.items);
+
+    const codegen_step = b.step("codegen", "Generate all bindings");
+    codegen_step.dependOn(&codegen_cmd.step);
+
     const example_exe = b.addExecutable(.{
         .name = "zig-gobject-example",
         .root_source_file = .{ .path = "src/example.zig" },
@@ -49,6 +82,7 @@ pub fn build(b: *std.Build) !void {
     });
     example_exe.linkLibC();
     example_exe.linkSystemLibrary("gtk4");
+    example_exe.step.dependOn(&codegen_cmd.step);
 
     const example_build_step = b.step("example-build", "Build the example");
     example_build_step.dependOn(&example_exe.step);
