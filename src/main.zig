@@ -22,10 +22,8 @@ pub fn main() !void {
     var out_dir = try fs.cwd().makeOpenPath(args[3], .{});
     defer out_dir.close();
 
-    const translation = try translate.translate(gpa.allocator(), .{
-        .input = in_dir,
-        .extras = extras_dir,
-        .output = out_dir,
-    }, args[4..]);
-    defer translation.deinit();
+    var repositories = try translate.findRepositories(allocator, in_dir, args[4..]);
+    defer repositories.deinit();
+
+    try translate.translate(&repositories, extras_dir, out_dir);
 }

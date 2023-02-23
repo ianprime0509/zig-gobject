@@ -8,11 +8,13 @@ const ArrayList = std.ArrayList;
 
 const ns = "https://ianjohnson.dev/zig-gobject/extras";
 
+pub const Error = error{InvalidExtras} || Allocator.Error;
+
 pub const Repository = struct {
-    namespaces: []const Namespace,
+    namespace: Namespace,
     arena: ArenaAllocator,
 
-    pub fn parseFile(allocator: Allocator, file: [:0]const u8) !Repository {
+    pub fn parseFile(allocator: Allocator, file: [:0]const u8) Error!Repository {
         const doc = xml.parseFile(file) catch return error.InvalidExtras;
         defer c.xmlFreeDoc(doc);
         return try parseDoc(allocator, doc);
@@ -27,17 +29,17 @@ pub const Repository = struct {
         const allocator = arena.allocator();
         const node: *c.xmlNode = c.xmlDocGetRootElement(doc) orelse return error.InvalidExtras;
 
-        var namespaces = ArrayList(Namespace).init(allocator);
+        var namespace: ?Namespace = null;
 
         var maybe_child: ?*c.xmlNode = node.children;
         while (maybe_child) |child| : (maybe_child = child.next) {
             if (xml.nodeIs(child, ns, "namespace")) {
-                try namespaces.append(try parseNamespace(allocator, doc, child));
+                namespace = try parseNamespace(allocator, doc, child);
             }
         }
 
         return .{
-            .namespaces = namespaces.items,
+            .namespace = namespace orelse return error.InvalidExtras,
             .arena = arena,
         };
     }

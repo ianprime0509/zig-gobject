@@ -9,82 +9,110 @@ const zig = std.zig;
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
 const ArenaAllocator = heap.ArenaAllocator;
+const HashMap = std.HashMap;
 const StringHashMap = std.StringHashMap;
 
 const extras = @import("extras.zig");
 const gir = @import("gir.zig");
 
-pub const Dirs = struct {
-    input: fs.Dir,
-    extras: fs.Dir,
-    output: fs.Dir,
-};
-
-pub const Translation = struct {
+pub const Repositories = struct {
     repositories: []const gir.Repository,
     arena: ArenaAllocator,
 
-    pub fn deinit(self: Translation) void {
+    pub fn deinit(self: Repositories) void {
         self.arena.deinit();
     }
 };
 
-pub const Error = error{
-    InvalidGir,
-    InvalidExtras,
-} || Allocator.Error || fs.File.OpenError || fs.File.WriteError || error{
+pub const FindError = error{InvalidGir} || Allocator.Error || fs.File.OpenError || error{
     FileSystem,
+    InputOutput,
     NotSupported,
 };
 
-pub fn translate(allocator: Allocator, dirs: Dirs, roots: []const []const u8) Error!Translation {
+// Finds and parses all repositories for the given root libraries, transitively
+// including dependencies.
+pub fn findRepositories(allocator: Allocator, in_dir: fs.Dir, roots: []const []const u8) FindError!Repositories {
     var arena = ArenaAllocator.init(allocator);
     const a = arena.allocator();
 
-    var repos = StringHashMap(gir.Repository).init(allocator);
+    var repos = StringHashMap(gir.Repository).init(a);
     defer repos.deinit();
-    for (roots) |root| {
-        _ = try translateRepositoryName(a, root, &repos, dirs);
+    var needed_repos = ArrayList([]const u8).init(a);
+    try needed_repos.appendSlice(roots);
+    while (needed_repos.popOrNull()) |needed_repo| {
+        if (!repos.contains(needed_repo)) {
+            const repo = try findRepository(a, in_dir, needed_repo);
+            try repos.put(needed_repo, repo);
+            for (repo.includes) |include| {
+                try needed_repos.append(try fmt.allocPrint(allocator, "{s}-{s}", .{ include.name, include.version }));
+            }
+        }
     }
 
     var repos_list = ArrayList(gir.Repository).init(a);
-    var repo_iter = repos.valueIterator();
-    while (repo_iter.next()) |repo| {
+    var repos_iter = repos.valueIterator();
+    while (repos_iter.next()) |repo| {
         try repos_list.append(repo.*);
     }
 
     return .{ .repositories = repos_list.items, .arena = arena };
 }
 
-fn translateRepositoryName(allocator: Allocator, name: []const u8, repos: *StringHashMap(gir.Repository), dirs: Dirs) !gir.Repository {
-    if (repos.get(name)) |repo| {
-        return repo;
-    }
-
+fn findRepository(allocator: Allocator, input_dir: fs.Dir, name: []const u8) !gir.Repository {
     const repo_path = try fmt.allocPrint(allocator, "{s}.gir", .{name});
     defer allocator.free(repo_path);
+    const path = try realpathAllocZ(allocator, input_dir, repo_path);
+    defer allocator.free(path);
+    return try gir.Repository.parseFile(allocator, path);
+}
 
-    const repo = blk: {
-        const path = try realpathAllocZ(allocator, dirs.input, repo_path);
-        defer allocator.free(path);
-        break :blk try gir.Repository.parseFile(allocator, path);
+pub const TranslateError = error{
+    InvalidExtras,
+} || Allocator.Error || fs.File.OpenError || fs.File.WriteError || error{
+    FileSystem,
+    NotSupported,
+};
+
+const NamespaceDependencies = HashMap(gir.Include, []const gir.Include, IncludeContext, std.hash_map.default_max_load_percentage);
+const IncludeContext = struct {
+    pub fn hash(_: IncludeContext, value: gir.Include) u64 {
+        var hasher = std.hash.Wyhash.init(0);
+        std.hash.autoHashStrat(&hasher, value, .Deep);
+        return hasher.final();
+    }
+
+    pub fn eql(_: IncludeContext, a: gir.Include, b: gir.Include) bool {
+        return mem.eql(u8, a.name, b.name) and mem.eql(u8, a.version, b.version);
+    }
+};
+
+pub fn translate(repositories: *Repositories, extras_dir: fs.Dir, out_dir: fs.Dir) TranslateError!void {
+    const allocator = repositories.arena.allocator();
+
+    var deps = NamespaceDependencies.init(allocator);
+    defer deps.deinit();
+    for (repositories.repositories) |repo| {
+        try deps.put(.{ .name = repo.namespace.name, .version = repo.namespace.version }, repo.includes);
+    }
+
+    for (repositories.repositories) |repo| {
+        const source_name = try fmt.allocPrint(allocator, "{s}-{s}", .{ repo.namespace.name, repo.namespace.version });
+        defer allocator.free(source_name);
+        const extras_repo = try findExtrasRepository(allocator, source_name, extras_dir);
+        try translateRepository(allocator, repo, extras_repo, deps, out_dir);
+    }
+}
+
+fn findExtrasRepository(allocator: Allocator, name: []const u8, extras_dir: fs.Dir) !?extras.Repository {
+    const extras_name = try fmt.allocPrint(allocator, "{s}.gir.extras", .{name});
+    defer allocator.free(extras_name);
+    const path = realpathAllocZ(allocator, extras_dir, extras_name) catch |err| switch (err) {
+        error.FileNotFound => return null,
+        else => return err,
     };
-
-    const extras_repo = blk: {
-        const extras_name = try fmt.allocPrint(allocator, "{s}.extras", .{repo_path});
-        defer allocator.free(extras_name);
-        const path = realpathAllocZ(allocator, dirs.extras, extras_name) catch |err| switch (err) {
-            error.FileNotFound => break :blk null,
-            else => return err,
-        };
-        defer allocator.free(path);
-        break :blk try extras.Repository.parseFile(allocator, path);
-    };
-
-    try repos.put(try allocator.dupe(u8, name), repo);
-
-    try translateRepository(allocator, repo, extras_repo, repos, dirs);
-    return repo;
+    defer allocator.free(path);
+    return try extras.Repository.parseFile(allocator, path);
 }
 
 fn realpathAllocZ(allocator: Allocator, dir: fs.Dir, name: []const u8) ![:0]u8 {
@@ -93,66 +121,57 @@ fn realpathAllocZ(allocator: Allocator, dir: fs.Dir, name: []const u8) ![:0]u8 {
     return try allocator.dupeZ(u8, path);
 }
 
-fn translateRepository(allocator: Allocator, repo: gir.Repository, maybe_extras_repo: ?extras.Repository, repos: *StringHashMap(gir.Repository), dirs: Dirs) !void {
-    for (repo.namespaces) |ns| {
-        const file_name = try fileNameAlloc(allocator, ns.name, ns.version);
-        defer allocator.free(file_name);
-        const file = try dirs.output.createFile(file_name, .{});
-        defer file.close();
-        var bw = io.bufferedWriter(file.writer());
-        const out = bw.writer();
+fn translateRepository(allocator: Allocator, repo: gir.Repository, maybe_extras_repo: ?extras.Repository, deps: NamespaceDependencies, out_dir: fs.Dir) !void {
+    const ns = repo.namespace;
+    const file_name = try fileNameAlloc(allocator, ns.name, ns.version);
+    defer allocator.free(file_name);
+    const file = try out_dir.createFile(file_name, .{});
+    defer file.close();
+    var bw = io.bufferedWriter(file.writer());
+    const out = bw.writer();
 
-        const maybe_extras_ns = blk: {
-            if (maybe_extras_repo) |extras_repo| {
-                for (extras_repo.namespaces) |extras_ns| {
-                    if (mem.eql(u8, ns.name, extras_ns.name) and mem.eql(u8, ns.version, extras_ns.version)) {
-                        break :blk extras_ns;
-                    }
-                }
-            }
-            break :blk null;
-        };
-        if (maybe_extras_ns) |extras_ns| {
-            if (extras_ns.documentation) |doc| {
-                try translateExtraDocumentation(doc, true, "", out);
-                _ = try out.write("\n");
-            }
+    const maybe_extras_ns = if (maybe_extras_repo) |extras_repo| extras_repo.namespace else null;
+    if (maybe_extras_ns) |extras_ns| {
+        if (extras_ns.documentation) |doc| {
+            try translateExtraDocumentation(doc, true, "", out);
+            _ = try out.write("\n");
         }
-
-        var seen = StringHashMap(void).init(allocator);
-        defer seen.deinit();
-        try translateIncludes(allocator, repo.includes, repos, &seen, dirs, out);
-        // Special case: GLib references GObject despite not including it
-        if (mem.eql(u8, ns.name, "GLib")) {
-            try out.print("const gobject = @import(\"gobject-{s}.zig\");\n", .{ns.version});
-        }
-        // Having the current namespace in scope using the same name makes type
-        // translation logic simpler (no need to know what namespace we're in)
-        var ns_lower = try ascii.allocLowerString(allocator, ns.name);
-        defer allocator.free(ns_lower);
-        try out.print("const {s} = @This();\n\n", .{ns_lower});
-
-        try translateNamespace(allocator, ns, maybe_extras_ns, out);
-        try bw.flush();
-        try file.sync();
     }
+
+    try translateIncludes(allocator, ns, deps, out);
+    try translateNamespace(allocator, ns, maybe_extras_ns, out);
+
+    try bw.flush();
+    try file.sync();
 }
 
-fn translateIncludes(allocator: Allocator, includes: []const gir.Include, repos: *StringHashMap(gir.Repository), seen: *StringHashMap(void), dirs: Dirs, out: anytype) Error!void {
-    for (includes) |include| {
-        const include_source = try fmt.allocPrint(allocator, "{s}-{s}", .{ include.name, include.version });
-        defer allocator.free(include_source);
-        if (seen.contains(include_source)) {
-            continue;
+fn translateIncludes(allocator: Allocator, ns: gir.Namespace, deps: NamespaceDependencies, out: anytype) !void {
+    // Special case: GLib references GObject despite not including it
+    if (mem.eql(u8, ns.name, "GLib")) {
+        try out.print("const gobject = @import(\"gobject-{s}.zig\");\n", .{ns.version});
+    }
+    // Having the current namespace in scope using the same name makes type
+    // translation logic simpler (no need to know what namespace we're in)
+    const ns_lower = try ascii.allocLowerString(allocator, ns.name);
+    defer allocator.free(ns_lower);
+    try out.print("const {s} = @This();\n\n", .{ns_lower});
+
+    var seen = HashMap(gir.Include, void, IncludeContext, std.hash_map.default_max_load_percentage).init(allocator);
+    defer seen.deinit();
+    var needed_deps = ArrayList(gir.Include).init(allocator);
+    defer needed_deps.deinit();
+    try needed_deps.appendSlice(deps.get(.{ .name = ns.name, .version = ns.version }) orelse &.{});
+    while (needed_deps.popOrNull()) |needed_dep| {
+        if (!seen.contains(needed_dep)) {
+            const file_name = try fileNameAlloc(allocator, needed_dep.name, needed_dep.version);
+            defer allocator.free(file_name);
+            const alias = try ascii.allocLowerString(allocator, needed_dep.name);
+            defer allocator.free(alias);
+            try out.print("const {s} = @import(\"{s}\");\n", .{ alias, file_name });
+
+            try seen.put(needed_dep, {});
+            try needed_deps.appendSlice(deps.get(needed_dep) orelse &.{});
         }
-        const include_file_name = try fileNameAlloc(allocator, include.name, include.version);
-        defer allocator.free(include_file_name);
-        const include_ns = try ascii.allocLowerString(allocator, include.name);
-        defer allocator.free(include_ns);
-        try out.print("const {s} = @import(\"{s}\");\n", .{ include_ns, include_file_name });
-        const include_repo = try translateRepositoryName(allocator, include_source, repos, dirs);
-        try translateIncludes(allocator, include_repo.includes, repos, seen, dirs, out);
-        try seen.put(try allocator.dupe(u8, include_source), {});
     }
 }
 

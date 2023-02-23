@@ -13,12 +13,14 @@ const ns = struct {
     pub const glib = "http://www.gtk.org/introspection/glib/1.0";
 };
 
+pub const Error = error{InvalidGir} || Allocator.Error;
+
 pub const Repository = struct {
     includes: []const Include,
-    namespaces: []const Namespace,
+    namespace: Namespace,
     arena: ArenaAllocator,
 
-    pub fn parseFile(allocator: Allocator, file: [:0]const u8) !Repository {
+    pub fn parseFile(allocator: Allocator, file: [:0]const u8) Error!Repository {
         const doc = xml.parseFile(file) catch return error.InvalidGir;
         defer c.xmlFreeDoc(doc);
         return try parseDoc(allocator, doc);
@@ -34,20 +36,20 @@ pub const Repository = struct {
         const node: *c.xmlNode = c.xmlDocGetRootElement(doc) orelse return error.InvalidGir;
 
         var includes = ArrayList(Include).init(allocator);
-        var namespaces = ArrayList(Namespace).init(allocator);
+        var namespace: ?Namespace = null;
 
         var maybe_child: ?*c.xmlNode = node.children;
         while (maybe_child) |child| : (maybe_child = child.next) {
             if (xml.nodeIs(child, ns.core, "include")) {
                 try includes.append(try parseInclude(allocator, doc, child));
             } else if (xml.nodeIs(child, ns.core, "namespace")) {
-                try namespaces.append(try parseNamespace(allocator, doc, child));
+                namespace = try parseNamespace(allocator, doc, child);
             }
         }
 
         return .{
             .includes = includes.items,
-            .namespaces = namespaces.items,
+            .namespace = namespace orelse return error.InvalidGir,
             .arena = arena,
         };
     }
