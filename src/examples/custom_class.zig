@@ -13,14 +13,10 @@ const ExampleApplication = extern struct {
     pub const getType = gobject.registerType(Self, .{});
 
     pub fn new() *Self {
-        return @ptrCast(*Self, gobject.Object.new(
-            getType(),
-            "application-id",
-            "org.gtk.exampleapp",
-            "flags",
-            gio.ApplicationFlags{ .handles_open = true },
-            @as(?*anyopaque, null),
-        ));
+        return Self.newFrom(.{
+            .application_id = "org.gtk.exampleapp",
+            .flags = gio.ApplicationFlags{ .handles_open = true },
+        });
     }
 
     // TODO: is there some nice way to make this not public? (etc. for other lifecycle methods)
@@ -72,12 +68,7 @@ const ExampleApplicationWindow = extern struct {
     pub const getType = gobject.registerType(Self, .{});
 
     pub fn new(app: *ExampleApplication) *Self {
-        return @ptrCast(*Self, gobject.Object.new(
-            getType(),
-            "application",
-            app,
-            @as(?*anyopaque, null),
-        ));
+        return Self.newFrom(.{ .application = app });
     }
 
     pub fn init(self: *Self) callconv(.C) void {

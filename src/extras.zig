@@ -52,6 +52,7 @@ pub const Namespace = struct {
     interfaces: []const Interface,
     records: []const Record,
     functions: []const Function,
+    constants: []const Constant,
     documentation: ?Documentation,
 };
 
@@ -62,6 +63,7 @@ fn parseNamespace(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) 
     var interfaces = ArrayList(Interface).init(allocator);
     var records = ArrayList(Record).init(allocator);
     var functions = ArrayList(Function).init(allocator);
+    var constants = ArrayList(Constant).init(allocator);
     var documentation: ?Documentation = null;
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
@@ -83,6 +85,8 @@ fn parseNamespace(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) 
             try records.append(try parseRecord(allocator, doc, child));
         } else if (xml.nodeIs(child, ns, "function")) {
             try functions.append(try parseFunction(allocator, doc, child));
+        } else if (xml.nodeIs(child, ns, "constant")) {
+            try constants.append(try parseConstant(allocator, doc, child));
         } else if (xml.nodeIs(child, ns, "doc")) {
             documentation = try parseDocumentation(allocator, doc, child);
         }
@@ -95,6 +99,7 @@ fn parseNamespace(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) 
         .interfaces = interfaces.items,
         .records = records.items,
         .functions = functions.items,
+        .constants = constants.items,
         .documentation = documentation,
     };
 }
@@ -179,6 +184,7 @@ pub const Function = struct {
     parameters: []const Parameter,
     return_value: ReturnValue,
     body: []const u8,
+    private: bool,
     documentation: ?Documentation,
 };
 
@@ -187,12 +193,15 @@ fn parseFunction(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !
     var parameters = ArrayList(Parameter).init(allocator);
     var return_value: ?ReturnValue = null;
     var body: ?[]const u8 = null;
+    var private = false;
     var documentation: ?Documentation = null;
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
         if (xml.attrIs(attr, null, "name")) {
             name = try xml.attrContent(allocator, doc, attr);
+        } else if (xml.attrIs(attr, null, "private")) {
+            private = mem.eql(u8, try xml.attrContent(allocator, doc, attr), "1");
         }
     }
 
@@ -214,6 +223,7 @@ fn parseFunction(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !
         .parameters = parameters.items,
         .return_value = return_value orelse return error.InvalidExtras,
         .body = body orelse return error.InvalidExtras,
+        .private = private,
         .documentation = documentation,
     };
 }
@@ -223,6 +233,7 @@ pub const Method = struct {
     parameters: []const Parameter,
     return_value: ReturnValue,
     body: []const u8,
+    private: bool,
     documentation: ?Documentation,
 };
 
@@ -234,6 +245,7 @@ fn parseMethod(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Me
         .parameters = function.parameters,
         .return_value = function.return_value,
         .body = function.body,
+        .private = function.private,
         .documentation = function.documentation,
     };
 }
@@ -281,6 +293,50 @@ fn parseReturnValue(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode
 
     return .{
         .type = @"type" orelse return error.InvalidExtras,
+    };
+}
+
+pub const Constant = struct {
+    name: []const u8,
+    type: ?[]const u8,
+    value: []const u8,
+    private: bool,
+    documentation: ?Documentation,
+};
+
+fn parseConstant(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Constant {
+    var name: ?[]const u8 = null;
+    var @"type": ?[]const u8 = null;
+    var value: ?[]const u8 = null;
+    var private = false;
+    var documentation: ?Documentation = null;
+
+    var maybe_attr: ?*c.xmlAttr = node.properties;
+    while (maybe_attr) |attr| : (maybe_attr = attr.next) {
+        if (xml.attrIs(attr, null, "name")) {
+            name = try xml.attrContent(allocator, doc, attr);
+        } else if (xml.attrIs(attr, null, "type")) {
+            @"type" = try xml.attrContent(allocator, doc, attr);
+        } else if (xml.attrIs(attr, null, "private")) {
+            private = mem.eql(u8, try xml.attrContent(allocator, doc, attr), "1");
+        }
+    }
+
+    var maybe_child: ?*c.xmlNode = node.children;
+    while (maybe_child) |child| : (maybe_child = child.next) {
+        if (xml.nodeIs(child, ns, "value")) {
+            value = try xml.nodeContent(allocator, doc, child.children);
+        } else if (xml.nodeIs(child, ns, "doc")) {
+            documentation = try parseDocumentation(allocator, doc, child);
+        }
+    }
+
+    return .{
+        .name = name orelse return error.InvalidExtras,
+        .type = @"type",
+        .value = value orelse return error.InvalidExtras,
+        .private = private,
+        .documentation = documentation,
     };
 }
 

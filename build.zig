@@ -55,6 +55,20 @@ pub fn build(b: *std.Build) !void {
         break :blk files;
     };
 
+    var extras_dir_path = try b.build_root.join(b.allocator, &.{"gir-extras"});
+    var extras_paths = blk: {
+        var paths = std.ArrayList([]u8).init(b.allocator);
+        var extras_dir = try std.fs.cwd().openIterableDir(extras_dir_path, .{});
+        defer extras_dir.close();
+        var extras_dir_iter = extras_dir.iterate();
+        while (try extras_dir_iter.next()) |entry| {
+            if (std.mem.endsWith(u8, entry.name, ".gir.extras")) {
+                try paths.append(try b.allocator.dupe(u8, entry.name));
+            }
+        }
+        break :blk paths;
+    };
+
     const codegen_cmd = b.addRunArtifact(exe);
     var gir_dependencies = blk: {
         var deps = std.ArrayList([]u8).init(b.allocator);
@@ -63,11 +77,14 @@ pub fn build(b: *std.Build) !void {
             defer b.allocator.free(file_name);
             try deps.append(try b.build_root.join(b.allocator, &.{ "lib", "gir-files", file_name }));
         }
+        for (extras_paths.items) |path| {
+            try deps.append(try b.build_root.join(b.allocator, &.{ "gir-extras", path }));
+        }
         break :blk deps;
     };
     codegen_cmd.extra_file_dependencies = gir_dependencies.items;
     codegen_cmd.addArg(gir_dir_path);
-    codegen_cmd.addArg(try b.build_root.join(b.allocator, &.{"gir-extras"}));
+    codegen_cmd.addArg(extras_dir_path);
     codegen_cmd.addArg(try b.build_root.join(b.allocator, &.{ "src", "gir-out" }));
     codegen_cmd.addArgs(gir_files.items);
 

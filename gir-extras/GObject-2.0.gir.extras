@@ -1,6 +1,22 @@
 <?xml version="1.0"?>
 <repository xmlns="https://ianjohnson.dev/zig-gobject/extras">
   <namespace name="GObject" version="2.0">
+    <constant name="Interface">
+      <doc>The fundamental type from which all interfaces are derived.</doc>
+      <value>typeMakeFundamental(2)</value>
+    </constant>
+    <constant name="Enum">
+      <doc>The fundamental type from which all enumeration types are derived.</doc>
+      <value>typeMakeFundamental(12)</value>
+    </constant>
+    <constant name="Flags">
+      <doc>The fundamental type from which all flags types are derived.</doc>
+      <value>typeMakeFundamental(13)</value>
+    </constant>
+    <constant name="Boxed">
+      <doc>The fundamental type from which all boxed types are derived.</doc>
+      <value>typeMakeFundamental(18)</value>
+    </constant>
     <function name="registerType">
       <doc>Registers a new class type in the GObject type system.
 
@@ -57,7 +73,7 @@ return struct {
             };
             const type_name = if (options.name) |name| name else blk: {
               var self_name: [:0]const u8 = @typeName(Self);
-              const last_dot = @import("std").mem.lastIndexOfScalar(u8, self_name, '.');
+              const last_dot = std.mem.lastIndexOfScalar(u8, self_name, '.');
               if (last_dot) |pos| {
                   self_name = self_name[pos + 1 ..];
               }
@@ -69,7 +85,77 @@ return struct {
     }
 }.getType;</body>
     </function>
+    <function name="typeMakeFundamental">
+      <doc>A translation of the `G_TYPE_MAKE_FUNDAMENTAL` macro, for internal use.</doc>
+      <parameter name="p_x" type="usize" />
+      <return-value type="Type" />
+      <body>return p_x &lt;&lt; TYPE_FUNDAMENTAL_SHIFT;</body>
+    </function>
+    <function name="typeFor">
+      <doc>Returns the GObject `Type` corresponding to the given type.</doc>
+      <parameter name="T" type="type" comptime="1" />
+      <return-value type="Type" />
+      <body>const typeInfo = @typeInfo(T);
+// Types manually extracted from gtype.h since they don't seem to show up in GIR
+if (T == void) {
+    return typeMakeFundamental(1);
+} else if (T == i8) {
+    return typeMakeFundamental(3);
+} else if (T == u8) {
+    return typeMakeFundamental(4);
+} else if (T == bool) {
+    return typeMakeFundamental(5);
+} else if (T == c_int) {
+    return typeMakeFundamental(6);
+} else if (T == c_uint) {
+    return typeMakeFundamental(7);
+} else if (T == c_long) {
+    return typeMakeFundamental(8);
+} else if (T == c_ulong) {
+    return typeMakeFundamental(9);
+} else if (T == i64) {
+    return typeMakeFundamental(10);
+} else if (T == u64) {
+    return typeMakeFundamental(11);
+} else if (T == f32) {
+    return typeMakeFundamental(14);
+} else if (T == f64) {
+    return typeMakeFundamental(15);
+} else if (comptime isCString(T)) {
+    return typeMakeFundamental(16);
+} else if (T == *anyopaque or T == *const anyopaque) {
+    return typeMakeFundamental(17);
+} else if (T == ParamSpec) {
+    return typeMakeFundamental(19);
+} else if (T == glib.Variant) {
+    return typeMakeFundamental(21);
+} else if (typeInfo == .Enum and typeInfo.Enum.tag_type == c_int) {
+    return Enum;
+} else if (typeInfo == .Struct and typeInfo.Struct.backing_integer == c_uint) {
+    return Flags;
+} else if (comptime std.meta.trait.hasFn("getType")(T)) {
+    return T.getType();
+} else {
+    @compileError("unable to determine GObject type for " ++ @typeName(T));
+}</body>
+    </function>
     <class name="Object">
+      <method name="newFrom">
+        <doc>Creates a new instance of this object type with the given properties.</doc>
+        <parameter name="p_properties" type="anytype" />
+        <return-value type="*Self" />
+        <body>const typeInfo = @typeInfo(@TypeOf(p_properties)).Struct;
+const n_props = typeInfo.fields.len;
+var names: [n_props][*:0]const u8 = undefined;
+var values: [n_props]Value = undefined;
+inline for (typeInfo.fields, 0..) |field, i| {
+    names[i] = field.name ++ "\x00";
+    values[i] = Value.wrap(@field(p_properties, field.name));
+}
+defer for (&amp;values) |*value| value.unset();
+// TODO: the names parameter should actually be [*][*:0]const u8
+return @ptrCast(*Self, Object.newWithProperties(Self.getType(), n_props, @ptrCast([*][*:0]u8, &amp;names), &amp;values));</body>
+      </method>
       <method name="as">
         <doc>Safely casts this object to an instance of `T`, emitting a compilation error if the safety of the cast cannot be guaranteed.</doc>
         <parameter name="p_self" type="*Self" />
@@ -90,5 +176,103 @@ inline while (@hasDecl(curr_type, "Parent")) {
 @compileError("type is not guaranteed to be compatible with " ++ @typeName(T));</body>
       </method>
     </class>
+    <record name="Value">
+      <function name="new">
+        <doc>Returns a new `Value` intended to hold data of the given type.</doc>
+        <parameter name="p_type" type="type" comptime="1" />
+        <return-value type="Self" />
+        <body>var value = std.mem.zeroes(Self);
+_ = value.init(typeFor(p_type));
+return value;</body>
+      </function>
+      <function name="wrap">
+        <doc>Wraps a value in a `Value`.
+
+This does not take ownership of the value (if applicable).</doc>
+        <parameter name="p_value" type="anytype" />
+        <return-value type="Self" />
+        <body>comptime var T = @TypeOf(p_value);
+const typeInfo = @typeInfo(T);
+var value: Value = undefined;
+if (T == i8) {
+    value = new(T);
+    value.setSchar(p_value);
+} else if (T == u8) {
+    value = new(T);
+    value.setUchar(p_value);
+} else if (T == bool) {
+    value = new(T);
+    value.setBoolean(p_value);
+} else if (T == c_int) {
+    value = new(T);
+    value.setInt(p_value);
+} else if (T == c_uint) {
+    value = new(T);
+    value.setUint(p_value);
+} else if (T == c_long) {
+    value = new(T);
+    value.setLong(p_value);
+} else if (T == c_ulong) {
+    value = new(T);
+    value.setUlong(p_value);
+} else if (T == i64) {
+    value = new(T);
+    value.setInt64(p_value);
+} else if (T == u64) {
+    value = new(T);
+    value.setUint64(p_value);
+} else if (T == f32) {
+    value = new(T);
+    value.setFloat(p_value);
+} else if (T == f64) {
+    value = new(T);
+    value.setDouble(p_value);
+} else if (comptime isCString(T)) {
+    value = new(T);
+    value.setString(p_value);
+} else if (T == *anyopaque or T == *const anyopaque) {
+    value = new(T);
+    value.setPointer(p_value);
+} else if (T == ParamSpec) {
+    value = new(T);
+    value.setParam(p_value);
+} else if (T == glib.Variant) {
+    value = new(T);
+    value.setVariant(p_value);
+} else if (typeInfo == .Enum and typeInfo.Enum.tag_type == c_int) {
+    value = new(T);
+    value.setEnum(@enumToInt(p_value));
+} else if (typeInfo == .Struct and typeInfo.Struct.backing_integer == c_uint) {
+    value = new(T);
+    value.setFlags(@bitCast(c_uint, p_value));
+} else if (typeInfo == .Pointer and comptime std.meta.trait.hasFn("getType")(typeInfo.Pointer.child)) {
+    value = new(typeInfo.Pointer.child);
+    if (typeInfo.Pointer.child.getType() == Boxed) {
+        value.setBoxed(p_value);
+    } else {
+        value.setObject(@ptrCast(*Object, p_value));
+    }
+} else {
+    @compileError("cannot construct Value containing " ++ @typeName(T));
+}
+return value;</body>
+      </function>
+    </record>
+    <!-- Implementation details -->
+    <function name="isCString" private="1">
+      <parameter name="T" type="type" comptime="1" />
+      <return-value type="bool" />
+      <body>return switch (@typeInfo(T)) {
+    .Pointer => |info| switch (info.size) {
+        .One => switch (@typeInfo(info.child)) {
+            .Array => |child| child.child == u8 and std.meta.sentinel(info.child) == @as(u8, 0),
+            else => false,
+        },
+        .Many => info.child == u8 and std.meta.sentinel(T) == @as(u8, 0),
+        else => false,
+    },
+    else => false,
+};</body>
+    </function>
   </namespace>
 </repository>

@@ -146,15 +146,14 @@ fn translateRepository(allocator: Allocator, repo: gir.Repository, maybe_extras_
 }
 
 fn translateIncludes(allocator: Allocator, ns: gir.Namespace, deps: NamespaceDependencies, out: anytype) !void {
-    // Special case: GLib references GObject despite not including it
-    if (mem.eql(u8, ns.name, "GLib")) {
-        try out.print("const gobject = @import(\"gobject-{s}.zig\");\n", .{ns.version});
-    }
     // Having the current namespace in scope using the same name makes type
     // translation logic simpler (no need to know what namespace we're in)
     const ns_lower = try ascii.allocLowerString(allocator, ns.name);
     defer allocator.free(ns_lower);
     try out.print("const {s} = @This();\n\n", .{ns_lower});
+
+    // Including std is also convenient for extra bindings
+    _ = try out.write("const std = @import(\"std\");\n");
 
     var seen = HashMap(gir.Include, void, IncludeContext, std.hash_map.default_max_load_percentage).init(allocator);
     defer seen.deinit();
@@ -172,6 +171,13 @@ fn translateIncludes(allocator: Allocator, ns: gir.Namespace, deps: NamespaceDep
             try seen.put(needed_dep, {});
             try needed_deps.appendSlice(deps.get(needed_dep) orelse &.{});
         }
+    }
+
+    // Special case: everything references GObject thanks to various helpers
+    // TODO: represent this better in the dependency graph somehow so it's
+    // transparent to codegen selection
+    if (!mem.eql(u8, ns.name, "GObject") and !seen.contains(.{ .name = "GObject", .version = "2.0" })) {
+        _ = try out.write("const gobject = @import(\"gobject-2.0.zig\");\n");
     }
 }
 
@@ -200,6 +206,9 @@ fn translateNamespace(allocator: Allocator, ns: gir.Namespace, maybe_extras_ns: 
         }
         for (extras_ns.functions) |function| {
             try translateExtraFunction(function, "", out);
+        }
+        for (extras_ns.constants) |constant| {
+            try translateExtraConstant(constant, "", out);
         }
     }
 
@@ -529,17 +538,9 @@ fn translateFieldType(allocator: Allocator, @"type": gir.FieldType, out: anytype
 }
 
 fn translateBitField(allocator: Allocator, bit_field: gir.BitField, out: anytype) !void {
-    var needsI64 = false;
-    for (bit_field.members) |member| {
-        if (member.value >= 1 << 31) {
-            needsI64 = true;
-        }
-    }
-
     try translateDocumentation(bit_field.documentation, "", out);
-    const tagType = if (needsI64) "i64" else "i32";
-    var paddingNeeded: usize = if (needsI64) 64 else 32;
-    try out.print("pub const {s} = packed struct({s}) {{\n", .{ bit_field.name, tagType });
+    var paddingNeeded: usize = @bitSizeOf(c_uint);
+    try out.print("pub const {s} = packed struct(c_uint) {{\n", .{bit_field.name});
     for (bit_field.members) |member| {
         if (member.value > 0) {
             try out.print("    {s}: bool = false,\n", .{zig.fmtId(member.name)});
@@ -550,40 +551,38 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, out: anytype
         try out.print("    _padding: u{} = 0,\n", .{paddingNeeded});
     }
 
-    try out.print("\n    const Self = {s};\n", .{bit_field.name});
+    try out.print("\n    const Self = {s};\n\n", .{bit_field.name});
 
-    if (bit_field.functions.len > 0) {
-        _ = try out.write("\n");
-        for (bit_field.functions) |function| {
-            try translateFunction(allocator, function, " " ** 8, out);
-        }
+    // Blanket extra function to allow bit field types to be recognized in the
+    // same way as class types by various helper functions
+    _ = try out.write("    pub fn getType() gobject.Type {\n");
+    _ = try out.write("        return gobject.Flags;\n");
+    _ = try out.write("    }\n\n");
+
+    for (bit_field.functions) |function| {
+        try translateFunction(allocator, function, " " ** 8, out);
     }
 
     _ = try out.write("};\n\n");
 }
 
 fn translateEnum(allocator: Allocator, @"enum": gir.Enum, out: anytype) !void {
-    var needsI64 = false;
-    for (@"enum".members) |member| {
-        if (member.value >= 1 << 31) {
-            needsI64 = true;
-        }
-    }
-
     try translateDocumentation(@"enum".documentation, "", out);
-    const tagType = if (needsI64) "i64" else "i32";
-    try out.print("pub const {s} = enum({s}) {{\n", .{ @"enum".name, tagType });
+    try out.print("pub const {s} = enum(c_int) {{\n", .{@"enum".name});
     for (@"enum".members) |member| {
         try out.print("    {s} = {},\n", .{ zig.fmtId(member.name), member.value });
     }
 
-    try out.print("\n    const Self = {s};\n", .{@"enum".name});
+    try out.print("\n    const Self = {s};\n\n", .{@"enum".name});
 
-    if (@"enum".functions.len > 0) {
-        _ = try out.write("\n");
-        for (@"enum".functions) |function| {
-            try translateFunction(allocator, function, " " ** 8, out);
-        }
+    // Blanket extra function to allow enum types to be recognized in the
+    // same way as class types by various helper functions
+    _ = try out.write("    pub fn getType() gobject.Type {\n");
+    _ = try out.write("        return gobject.Enum;\n");
+    _ = try out.write("    }\n\n");
+
+    for (@"enum".functions) |function| {
+        try translateFunction(allocator, function, " " ** 8, out);
     }
 
     _ = try out.write("};\n\n");
@@ -998,7 +997,11 @@ fn toCamelCase(allocator: Allocator, name: []const u8, word_sep: []const u8) ![]
 
 fn translateExtraFunction(function: extras.Function, indent: []const u8, out: anytype) !void {
     try translateExtraDocumentation(function.documentation, false, indent, out);
-    try out.print("{s}pub fn {}(", .{ indent, zig.fmtId(function.name) });
+    _ = try out.write(indent);
+    if (!function.private) {
+        _ = try out.write("pub ");
+    }
+    try out.print("fn {}(", .{zig.fmtId(function.name)});
     var i: usize = 0;
     while (i < function.parameters.len) : (i += 1) {
         const parameter = function.parameters[i];
@@ -1026,8 +1029,33 @@ fn translateExtraMethod(method: extras.Method, indent: []const u8, out: anytype)
         .parameters = method.parameters,
         .return_value = method.return_value,
         .body = method.body,
+        .private = method.private,
         .documentation = method.documentation,
     }, indent, out);
+}
+
+fn translateExtraConstant(constant: extras.Constant, indent: []const u8, out: anytype) !void {
+    try translateExtraDocumentation(constant.documentation, false, indent, out);
+    _ = try out.write(indent);
+    if (!constant.private) {
+        _ = try out.write("pub ");
+    }
+    try out.print("const {}", .{zig.fmtId(constant.name)});
+    if (constant.type) |@"type"| {
+        try out.print(": {s}", .{@"type"});
+    }
+    _ = try out.write(" = ");
+
+    var lines = mem.split(u8, constant.value, "\n");
+    var i: usize = 0;
+    while (lines.next()) |line| : (i += 1) {
+        if (i > 0) {
+            try out.print("\n{s}", .{indent});
+        }
+        try out.print("{s}", .{line});
+    }
+
+    _ = try out.write(";\n\n");
 }
 
 fn translateExtraDocumentation(documentation: ?extras.Documentation, container: bool, indent: []const u8, out: anytype) !void {
