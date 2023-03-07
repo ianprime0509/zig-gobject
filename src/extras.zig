@@ -2,6 +2,7 @@ const std = @import("std");
 const c = @import("c.zig");
 const xml = @import("xml.zig");
 const mem = std.mem;
+const testing = std.testing;
 const Allocator = mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayList = std.ArrayList;
@@ -346,4 +347,8 @@ pub const Documentation = struct {
 
 fn parseDocumentation(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Documentation {
     return .{ .text = try xml.nodeContent(allocator, doc, node.children) };
+}
+
+test {
+    testing.refAllDecls(@This());
 }

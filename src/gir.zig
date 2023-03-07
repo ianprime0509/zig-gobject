@@ -3,6 +3,7 @@ const c = @import("c.zig");
 const xml = @import("xml.zig");
 const fmt = std.fmt;
 const mem = std.mem;
+const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayList = std.ArrayList;
@@ -16,7 +17,7 @@ const ns = struct {
 pub const Error = error{InvalidGir} || Allocator.Error;
 
 pub const Repository = struct {
-    includes: []const Include,
+    includes: []const Include = &.{},
     namespace: Namespace,
     arena: ArenaAllocator,
 
@@ -82,16 +83,16 @@ fn parseInclude(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !I
 pub const Namespace = struct {
     name: []const u8,
     version: []const u8,
-    aliases: []const Alias,
-    classes: []const Class,
-    interfaces: []const Interface,
-    records: []const Record,
-    unions: []const Union,
-    bit_fields: []const BitField,
-    enums: []const Enum,
-    functions: []const Function,
-    callbacks: []const Callback,
-    constants: []const Constant,
+    aliases: []const Alias = &.{},
+    classes: []const Class = &.{},
+    interfaces: []const Interface = &.{},
+    records: []const Record = &.{},
+    unions: []const Union = &.{},
+    bit_fields: []const BitField = &.{},
+    enums: []const Enum = &.{},
+    functions: []const Function = &.{},
+    callbacks: []const Callback = &.{},
+    constants: []const Constant = &.{},
 };
 
 fn parseNamespace(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Namespace {
@@ -165,7 +166,7 @@ fn parseNamespace(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) 
 pub const Alias = struct {
     name: []const u8,
     type: Type,
-    documentation: ?Documentation,
+    documentation: ?Documentation = null,
 };
 
 fn parseAlias(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Alias {
@@ -198,17 +199,17 @@ fn parseAlias(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, curr
 
 pub const Class = struct {
     name: []const u8,
-    parent: ?Name,
+    parent: ?Name = null,
     fields: []const Field,
-    functions: []const Function,
-    constructors: []const Constructor,
-    methods: []const Method,
-    virtual_methods: []const VirtualMethod,
-    signals: []const Signal,
-    constants: []const Constant,
+    functions: []const Function = &.{},
+    constructors: []const Constructor = &.{},
+    methods: []const Method = &.{},
+    virtual_methods: []const VirtualMethod = &.{},
+    signals: []const Signal = &.{},
+    constants: []const Constant = &.{},
     get_type: []const u8,
-    type_struct: ?[]const u8,
-    documentation: ?Documentation,
+    type_struct: ?[]const u8 = null,
+    documentation: ?Documentation = null,
 
     const Self = @This();
 
@@ -297,15 +298,15 @@ fn parseClass(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, curr
 
 pub const Interface = struct {
     name: []const u8,
-    functions: []const Function,
-    constructors: []const Constructor,
-    methods: []const Method,
-    virtual_methods: []const VirtualMethod,
-    signals: []const Signal,
-    constants: []const Constant,
+    functions: []const Function = &.{},
+    constructors: []const Constructor = &.{},
+    methods: []const Method = &.{},
+    virtual_methods: []const VirtualMethod = &.{},
+    signals: []const Signal = &.{},
+    constants: []const Constant = &.{},
     get_type: []const u8,
-    type_struct: ?[]const u8,
-    documentation: ?Documentation,
+    type_struct: ?[]const u8 = null,
+    documentation: ?Documentation = null,
 
     const Self = @This();
 
@@ -387,11 +388,11 @@ fn parseInterface(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, 
 pub const Record = struct {
     name: []const u8,
     fields: []const Field,
-    functions: []const Function,
-    constructors: []const Constructor,
-    methods: []const Method,
-    is_gtype_struct_for: ?[]const u8,
-    documentation: ?Documentation,
+    functions: []const Function = &.{},
+    constructors: []const Constructor = &.{},
+    methods: []const Method = &.{},
+    is_gtype_struct_for: ?[]const u8 = null,
+    documentation: ?Documentation = null,
 };
 
 fn parseRecord(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Record {
@@ -441,10 +442,10 @@ fn parseRecord(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, cur
 pub const Union = struct {
     name: []const u8,
     fields: []const Field,
-    functions: []const Function,
-    constructors: []const Constructor,
-    methods: []const Method,
-    documentation: ?Documentation,
+    functions: []const Function = &.{},
+    constructors: []const Constructor = &.{},
+    methods: []const Method = &.{},
+    documentation: ?Documentation = null,
 };
 
 fn parseUnion(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Union {
@@ -490,7 +491,7 @@ fn parseUnion(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, curr
 pub const Field = struct {
     name: []const u8,
     type: FieldType,
-    documentation: ?Documentation,
+    documentation: ?Documentation = null,
 };
 
 pub const FieldType = union(enum) {
@@ -534,8 +535,8 @@ fn parseField(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, curr
 pub const BitField = struct {
     name: []const u8,
     members: []const Member,
-    functions: []const Function,
-    documentation: ?Documentation,
+    functions: []const Function = &.{},
+    documentation: ?Documentation = null,
 };
 
 fn parseBitField(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !BitField {
@@ -572,9 +573,9 @@ fn parseBitField(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, c
 
 pub const Enum = struct {
     name: []const u8,
-    members: []const Member,
-    functions: []const Function,
-    documentation: ?Documentation,
+    members: []const Member = &.{},
+    functions: []const Function = &.{},
+    documentation: ?Documentation = null,
 };
 
 fn parseEnum(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Enum {
@@ -612,7 +613,7 @@ fn parseEnum(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, curre
 pub const Member = struct {
     name: []const u8,
     value: i64,
-    documentation: ?Documentation,
+    documentation: ?Documentation = null,
 };
 
 fn parseMember(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Member {
@@ -646,10 +647,10 @@ fn parseMember(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Me
 pub const Function = struct {
     name: []const u8,
     c_identifier: []const u8,
-    moved_to: ?[]const u8,
+    moved_to: ?[]const u8 = null,
     parameters: []const Parameter,
     return_value: ReturnValue,
-    documentation: ?Documentation,
+    documentation: ?Documentation = null,
 };
 
 fn parseFunction(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Function {
@@ -695,10 +696,10 @@ fn parseFunction(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, c
 pub const Constructor = struct {
     name: []const u8,
     c_identifier: []const u8,
-    moved_to: ?[]const u8,
+    moved_to: ?[]const u8 = null,
     parameters: []const Parameter,
     return_value: ReturnValue,
-    documentation: ?Documentation,
+    documentation: ?Documentation = null,
 };
 
 fn parseConstructor(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Constructor {
@@ -740,7 +741,7 @@ pub const VirtualMethod = struct {
     name: []const u8,
     parameters: []const Parameter,
     return_value: ReturnValue,
-    documentation: ?Documentation,
+    documentation: ?Documentation = null,
 };
 
 fn parseVirtualMethod(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !VirtualMethod {
@@ -779,7 +780,7 @@ pub const Signal = struct {
     name: []const u8,
     parameters: []const Parameter,
     return_value: ReturnValue,
-    documentation: ?Documentation,
+    documentation: ?Documentation = null,
 };
 
 fn parseSignal(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Signal {
@@ -818,7 +819,7 @@ pub const Constant = struct {
     name: []const u8,
     value: []const u8,
     type: AnyType,
-    documentation: ?Documentation,
+    documentation: ?Documentation = null,
 };
 
 fn parseConstant(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Constant {
@@ -861,8 +862,8 @@ pub const AnyType = union(enum) {
 };
 
 pub const Type = struct {
-    name: ?Name,
-    c_type: ?[]const u8,
+    name: ?Name = null,
+    c_type: ?[]const u8 = null,
 };
 
 fn parseType(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Type {
@@ -885,18 +886,31 @@ fn parseType(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, curre
 }
 
 pub const ArrayType = struct {
+    name: ?Name = null,
+    c_type: ?[]const u8 = null,
     element: *const AnyType,
-    fixed_size: ?u32,
+    fixed_size: ?u32 = null,
+    zero_terminated: bool = false,
 };
 
 fn parseArrayType(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !ArrayType {
+    var name: ?Name = null;
+    var c_type: ?[]const u8 = null;
     var element: ?AnyType = null;
-    var fixed_size: ?[]const u8 = null;
+    var fixed_size: ?u32 = null;
+    var zero_terminated = false;
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
-        if (xml.attrIs(attr, null, "fixed-size")) {
-            fixed_size = try xml.attrContent(allocator, doc, attr);
+        if (xml.attrIs(attr, null, "name")) {
+            name = parseName(try xml.attrContent(allocator, doc, attr), current_ns);
+        } else if (xml.attrIs(attr, ns.c, "type")) {
+            c_type = try xml.attrContent(allocator, doc, attr);
+        } else if (xml.attrIs(attr, null, "fixed-size")) {
+            const content = try xml.attrContent(allocator, doc, attr);
+            fixed_size = fmt.parseInt(u32, content, 10) catch return error.InvalidGir;
+        } else if (xml.attrIs(attr, null, "zero-terminated")) {
+            zero_terminated = mem.eql(u8, try xml.attrContent(allocator, doc, attr), "1");
         }
     }
 
@@ -910,14 +924,11 @@ fn parseArrayType(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, 
     }
 
     return .{
+        .name = name,
+        .c_type = c_type,
         .element = &(try allocator.dupe(AnyType, &.{element orelse return error.InvalidGir}))[0],
-        .fixed_size = size: {
-            if (fixed_size) |size| {
-                break :size fmt.parseInt(u32, size, 10) catch return error.InvalidGir;
-            } else {
-                break :size null;
-            }
-        },
+        .fixed_size = fixed_size,
+        .zero_terminated = zero_terminated,
     };
 }
 
@@ -962,10 +973,10 @@ fn parseCallback(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, c
 
 pub const Parameter = struct {
     name: []const u8,
-    nullable: bool,
+    nullable: bool = false,
     type: ParameterType,
-    instance: bool,
-    documentation: ?Documentation,
+    instance: bool = false,
+    documentation: ?Documentation = null,
 };
 
 pub const ParameterType = union(enum) {
@@ -1021,9 +1032,9 @@ fn parseParameter(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, 
 }
 
 pub const ReturnValue = struct {
-    nullable: bool,
+    nullable: bool = false,
     type: AnyType,
-    documentation: ?Documentation,
+    documentation: ?Documentation = null,
 };
 
 fn parseReturnValue(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !ReturnValue {
@@ -1085,4 +1096,8 @@ fn parseName(raw: []const u8, current_ns: []const u8) Name {
             .local = raw,
         };
     }
+}
+
+test {
+    testing.refAllDecls(@This());
 }

@@ -2,6 +2,7 @@ const std = @import("std");
 const fs = std.fs;
 const log = std.log;
 const process = std.process;
+const testing = std.testing;
 
 const gir = @import("gir.zig");
 const translate = @import("translate.zig");
@@ -26,4 +27,8 @@ pub fn main() !void {
     defer repositories.deinit();
 
     try translate.translate(&repositories, extras_dir, out_dir);
+}
+
+test {
+    testing.refAllDecls(@This());
 }
