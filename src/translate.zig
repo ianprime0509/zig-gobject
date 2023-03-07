@@ -845,15 +845,10 @@ fn translateType(allocator: Allocator, @"type": gir.Type, nullable: bool, out: a
             return;
         }
 
-        // At this point, seemingly the only time c_type is missing is when we
-        // have a property or signal parameter type, and in all these cases, the
-        // expectation seems to be to just use a pointer to whatever the type name
-        // is
-        // TODO: this is really ugly and possibly unreliable
-        if (nullable) {
-            _ = try out.write("?");
-        }
-        _ = try out.write("*");
+        // At this point, the only thing we can do is assume a plain type.
+        // It seems that properties often (always?) specify types like this (no
+        // c_type), and there the intention seems to be different, but we're not
+        // concerned about translating that information at this point.
         try translateNameNs(allocator, name.ns, out);
         _ = try out.write(name.local);
         return;
@@ -1014,13 +1009,6 @@ test "translateType" {
     try testTranslateType("?*anyopaque", .{ .name = .{ .ns = null, .local = "Object" }, .c_type = "gpointer" }, true);
     try testTranslateType("*const anyopaque", .{ .name = .{ .ns = "GLib", .local = "Bytes" }, .c_type = "gconstpointer" }, false);
     try testTranslateType("?*const anyopaque", .{ .name = .{ .ns = "GLib", .local = "Bytes" }, .c_type = "gconstpointer" }, true);
-    // One would think that there should always be a c_type, but this is not
-    // always true. This seems to happen only in array, signal, and parameter
-    // elements.
-    try testTranslateType("*gobject.Object", .{ .name = .{ .ns = "GObject", .local = "Object" }, .c_type = null }, false);
-    try testTranslateType("?*gobject.Object", .{ .name = .{ .ns = "GObject", .local = "Object" }, .c_type = null }, true);
-    try testTranslateType("*gobject.ParamSpec", .{ .name = .{ .ns = "GObject", .local = "ParamSpec" }, .c_type = null }, false);
-    try testTranslateType("?*gobject.ParamSpec", .{ .name = .{ .ns = "GObject", .local = "ParamSpec" }, .c_type = null }, true);
     // We may want to revisit these at some point, or they may just be a lost
     // cause, since the GIR doesn't tell us whether these are really meant to be
     // single or many pointers, and there are examples of both interpretations.
@@ -1184,6 +1172,12 @@ test "translateArrayType" {
         .fixed_size = 4,
         .element = &.{
             .simple = .{ .name = .{ .ns = "Gdk", .local = "RGBA" }, .c_type = "GdkRGBA" },
+        },
+    });
+    try testTranslateArrayType("[2]gobject._Value__data__union", .{
+        .fixed_size = 2,
+        .element = &.{
+            .simple = .{ .name = .{ .ns = "GObject", .local = "_Value__data__union" }, .c_type = null },
         },
     });
 }
