@@ -1278,9 +1278,6 @@ fn translateParameterName(allocator: Allocator, parameterName: []const u8, out: 
 }
 
 fn translateReturnValue(allocator: Allocator, return_value: gir.ReturnValue, out: anytype) !void {
-    if (return_value.nullable) {
-        _ = try out.write("?");
-    }
     try translateAnyType(allocator, return_value.type, return_value.nullable, out);
 }
 
