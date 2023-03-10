@@ -97,7 +97,9 @@ return struct {
       <return-value type="Type" />
       <body>const typeInfo = @typeInfo(T);
 // Types manually extracted from gtype.h since they don't seem to show up in GIR
-if (T == void) {
+if (comptime std.meta.trait.hasFn("getType")(T)) {
+    return T.getType();
+} else if (T == void) {
     return typeMakeFundamental(1);
 } else if (T == i8) {
     return typeMakeFundamental(3);
@@ -133,8 +135,6 @@ if (T == void) {
     return Enum;
 } else if (typeInfo == .Struct and typeInfo.Struct.backing_integer == c_uint) {
     return Flags;
-} else if (comptime std.meta.trait.hasFn("getType")(T)) {
-    return T.getType();
 } else {
     @compileError("unable to determine GObject type for " ++ @typeName(T));
 }</body>

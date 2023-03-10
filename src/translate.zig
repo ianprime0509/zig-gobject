@@ -454,6 +454,9 @@ fn translateRecord(allocator: Allocator, record: gir.Record, maybe_extras_record
         }
     }
 
+    if (record.getTypeFunction()) |get_type_function| {
+        try translateFunction(allocator, get_type_function, " " ** 4, out);
+    }
     for (record.functions) |function| {
         try translateFunction(allocator, function, " " ** 4, out);
     }
@@ -505,6 +508,9 @@ fn translateUnion(allocator: Allocator, @"union": gir.Union, out: anytype) !void
     if (@"union".fields.len > 0) {
         _ = try out.write("\n");
     }
+    if (@"union".getTypeFunction()) |get_type_function| {
+        try translateFunction(allocator, get_type_function, " " ** 4, out);
+    }
     for (@"union".functions) |function| {
         try translateFunction(allocator, function, " " ** 4, out);
     }
@@ -554,14 +560,11 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, out: anytype
 
     try out.print("\n    const Self = {s};\n\n", .{bit_field.name});
 
-    // Blanket extra function to allow bit field types to be recognized in the
-    // same way as class types by various helper functions
-    _ = try out.write("    pub fn getType() gobject.Type {\n");
-    _ = try out.write("        return gobject.Flags;\n");
-    _ = try out.write("    }\n\n");
-
+    if (bit_field.getTypeFunction()) |get_type_function| {
+        try translateFunction(allocator, get_type_function, " " ** 4, out);
+    }
     for (bit_field.functions) |function| {
-        try translateFunction(allocator, function, " " ** 8, out);
+        try translateFunction(allocator, function, " " ** 4, out);
     }
 
     _ = try out.write("};\n\n");
@@ -576,14 +579,11 @@ fn translateEnum(allocator: Allocator, @"enum": gir.Enum, out: anytype) !void {
 
     try out.print("\n    const Self = {s};\n\n", .{@"enum".name});
 
-    // Blanket extra function to allow enum types to be recognized in the
-    // same way as class types by various helper functions
-    _ = try out.write("    pub fn getType() gobject.Type {\n");
-    _ = try out.write("        return gobject.Enum;\n");
-    _ = try out.write("    }\n\n");
-
+    if (@"enum".getTypeFunction()) |get_type_function| {
+        try translateFunction(allocator, get_type_function, " " ** 4, out);
+    }
     for (@"enum".functions) |function| {
-        try translateFunction(allocator, function, " " ** 8, out);
+        try translateFunction(allocator, function, " " ** 4, out);
     }
 
     _ = try out.write("};\n\n");

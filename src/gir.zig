@@ -214,21 +214,7 @@ pub const Class = struct {
     const Self = @This();
 
     pub fn getTypeFunction(self: Self) Function {
-        return .{
-            .name = "get_type",
-            .c_identifier = self.get_type,
-            .moved_to = null,
-            .parameters = &.{},
-            .return_value = .{
-                .nullable = false,
-                .type = .{ .simple = .{
-                    .name = .{ .ns = "GObject", .local = "Type" },
-                    .c_type = "GType",
-                } },
-                .documentation = null,
-            },
-            .documentation = null,
-        };
+        return Function.forGetType(self, true);
     }
 };
 
@@ -311,21 +297,7 @@ pub const Interface = struct {
     const Self = @This();
 
     pub fn getTypeFunction(self: Self) Function {
-        return .{
-            .name = "get_type",
-            .c_identifier = self.get_type,
-            .moved_to = null,
-            .parameters = &.{},
-            .return_value = .{
-                .nullable = false,
-                .type = .{ .simple = .{
-                    .name = .{ .ns = "GObject", .local = "Type" },
-                    .c_type = "GType",
-                } },
-                .documentation = null,
-            },
-            .documentation = null,
-        };
+        return Function.forGetType(self, true);
     }
 };
 
@@ -391,8 +363,15 @@ pub const Record = struct {
     functions: []const Function = &.{},
     constructors: []const Constructor = &.{},
     methods: []const Method = &.{},
+    get_type: ?[]const u8 = null,
     is_gtype_struct_for: ?[]const u8 = null,
     documentation: ?Documentation = null,
+
+    const Self = @This();
+
+    pub fn getTypeFunction(self: Self) ?Function {
+        return Function.forGetType(self, false);
+    }
 };
 
 fn parseRecord(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Record {
@@ -401,6 +380,7 @@ fn parseRecord(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, cur
     var functions = ArrayList(Function).init(allocator);
     var constructors = ArrayList(Constructor).init(allocator);
     var methods = ArrayList(Method).init(allocator);
+    var get_type: ?[]const u8 = null;
     var is_gtype_struct_for: ?[]const u8 = null;
     var documentation: ?Documentation = null;
 
@@ -408,6 +388,8 @@ fn parseRecord(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, cur
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
         if (xml.attrIs(attr, null, "name")) {
             name = try xml.attrContent(allocator, doc, attr);
+        } else if (xml.attrIs(attr, ns.glib, "get-type")) {
+            get_type = try xml.attrContent(allocator, doc, attr);
         } else if (xml.attrIs(attr, ns.glib, "is-gtype-struct-for")) {
             is_gtype_struct_for = try xml.attrContent(allocator, doc, attr);
         }
@@ -434,6 +416,7 @@ fn parseRecord(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, cur
         .functions = functions.items,
         .constructors = constructors.items,
         .methods = methods.items,
+        .get_type = get_type,
         .is_gtype_struct_for = is_gtype_struct_for,
         .documentation = documentation,
     };
@@ -445,7 +428,14 @@ pub const Union = struct {
     functions: []const Function = &.{},
     constructors: []const Constructor = &.{},
     methods: []const Method = &.{},
+    get_type: ?[]const u8 = null,
     documentation: ?Documentation = null,
+
+    const Self = @This();
+
+    pub fn getTypeFunction(self: Self) ?Function {
+        return Function.forGetType(self, false);
+    }
 };
 
 fn parseUnion(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Union {
@@ -454,12 +444,15 @@ fn parseUnion(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, curr
     var functions = ArrayList(Function).init(allocator);
     var constructors = ArrayList(Constructor).init(allocator);
     var methods = ArrayList(Method).init(allocator);
+    var get_type: ?[]const u8 = null;
     var documentation: ?Documentation = null;
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
         if (xml.attrIs(attr, null, "name")) {
             name = try xml.attrContent(allocator, doc, attr);
+        } else if (xml.attrIs(attr, ns.glib, "get-type")) {
+            get_type = try xml.attrContent(allocator, doc, attr);
         }
     }
 
@@ -484,6 +477,7 @@ fn parseUnion(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, curr
         .functions = functions.items,
         .constructors = constructors.items,
         .methods = methods.items,
+        .get_type = get_type,
         .documentation = documentation,
     };
 }
@@ -536,19 +530,29 @@ pub const BitField = struct {
     name: []const u8,
     members: []const Member,
     functions: []const Function = &.{},
+    get_type: ?[]const u8 = null,
     documentation: ?Documentation = null,
+
+    const Self = @This();
+
+    pub fn getTypeFunction(self: Self) ?Function {
+        return Function.forGetType(self, false);
+    }
 };
 
 fn parseBitField(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !BitField {
     var name: ?[]const u8 = null;
     var members = ArrayList(Member).init(allocator);
     var functions = ArrayList(Function).init(allocator);
+    var get_type: ?[]const u8 = null;
     var documentation: ?Documentation = null;
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
         if (xml.attrIs(attr, null, "name")) {
             name = try xml.attrContent(allocator, doc, attr);
+        } else if (xml.attrIs(attr, ns.glib, "get-type")) {
+            get_type = try xml.attrContent(allocator, doc, attr);
         }
     }
 
@@ -567,6 +571,7 @@ fn parseBitField(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, c
         .name = name orelse return error.InvalidGir,
         .members = members.items,
         .functions = functions.items,
+        .get_type = get_type,
         .documentation = documentation,
     };
 }
@@ -575,19 +580,29 @@ pub const Enum = struct {
     name: []const u8,
     members: []const Member = &.{},
     functions: []const Function = &.{},
+    get_type: ?[]const u8 = null,
     documentation: ?Documentation = null,
+
+    const Self = @This();
+
+    pub fn getTypeFunction(self: Self) ?Function {
+        return Function.forGetType(self, false);
+    }
 };
 
 fn parseEnum(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Enum {
     var name: ?[]const u8 = null;
     var members = ArrayList(Member).init(allocator);
     var functions = ArrayList(Function).init(allocator);
+    var get_type: ?[]const u8 = null;
     var documentation: ?Documentation = null;
 
     var maybe_attr: ?*c.xmlAttr = node.properties;
     while (maybe_attr) |attr| : (maybe_attr = attr.next) {
         if (xml.attrIs(attr, null, "name")) {
             name = try xml.attrContent(allocator, doc, attr);
+        } else if (xml.attrIs(attr, ns.glib, "get-type")) {
+            get_type = try xml.attrContent(allocator, doc, attr);
         }
     }
 
@@ -606,6 +621,7 @@ fn parseEnum(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, curre
         .name = name orelse return error.InvalidGir,
         .members = members.items,
         .functions = functions.items,
+        .get_type = get_type,
         .documentation = documentation,
     };
 }
@@ -651,6 +667,30 @@ pub const Function = struct {
     parameters: []const Parameter,
     return_value: ReturnValue,
     documentation: ?Documentation = null,
+
+    fn forGetType(elem: anytype, comptime required: bool) if (required) Function else ?Function {
+        if (!required and elem.get_type == null) {
+            return null;
+        }
+
+        const get_type = if (required) elem.get_type else elem.get_type.?;
+
+        return .{
+            .name = "get_type",
+            .c_identifier = get_type,
+            .moved_to = null,
+            .parameters = &.{},
+            .return_value = .{
+                .nullable = false,
+                .type = .{ .simple = .{
+                    .name = .{ .ns = "GObject", .local = "Type" },
+                    .c_type = "GType",
+                } },
+                .documentation = null,
+            },
+            .documentation = null,
+        };
+    }
 };
 
 fn parseFunction(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Function {
