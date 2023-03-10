@@ -93,6 +93,15 @@ pub fn build(b: *std.Build) !void {
     const codegen_step = b.step("codegen", "Generate all bindings");
     codegen_step.dependOn(&codegen_cmd.step);
 
+    const binding_tests = b.addTest(.{
+        .root_source_file = .{ .path = "src/binding_tests.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
+    binding_tests.linkLibC();
+    binding_tests.linkSystemLibrary("gtk4");
+    test_step.dependOn(&binding_tests.step);
+
     const example_exe = b.addExecutable(.{
         .name = "zig-gobject-example",
         .root_source_file = .{ .path = "src/example.zig" },
