@@ -20,5 +20,5 @@ zig build run -- lib/gir-files gir-extras src/gir-out Gtk-4.0
 
 Several examples are located under `src/examples`. The `example.zig` program
 acts as a launcher for the examples, and can be run using `zig build
-example-run` (which will also trigger codegen, since the examples rely on the
+run-example` (which will also trigger codegen, since the examples rely on the
 generated libraries).

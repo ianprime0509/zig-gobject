@@ -163,11 +163,11 @@ fn translateIncludes(allocator: Allocator, ns: gir.Namespace, deps: NamespaceDep
     try needed_deps.appendSlice(deps.get(.{ .name = ns.name, .version = ns.version }) orelse &.{});
     while (needed_deps.popOrNull()) |needed_dep| {
         if (!seen.contains(needed_dep)) {
-            const file_name = try fileNameAlloc(allocator, needed_dep.name, needed_dep.version);
-            defer allocator.free(file_name);
+            const module_name = try moduleNameAlloc(allocator, needed_dep.name, needed_dep.version);
+            defer allocator.free(module_name);
             const alias = try ascii.allocLowerString(allocator, needed_dep.name);
             defer allocator.free(alias);
-            try out.print("const {s} = @import(\"{s}\");\n", .{ alias, file_name });
+            try out.print("const {s} = @import(\"{s}\");\n", .{ alias, module_name });
 
             try seen.put(needed_dep, {});
             try needed_deps.appendSlice(deps.get(needed_dep) orelse &.{});
@@ -178,7 +178,7 @@ fn translateIncludes(allocator: Allocator, ns: gir.Namespace, deps: NamespaceDep
     // TODO: represent this better in the dependency graph somehow so it's
     // transparent to codegen selection
     if (!mem.eql(u8, ns.name, "GObject") and !seen.contains(.{ .name = "GObject", .version = "2.0" })) {
-        _ = try out.write("const gobject = @import(\"gobject-2.0.zig\");\n");
+        _ = try out.write("const gobject = @import(\"gobject-2.0\");\n");
     }
 }
 
@@ -186,6 +186,12 @@ fn fileNameAlloc(allocator: Allocator, name: []const u8, version: []const u8) ![
     const file_name = try fmt.allocPrint(allocator, "{s}-{s}.zig", .{ name, version });
     _ = ascii.lowerString(file_name, file_name);
     return file_name;
+}
+
+fn moduleNameAlloc(allocator: Allocator, name: []const u8, version: []const u8) ![]u8 {
+    const module_name = try fmt.allocPrint(allocator, "{s}-{s}", .{ name, version });
+    _ = ascii.lowerString(module_name, module_name);
+    return module_name;
 }
 
 fn translateNamespace(allocator: Allocator, ns: gir.Namespace, maybe_extras_ns: ?extras.Namespace, out: anytype) !void {

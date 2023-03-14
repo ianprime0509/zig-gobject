@@ -93,6 +93,41 @@ pub fn build(b: *std.Build) !void {
     const codegen_step = b.step("codegen", "Generate all bindings");
     codegen_step.dependOn(&codegen_cmd.step);
 
+    // TODO: there should be build helper functions to set all this stuff up
+    const glib = b.createModule(.{
+        .source_file = .{ .path = "src/gir-out/glib-2.0.zig" },
+    });
+    const gobject = b.createModule(.{
+        .source_file = .{ .path = "src/gir-out/gobject-2.0.zig" },
+        .dependencies = &.{
+            .{ .name = "glib-2.0", .module = glib },
+        },
+    });
+    const gio = b.createModule(.{
+        .source_file = .{ .path = "src/gir-out/gio-2.0.zig" },
+        .dependencies = &.{
+            .{ .name = "glib-2.0", .module = glib },
+            .{ .name = "gobject-2.0", .module = gobject },
+        },
+    });
+    const gdk = b.createModule(.{
+        .source_file = .{ .path = "src/gir-out/gdk-4.0.zig" },
+        .dependencies = &.{
+            .{ .name = "glib-2.0", .module = glib },
+            .{ .name = "gobject-2.0", .module = gobject },
+            .{ .name = "gio-2.0", .module = gio },
+        },
+    });
+    const gtk = b.createModule(.{
+        .source_file = .{ .path = "src/gir-out/gtk-4.0.zig" },
+        .dependencies = &.{
+            .{ .name = "glib-2.0", .module = glib },
+            .{ .name = "gobject-2.0", .module = gobject },
+            .{ .name = "gio-2.0", .module = gio },
+            .{ .name = "gdk-4.0", .module = gdk },
+        },
+    });
+
     const binding_tests = b.addTest(.{
         .root_source_file = .{ .path = "src/binding_tests.zig" },
         .target = target,
@@ -100,6 +135,10 @@ pub fn build(b: *std.Build) !void {
     });
     binding_tests.linkLibC();
     binding_tests.linkSystemLibrary("gtk4");
+    binding_tests.addModule("glib-2.0", glib);
+    binding_tests.addModule("gobject-2.0", gobject);
+    binding_tests.addModule("gio-2.0", gio);
+    binding_tests.addModule("gtk-4.0", gtk);
     test_step.dependOn(&binding_tests.step);
 
     const example_exe = b.addExecutable(.{
@@ -110,6 +149,10 @@ pub fn build(b: *std.Build) !void {
     });
     example_exe.linkLibC();
     example_exe.linkSystemLibrary("gtk4");
+    example_exe.addModule("glib-2.0", glib);
+    example_exe.addModule("gobject-2.0", gobject);
+    example_exe.addModule("gio-2.0", gio);
+    example_exe.addModule("gtk-4.0", gtk);
     example_exe.step.dependOn(&codegen_cmd.step);
 
     const example_build_step = b.step("example-build", "Build the example");
@@ -122,6 +165,6 @@ pub fn build(b: *std.Build) !void {
         example_run_cmd.addArgs(args);
     }
 
-    const example_run_step = b.step("example-run", "Run the example");
-    example_run_step.dependOn(&example_run_cmd.step);
+    const run_example_step = b.step("run-example", "Run the example");
+    run_example_step.dependOn(&example_run_cmd.step);
 }
