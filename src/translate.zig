@@ -46,7 +46,7 @@ pub fn findRepositories(allocator: Allocator, in_dir: fs.Dir, roots: []const []c
             const repo = try findRepository(a, in_dir, needed_repo);
             try repos.put(needed_repo, repo);
             for (repo.includes) |include| {
-                try needed_repos.append(try fmt.allocPrint(allocator, "{s}-{s}", .{ include.name, include.version }));
+                try needed_repos.append(try fmt.allocPrint(a, "{s}-{s}", .{ include.name, include.version }));
             }
         }
     }
