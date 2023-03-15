@@ -1,8 +1,5 @@
 // https://docs.gtk.org/gtk4/getting_started.html#custom-drawing
 
-// TODO: this example doesn't work yet because Cairo doesn't actually have
-// proper gobject-introspection metadata
-
 const std = @import("std");
 const gtk = @import("gtk-4.0");
 const gdk = @import("gdk-4.0");
@@ -11,7 +8,7 @@ const gobject = @import("gobject-2.0");
 
 pub fn main() void {
     const app = gtk.Application.new("org.gtk.example", .{});
-    _ = app.connectActivate(?*anyopaque, &activate, null);
+    _ = app.connectActivate(?*anyopaque, &activate, null, .{});
     const status = app.run(@intCast(c_int, std.os.argv.len), std.os.argv.ptr);
     std.os.exit(@intCast(u8, status));
 }
@@ -20,7 +17,7 @@ fn activate(app: *gtk.Application, _: ?*anyopaque) callconv(.C) void {
     const window = gtk.ApplicationWindow.new(app);
     window.setTitle("Drawing Area");
 
-    _ = window.connectDestroy(?*anyopaque, &closeWindow, null);
+    _ = window.connectDestroy(?*anyopaque, &closeWindow, null, .{});
 
     const frame = gtk.Frame.new(null);
     window.setChild(frame.as(gtk.Widget));
@@ -32,19 +29,20 @@ fn activate(app: *gtk.Application, _: ?*anyopaque) callconv(.C) void {
 
     drawing_area.setDrawFunc(&drawCb, null, null);
 
-    _ = gobject.signalConnectData(drawing_area, "resize", @ptrCast(*gobject.Callback, &resizeCb), null, null, .{ .after = true });
+    _ = drawing_area.connectResize(?*anyopaque, &resizeCb, null, .{ .after = true });
+    // _ = gobject.signalConnectData(drawing_area, "resize", @ptrCast(gobject.Callback, &resizeCb), null, null, .{ .after = true });
 
     const drag = gtk.GestureDrag.new();
     drag.setButton(gdk.BUTTON_PRIMARY);
     drawing_area.addController(drag.as(gtk.EventController));
-    _ = drag.connectDragBegin(*gtk.DrawingArea, &dragBegin, drawing_area);
-    _ = drag.connectDragUpdate(*gtk.DrawingArea, &dragUpdate, drawing_area);
-    _ = drag.connectDragEnd(*gtk.DrawingArea, &dragEnd, drawing_area);
+    _ = drag.connectDragBegin(*gtk.DrawingArea, &dragBegin, drawing_area, .{});
+    _ = drag.connectDragUpdate(*gtk.DrawingArea, &dragUpdate, drawing_area, .{});
+    _ = drag.connectDragEnd(*gtk.DrawingArea, &dragEnd, drawing_area, .{});
 
     const press = gtk.GestureClick.new();
     press.setButton(gdk.BUTTON_SECONDARY);
     drawing_area.addController(press.as(gtk.EventController));
-    _ = press.connectPressed(*gtk.DrawingArea, &pressed, drawing_area);
+    _ = press.connectPressed(*gtk.DrawingArea, &pressed, drawing_area, .{});
 
     window.show();
 }
@@ -65,8 +63,8 @@ fn resizeCb(widget: *gtk.DrawingArea, _: c_int, _: c_int, _: ?*anyopaque) callco
         surface = null;
     }
 
-    if (widget.getNative().getSurface()) |widget_surface| {
-        surface = widget_surface.createSimilarSurface(cairo.CONTENT_COLOR, widget.getWidth(), widget.getHeight());
+    if (widget.getNative()) |native| {
+        surface = native.getSurface().createSimilarSurface(cairo.Content.color, widget.getWidth(), widget.getHeight());
 
         // Initialize the surface to white
         clearSurface();

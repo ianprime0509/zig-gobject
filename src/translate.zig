@@ -207,6 +207,9 @@ fn translateNamespace(allocator: Allocator, ns: gir.Namespace, maybe_extras_ns: 
         for (extras_ns.functions) |function| {
             try translateExtraFunction(function, "", out);
         }
+        for (extras_ns.extern_functions) |extern_function| {
+            try translateExtraExternFunction(extern_function, "", out);
+        }
         for (extras_ns.constants) |constant| {
             try translateExtraConstant(constant, "", out);
         }
@@ -281,6 +284,9 @@ fn translateClass(allocator: Allocator, class: gir.Class, maybe_extras_class: ?e
         for (extras_class.functions) |function| {
             try translateExtraFunction(function, " " ** 4, out);
         }
+        for (extras_class.extern_functions) |extern_function| {
+            try translateExtraExternFunction(extern_function, " " ** 4, out);
+        }
     }
 
     try translateFunction(allocator, class.getTypeFunction(), " " ** 4, out);
@@ -315,6 +321,9 @@ fn translateClass(allocator: Allocator, class: gir.Class, maybe_extras_class: ?e
     if (maybe_extras_class) |extras_class| {
         for (extras_class.methods) |method| {
             try translateExtraMethod(method, " " ** 8, out);
+        }
+        for (extras_class.extern_methods) |extern_method| {
+            try translateExtraExternMethod(extern_method, " " ** 8, out);
         }
     }
     for (class.methods) |method| {
@@ -366,6 +375,9 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, maybe_extr
         for (extras_interface.functions) |function| {
             try translateExtraFunction(function, " " ** 4, out);
         }
+        for (extras_interface.extern_functions) |extern_function| {
+            try translateExtraExternFunction(extern_function, " " ** 4, out);
+        }
     }
 
     try translateFunction(allocator, interface.getTypeFunction(), " " ** 4, out);
@@ -400,6 +412,9 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, maybe_extr
     if (maybe_extras_interface) |extras_interface| {
         for (extras_interface.methods) |method| {
             try translateExtraMethod(method, " " ** 8, out);
+        }
+        for (extras_interface.extern_methods) |extern_method| {
+            try translateExtraExternMethod(extern_method, " " ** 8, out);
         }
     }
     for (interface.methods) |method| {
@@ -451,6 +466,9 @@ fn translateRecord(allocator: Allocator, record: gir.Record, maybe_extras_record
         for (extras_record.functions) |function| {
             try translateExtraFunction(function, " " ** 4, out);
         }
+        for (extras_record.extern_functions) |extern_function| {
+            try translateExtraExternFunction(extern_function, " " ** 4, out);
+        }
     }
 
     if (record.getTypeFunction()) |get_type_function| {
@@ -485,6 +503,9 @@ fn translateRecord(allocator: Allocator, record: gir.Record, maybe_extras_record
     if (maybe_extras_record) |extras_record| {
         for (extras_record.methods) |method| {
             try translateExtraMethod(method, " " ** 8, out);
+        }
+        for (extras_record.extern_methods) |extern_method| {
+            try translateExtraExternMethod(extern_method, " " ** 8, out);
         }
     }
     for (record.methods) |method| {
@@ -598,7 +619,7 @@ fn translateFunction(allocator: Allocator, function: gir.Function, indent: []con
     }
 
     // extern declaration
-    try out.print("{s}extern fn {s}(", .{ indent, zig.fmtId(function.c_identifier) });
+    try out.print("{s}extern fn {}(", .{ indent, zig.fmtId(function.c_identifier) });
 
     var i: usize = 0;
     while (i < function.parameters.len) : (i += 1) {
@@ -607,7 +628,7 @@ fn translateFunction(allocator: Allocator, function: gir.Function, indent: []con
             _ = try out.write(", ");
         }
     }
-    _ = try out.write(") callconv(.C) ");
+    _ = try out.write(") ");
     try translateReturnValue(allocator, function.return_value, out);
     _ = try out.write(";\n");
 
@@ -615,7 +636,7 @@ fn translateFunction(allocator: Allocator, function: gir.Function, indent: []con
     try translateDocumentation(function.documentation, indent, out);
     var fnName = try toCamelCase(allocator, function.name, "_");
     defer allocator.free(fnName);
-    try out.print("{s}pub const {s} = {s};\n\n", .{ indent, zig.fmtId(fnName), zig.fmtId(function.c_identifier) });
+    try out.print("{s}pub const {} = {};\n\n", .{ indent, zig.fmtId(fnName), zig.fmtId(function.c_identifier) });
 }
 
 fn isConstructorTranslatable(constructor: gir.Constructor) bool {
@@ -721,13 +742,13 @@ fn translateSignal(allocator: Allocator, signal: gir.Signal, indent: []const u8,
     try out.print("{s}pub fn connect{s}(p_self: *Self, comptime T: type, p_callback: ", .{ indent, upper_signal_name });
     // TODO: verify that T is a pointer type or compatible
     try translateSignalCallbackType(allocator, signal, out);
-    _ = try out.write(", p_data: T) c_ulong {\n");
+    _ = try out.write(", p_data: T, p_options: struct { after: bool = false }) c_ulong {\n");
 
     try out.print("{s}    return ", .{indent});
     try translateNameNs(allocator, "gobject", out);
     try out.print("signalConnectData(p_self, \"{}\", @ptrCast(", .{zig.fmtEscapes(signal.name)});
     try translateNameNs(allocator, "gobject", out);
-    _ = try out.write("Callback, p_callback), p_data, null, .{});\n");
+    _ = try out.write("Callback, p_callback), p_data, null, .{ .after = p_options.after });\n");
 
     try out.print("{s}}}\n\n", .{indent});
 }
@@ -1327,17 +1348,7 @@ fn translateExtraFunction(function: extras.Function, indent: []const u8, out: an
         _ = try out.write("pub ");
     }
     try out.print("fn {}(", .{zig.fmtId(function.name)});
-    var i: usize = 0;
-    while (i < function.parameters.len) : (i += 1) {
-        const parameter = function.parameters[i];
-        if (parameter.@"comptime") {
-            _ = try out.write("comptime ");
-        }
-        try out.print("{}: {s}", .{ zig.fmtId(parameter.name), parameter.type });
-        if (i < function.parameters.len - 1) {
-            _ = try out.write(", ");
-        }
-    }
+    try translateExtraParameters(function.parameters, out);
     try out.print(") {s} {{\n", .{function.return_value.type});
 
     var lines = mem.split(u8, function.body, "\n");
@@ -1346,6 +1357,17 @@ fn translateExtraFunction(function: extras.Function, indent: []const u8, out: an
     }
 
     try out.print("{s}}}\n\n", .{indent});
+}
+
+fn translateExtraExternFunction(extern_function: extras.ExternFunction, indent: []const u8, out: anytype) !void {
+    // extern declaration
+    try out.print("{s}extern fn {}(", .{ indent, zig.fmtId(extern_function.identifier) });
+    try translateExtraParameters(extern_function.parameters, out);
+    try out.print(") {s};\n", .{extern_function.return_value.type});
+
+    // function rename
+    try translateExtraDocumentation(extern_function.documentation, false, indent, out);
+    try out.print("{s}pub const {} = {};\n\n", .{ indent, zig.fmtId(extern_function.name), zig.fmtId(extern_function.identifier) });
 }
 
 fn translateExtraMethod(method: extras.Method, indent: []const u8, out: anytype) !void {
@@ -1357,6 +1379,28 @@ fn translateExtraMethod(method: extras.Method, indent: []const u8, out: anytype)
         .private = method.private,
         .documentation = method.documentation,
     }, indent, out);
+}
+
+fn translateExtraExternMethod(extern_method: extras.ExternMethod, indent: []const u8, out: anytype) !void {
+    try translateExtraExternFunction(.{
+        .name = extern_method.name,
+        .identifier = extern_method.identifier,
+        .parameters = extern_method.parameters,
+        .return_value = extern_method.return_value,
+        .documentation = extern_method.documentation,
+    }, indent, out);
+}
+
+fn translateExtraParameters(parameters: []const extras.Parameter, out: anytype) !void {
+    for (parameters, 0..) |parameter, i| {
+        if (parameter.@"comptime") {
+            _ = try out.write("comptime ");
+        }
+        try out.print("{}: {s}", .{ zig.fmtId(parameter.name), parameter.type });
+        if (i < parameters.len - 1) {
+            _ = try out.write(", ");
+        }
+    }
 }
 
 fn translateExtraConstant(constant: extras.Constant, indent: []const u8, out: anytype) !void {

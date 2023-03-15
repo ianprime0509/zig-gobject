@@ -49,12 +49,13 @@ pub const Repository = struct {
 pub const Namespace = struct {
     name: []const u8,
     version: []const u8,
-    classes: []const Class,
-    interfaces: []const Interface,
-    records: []const Record,
-    functions: []const Function,
-    constants: []const Constant,
-    documentation: ?Documentation,
+    classes: []const Class = &.{},
+    interfaces: []const Interface = &.{},
+    records: []const Record = &.{},
+    functions: []const Function = &.{},
+    extern_functions: []const ExternFunction = &.{},
+    constants: []const Constant = &.{},
+    documentation: ?Documentation = null,
 
     fn parse(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Namespace {
         var name: ?[]const u8 = null;
@@ -63,6 +64,7 @@ pub const Namespace = struct {
         var interfaces = ArrayList(Interface).init(allocator);
         var records = ArrayList(Record).init(allocator);
         var functions = ArrayList(Function).init(allocator);
+        var extern_functions = ArrayList(ExternFunction).init(allocator);
         var constants = ArrayList(Constant).init(allocator);
         var documentation: ?Documentation = null;
 
@@ -85,6 +87,8 @@ pub const Namespace = struct {
                 try records.append(try Record.parse(allocator, doc, child));
             } else if (xml.nodeIs(child, ns, "function")) {
                 try functions.append(try Function.parse(allocator, doc, child));
+            } else if (xml.nodeIs(child, ns, "extern-function")) {
+                try extern_functions.append(try ExternFunction.parse(allocator, doc, child));
             } else if (xml.nodeIs(child, ns, "constant")) {
                 try constants.append(try Constant.parse(allocator, doc, child));
             } else if (xml.nodeIs(child, ns, "doc")) {
@@ -99,6 +103,7 @@ pub const Namespace = struct {
             .interfaces = interfaces.items,
             .records = records.items,
             .functions = functions.items,
+            .extern_functions = extern_functions.items,
             .constants = constants.items,
             .documentation = documentation,
         };
@@ -107,14 +112,18 @@ pub const Namespace = struct {
 
 pub const Class = struct {
     name: []const u8,
-    functions: []const Function,
-    methods: []const Method,
-    documentation: ?Documentation,
+    functions: []const Function = &.{},
+    extern_functions: []const ExternFunction = &.{},
+    methods: []const Method = &.{},
+    extern_methods: []const ExternMethod = &.{},
+    documentation: ?Documentation = null,
 
     fn parse(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Class {
         var name: ?[]const u8 = null;
         var functions = ArrayList(Function).init(allocator);
+        var extern_functions = ArrayList(ExternFunction).init(allocator);
         var methods = ArrayList(Method).init(allocator);
+        var extern_methods = ArrayList(ExternMethod).init(allocator);
         var documentation: ?Documentation = null;
 
         var maybe_attr: ?*c.xmlAttr = node.properties;
@@ -128,8 +137,12 @@ pub const Class = struct {
         while (maybe_child) |child| : (maybe_child = child.next) {
             if (xml.nodeIs(child, ns, "function")) {
                 try functions.append(try Function.parse(allocator, doc, child));
+            } else if (xml.nodeIs(child, ns, "extern-function")) {
+                try extern_functions.append(try ExternFunction.parse(allocator, doc, child));
             } else if (xml.nodeIs(child, ns, "method")) {
                 try methods.append(try Method.parse(allocator, doc, child));
+            } else if (xml.nodeIs(child, ns, "extern-method")) {
+                try extern_methods.append(try ExternMethod.parse(allocator, doc, child));
             } else if (xml.nodeIs(child, ns, "doc")) {
                 documentation = try Documentation.parse(allocator, doc, child);
             }
@@ -138,7 +151,9 @@ pub const Class = struct {
         return .{
             .name = name orelse return error.InvalidExtras,
             .functions = functions.items,
+            .extern_functions = extern_functions.items,
             .methods = methods.items,
+            .extern_methods = extern_methods.items,
             .documentation = documentation,
         };
     }
@@ -146,9 +161,11 @@ pub const Class = struct {
 
 pub const Interface = struct {
     name: []const u8,
-    functions: []const Function,
-    methods: []const Method,
-    documentation: ?Documentation,
+    functions: []const Function = &.{},
+    extern_functions: []const ExternFunction = &.{},
+    methods: []const Method = &.{},
+    extern_methods: []const ExternMethod = &.{},
+    documentation: ?Documentation = null,
 
     fn parse(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Interface {
         // Interfaces currently have the same structure as classes
@@ -156,7 +173,9 @@ pub const Interface = struct {
         return .{
             .name = class.name,
             .functions = class.functions,
+            .extern_functions = class.extern_functions,
             .methods = class.methods,
+            .extern_methods = class.extern_methods,
             .documentation = class.documentation,
         };
     }
@@ -164,9 +183,11 @@ pub const Interface = struct {
 
 pub const Record = struct {
     name: []const u8,
-    functions: []const Function,
-    methods: []const Method,
-    documentation: ?Documentation,
+    functions: []const Function = &.{},
+    extern_functions: []const ExternFunction = &.{},
+    methods: []const Method = &.{},
+    extern_methods: []const ExternMethod = &.{},
+    documentation: ?Documentation = null,
 
     fn parse(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Record {
         // Records currently have the same structure as classes
@@ -174,7 +195,9 @@ pub const Record = struct {
         return .{
             .name = class.name,
             .functions = class.functions,
+            .extern_functions = class.extern_functions,
             .methods = class.methods,
+            .extern_methods = class.extern_methods,
             .documentation = class.documentation,
         };
     }
@@ -186,7 +209,7 @@ pub const Function = struct {
     return_value: ReturnValue,
     body: []const u8,
     private: bool,
-    documentation: ?Documentation,
+    documentation: ?Documentation = null,
 
     fn parse(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Function {
         var name: ?[]const u8 = null;
@@ -229,13 +252,57 @@ pub const Function = struct {
     }
 };
 
+pub const ExternFunction = struct {
+    name: []const u8,
+    identifier: []const u8,
+    parameters: []const Parameter,
+    return_value: ReturnValue,
+    documentation: ?Documentation = null,
+
+    fn parse(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !ExternFunction {
+        var name: ?[]const u8 = null;
+        var identifier: ?[]const u8 = null;
+        var parameters = ArrayList(Parameter).init(allocator);
+        var return_value: ?ReturnValue = null;
+        var documentation: ?Documentation = null;
+
+        var maybe_attr: ?*c.xmlAttr = node.properties;
+        while (maybe_attr) |attr| : (maybe_attr = attr.next) {
+            if (xml.attrIs(attr, null, "name")) {
+                name = try xml.attrContent(allocator, doc, attr);
+            } else if (xml.attrIs(attr, null, "identifier")) {
+                identifier = try xml.attrContent(allocator, doc, attr);
+            }
+        }
+
+        var maybe_child: ?*c.xmlNode = node.children;
+        while (maybe_child) |child| : (maybe_child = child.next) {
+            if (xml.nodeIs(child, ns, "parameter")) {
+                try parameters.append(try Parameter.parse(allocator, doc, child));
+            } else if (xml.nodeIs(child, ns, "return-value")) {
+                return_value = try ReturnValue.parse(allocator, doc, child);
+            } else if (xml.nodeIs(child, ns, "doc")) {
+                documentation = try Documentation.parse(allocator, doc, child);
+            }
+        }
+
+        return .{
+            .name = name orelse return error.InvalidExtras,
+            .identifier = identifier orelse return error.InvalidExtras,
+            .parameters = parameters.items,
+            .return_value = return_value orelse return error.InvalidExtras,
+            .documentation = documentation,
+        };
+    }
+};
+
 pub const Method = struct {
     name: []const u8,
     parameters: []const Parameter,
     return_value: ReturnValue,
     body: []const u8,
     private: bool,
-    documentation: ?Documentation,
+    documentation: ?Documentation = null,
 
     fn parse(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Method {
         // Methods currently have the same structure as functions
@@ -246,6 +313,26 @@ pub const Method = struct {
             .return_value = function.return_value,
             .body = function.body,
             .private = function.private,
+            .documentation = function.documentation,
+        };
+    }
+};
+
+pub const ExternMethod = struct {
+    name: []const u8,
+    identifier: []const u8,
+    parameters: []const Parameter,
+    return_value: ReturnValue,
+    documentation: ?Documentation = null,
+
+    fn parse(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !ExternMethod {
+        // Extern methods currently have the same structure as extern functions
+        const function = try ExternFunction.parse(allocator, doc, node);
+        return .{
+            .name = function.name,
+            .identifier = function.identifier,
+            .parameters = function.parameters,
+            .return_value = function.return_value,
             .documentation = function.documentation,
         };
     }
@@ -299,10 +386,10 @@ pub const ReturnValue = struct {
 
 pub const Constant = struct {
     name: []const u8,
-    type: ?[]const u8,
+    type: ?[]const u8 = null,
     value: []const u8,
     private: bool,
-    documentation: ?Documentation,
+    documentation: ?Documentation = null,
 
     fn parse(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Constant {
         var name: ?[]const u8 = null;

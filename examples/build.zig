@@ -15,6 +15,8 @@ pub fn build(b: *std.Build) !void {
     exe.addModule("glib-2.0", bindings.module("glib-2.0"));
     exe.addModule("gobject-2.0", bindings.module("gobject-2.0"));
     exe.addModule("gio-2.0", bindings.module("gio-2.0"));
+    exe.addModule("cairo-1.0", bindings.module("cairo-1.0"));
+    exe.addModule("gdk-4.0", bindings.module("gdk-4.0"));
     exe.addModule("gtk-4.0", bindings.module("gtk-4.0"));
     exe.install();
 

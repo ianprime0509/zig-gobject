@@ -105,6 +105,7 @@ fn addCodegenStep(b: *std.Build, codegen_exe: *std.Build.CompileStep) !*std.Buil
     };
 
     const extras = [_][]const u8{
+        "cairo-1.0.gir.extras",
         "GLib-2.0.gir.extras",
         "GObject-2.0.gir.extras",
     };

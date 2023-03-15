@@ -1,0 +1,109 @@
+<?xml version="1.0"?>
+<repository xmlns="https://ianjohnson.dev/zig-gobject/extras">
+  <namespace name="cairo" version="1.0">
+    <record name="Context">
+      <extern-function name="create" identifier="cairo_create">
+        <parameter name="p_target" type="*Surface" />
+        <return-value type="*Context" />
+      </extern-function>
+      <extern-method name="reference" identifier="cairo_reference">
+        <parameter name="p_cr" type="*Context" />
+        <return-value type="*Context" />
+      </extern-method>
+      <extern-method name="destroy" identifier="cairo_destroy">
+        <parameter name="p_cr" type="*Context" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="status" identifier="cairo_status">
+        <parameter name="p_cr" type="*Context" />
+        <return-value type="Status" />
+      </extern-method>
+      <extern-method name="save" identifier="cairo_save">
+        <parameter name="p_cr" type="*Context" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="restore" identifier="cairo_restore">
+        <parameter name="p_cr" type="*Context" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="getTarget" identifier="cairo_get_target">
+        <parameter name="p_cr" type="*Context" />
+        <return-value type="*Surface" />
+      </extern-method>
+      <extern-method name="pushGroup" identifier="cairo_push_group">
+        <parameter name="p_cr" type="*Context" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="pushGroupWithContent" identifier="cairo_push_group_with_content">
+        <parameter name="p_cr" type="*Context" />
+        <parameter name="p_content" type="Content" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="popGroup" identifier="cairo_pop_group">
+        <parameter name="p_cr" type="*Context" />
+        <return-value type="*Pattern" />
+      </extern-method>
+      <extern-method name="popGroupToSource" identifier="cairo_pop_group_to_source">
+        <parameter name="p_cr" type="*Context" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="getGroupTarget" identifier="cairo_get_group_target">
+        <parameter name="p_cr" type="*Context" />
+        <return-value type="*Surface" />
+      </extern-method>
+      <extern-method name="setSourceRgb" identifier="cairo_set_source_rgb">
+        <parameter name="p_cr" type="*Context" />
+        <parameter name="p_red" type="f64" />
+        <parameter name="p_green" type="f64" />
+        <parameter name="p_blue" type="f64" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="setSourceRgba" identifier="cairo_set_source_rgba">
+        <parameter name="p_cr" type="*Context" />
+        <parameter name="p_red" type="f64" />
+        <parameter name="p_green" type="f64" />
+        <parameter name="p_blue" type="f64" />
+        <parameter name="p_alpha" type="f64" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="setSource" identifier="cairo_set_source">
+        <parameter name="p_cr" type="*Context" />
+        <parameter name="p_source" type="*Pattern" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="setSourceSurface" identifier="cairo_set_source_surface">
+        <parameter name="p_cr" type="*Context" />
+        <parameter name="p_surface" type="*Surface" />
+        <parameter name="p_x" type="f64" />
+        <parameter name="p_y" type="f64" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="getSource" identifier="cairo_get_source">
+        <parameter name="p_cr" type="*Context" />
+        <return-value type="*Pattern" />
+      </extern-method>
+      <extern-method name="paint" identifier="cairo_paint">
+        <parameter name="p_cr" type="*Context" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="fill" identifier="cairo_fill">
+        <parameter name="p_cr" type="*Context" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="rectangle" identifier="cairo_rectangle">
+        <parameter name="p_cr" type="*Context" />
+        <parameter name="p_x" type="f64" />
+        <parameter name="p_y" type="f64" />
+        <parameter name="p_width" type="f64" />
+        <parameter name="p_height" type="f64" />
+        <return-value type="void" />
+      </extern-method>
+    </record>
+    <record name="Surface">
+      <extern-method name="destroy" identifier="cairo_surface_destroy">
+        <parameter name="p_surface" type="*Surface" />
+        <return-value type="void" />
+      </extern-method>
+    </record>
+  </namespace>
+</repository>
