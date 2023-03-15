@@ -1,0 +1,10 @@
+.{
+    .name = "zig-gobject",
+    .version = "0.0.0",
+    .dependencies = .{
+        .@"zig-gobject" = .{
+            .path = "../bindings",
+            .hash = "1220197e624b018c780d9c42fb1c80afc400d883e5dc4389a9d139f543e1c2ab8560",
+        },
+    },
+}

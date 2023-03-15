@@ -18,6 +18,7 @@ pub const Error = error{InvalidGir} || Allocator.Error;
 
 pub const Repository = struct {
     includes: []const Include = &.{},
+    packages: []const Package = &.{},
     namespace: Namespace,
     arena: ArenaAllocator,
 
@@ -37,12 +38,15 @@ pub const Repository = struct {
         const node: *c.xmlNode = c.xmlDocGetRootElement(doc) orelse return error.InvalidGir;
 
         var includes = ArrayList(Include).init(allocator);
+        var packages = ArrayList(Package).init(allocator);
         var namespace: ?Namespace = null;
 
         var maybe_child: ?*c.xmlNode = node.children;
         while (maybe_child) |child| : (maybe_child = child.next) {
             if (xml.nodeIs(child, ns.core, "include")) {
                 try includes.append(try Include.parse(allocator, doc, child));
+            } else if (xml.nodeIs(child, ns.core, "package")) {
+                try packages.append(try Package.parse(allocator, doc, child));
             } else if (xml.nodeIs(child, ns.core, "namespace")) {
                 namespace = try Namespace.parse(allocator, doc, child);
             }
@@ -50,6 +54,7 @@ pub const Repository = struct {
 
         return .{
             .includes = includes.items,
+            .packages = packages.items,
             .namespace = namespace orelse return error.InvalidGir,
             .arena = arena,
         };
@@ -76,6 +81,25 @@ pub const Include = struct {
         return .{
             .name = name orelse return error.InvalidGir,
             .version = version orelse return error.InvalidGir,
+        };
+    }
+};
+
+pub const Package = struct {
+    name: []const u8,
+
+    fn parse(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Package {
+        var name: ?[]const u8 = null;
+
+        var maybe_attr: ?*c.xmlAttr = node.properties;
+        while (maybe_attr) |attr| : (maybe_attr = attr.next) {
+            if (xml.attrIs(attr, null, "name")) {
+                name = try xml.attrContent(allocator, doc, attr);
+            }
+        }
+
+        return .{
+            .name = name orelse return error.InvalidGir,
         };
     }
 };

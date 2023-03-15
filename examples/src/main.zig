@@ -6,9 +6,9 @@ const Example = struct {
 };
 
 const examples: []const Example = &.{
-    .{ .name = "Hello world", .main = &@import("examples/hello_world.zig").main },
+    .{ .name = "Hello world", .main = &@import("hello_world.zig").main },
     // .{ .name = "Custom drawing", .main = &@import("examples/custom_drawing.zig").main },
-    .{ .name = "Custom class", .main = &@import("examples/custom_class.zig").main },
+    .{ .name = "Custom class", .main = &@import("custom_class.zig").main },
 };
 
 pub fn main() !void {

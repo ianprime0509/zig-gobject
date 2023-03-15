@@ -22,11 +22,13 @@ pub fn main() !void {
     defer extras_dir.close();
     var out_dir = try fs.cwd().makeOpenPath(args[3], .{});
     defer out_dir.close();
+    var src_out_dir = try out_dir.makeOpenPath("src", .{});
 
     var repositories = try translate.findRepositories(allocator, in_dir, args[4..]);
     defer repositories.deinit();
 
-    try translate.translate(&repositories, extras_dir, out_dir);
+    try translate.translate(&repositories, extras_dir, src_out_dir);
+    try translate.createBuildFile(&repositories, out_dir);
 }
 
 test {

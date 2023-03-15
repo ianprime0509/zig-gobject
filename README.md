@@ -4,7 +4,9 @@ Early work-in-progress bindings for GObject-based libraries (such as GTK)
 generated using GObject introspection data.
 
 To generate all available bindings using the files under `lib/gir-files`, run
-`zig build codegen`.
+`zig build codegen`. This will generate bindings to the `bindings` directory,
+which can be used as a dependency (using the Zig package manager) in other
+projects.
 
 To generate bindings only for a subset of available libraries, run the following
 command, substituting `Gtk-4.0` with one or more libraries (with files residing
@@ -18,7 +20,7 @@ zig build run -- lib/gir-files gir-extras src/gir-out Gtk-4.0
 
 ## Examples
 
-Several examples are located under `src/examples`. The `example.zig` program
-acts as a launcher for the examples, and can be run using `zig build
-run-example` (which will also trigger codegen, since the examples rely on the
-generated libraries).
+There are several examples in the `examples` directory, which is itself a
+runnable project (depending on the `bindings` directory as a dependency). To
+ensure the bindings are generated and run the example project launcher, run `zig
+build run-example`.

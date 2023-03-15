@@ -173,13 +173,6 @@ fn translateIncludes(allocator: Allocator, ns: gir.Namespace, deps: NamespaceDep
             try needed_deps.appendSlice(deps.get(needed_dep) orelse &.{});
         }
     }
-
-    // Special case: everything references GObject thanks to various helpers
-    // TODO: represent this better in the dependency graph somehow so it's
-    // transparent to codegen selection
-    if (!mem.eql(u8, ns.name, "GObject") and !seen.contains(.{ .name = "GObject", .version = "2.0" })) {
-        _ = try out.write("const gobject = @import(\"gobject-2.0\");\n");
-    }
 }
 
 fn fileNameAlloc(allocator: Allocator, name: []const u8, version: []const u8) ![]u8 {
@@ -818,7 +811,13 @@ const builtins = std.ComptimeStringMap([]const u8, .{
     // element type is given in the name of the type. The none -> void mapping
     // should cover all legitimate uses of raw void in C.
     .{ "none", "void" },
-    .{ "GType", "gobject.Type" },
+    // Not all repositories declare a dependency on either GLib or GObject, but they
+    // might still reference GType in their bindings for some reason. Since
+    // GType is defined as an alias for usize, we can just translate it as such,
+    // even though it makes for subpar documentation. The alternative would be
+    // to force every repository to depend on GLib, but that is more complex and
+    // incorrect.
+    .{ "GType", "usize" },
     // We need to be particularly careful about built-in pointer types, since
     // those can mess up the translation logic if they're not processed early on
     .{ "gpointer", "*anyopaque" },
@@ -962,8 +961,8 @@ test "translateType" {
     try testTranslateType("c_longdouble", .{ .name = .{ .ns = null, .local = "long double" }, .c_type = "long double" }, false);
     try testTranslateType("void", .{ .name = .{ .ns = null, .local = "none" }, .c_type = "void" }, false);
     try testTranslateType("std.builtin.VaList", .{ .name = .{ .ns = null, .local = "va_list" }, .c_type = "va_list" }, false);
-    try testTranslateType("gobject.Type", .{ .name = .{ .ns = "GLib", .local = "GType" }, .c_type = "GType" }, false);
-    try testTranslateType("gobject.Type", .{ .name = .{ .ns = "GObject", .local = "GType" }, .c_type = "GType" }, false);
+    try testTranslateType("usize", .{ .name = .{ .ns = "GLib", .local = "GType" }, .c_type = "GType" }, false);
+    try testTranslateType("usize", .{ .name = .{ .ns = "GObject", .local = "GType" }, .c_type = "GType" }, false);
     try testTranslateType("gdk.Rectangle", .{ .name = .{ .ns = "Gdk", .local = "Rectangle" }, .c_type = "GdkRectangle" }, false);
     try testTranslateType("*anyopaque", .{ .name = .{ .ns = null, .local = "gpointer" }, .c_type = "gpointer" }, false);
     try testTranslateType("?*anyopaque", .{ .name = .{ .ns = null, .local = "gpointer" }, .c_type = "gpointer" }, true);
@@ -1395,6 +1394,73 @@ fn translateExtraDocumentation(documentation: ?extras.Documentation, container: 
             }
         }
     }
+}
+
+pub const CreateBuildFileError = Allocator.Error || fs.File.OpenError || fs.File.WriteError || error{
+    FileSystem,
+    NotSupported,
+};
+
+pub fn createBuildFile(repositories: *Repositories, out_dir: fs.Dir) !void {
+    const allocator = repositories.arena.allocator();
+
+    var deps = NamespaceDependencies.init(allocator);
+    defer deps.deinit();
+    for (repositories.repositories) |repo| {
+        try deps.put(.{ .name = repo.namespace.name, .version = repo.namespace.version }, repo.includes);
+    }
+
+    const file = try out_dir.createFile("build.zig", .{});
+    defer file.close();
+    var bw = io.bufferedWriter(file.writer());
+    const out = bw.writer();
+
+    _ = try out.write(
+        \\const std = @import("std");
+        \\
+        \\pub fn build(b: *std.Build) !void {
+        \\
+    );
+
+    // Declare all modules (without dependencies, so order won't matter)
+    for (repositories.repositories) |repo| {
+        const module_name = try moduleNameAlloc(allocator, repo.namespace.name, repo.namespace.version);
+        defer allocator.free(module_name);
+        try out.print("    const {} = b.addModule(\"{}\", .{{ .source_file = .{{ .path = try b.build_root.join(b.allocator, &.{{\"src\", \"{}.zig\"}}) }} }});\n", .{ zig.fmtId(module_name), zig.fmtEscapes(module_name), zig.fmtEscapes(module_name) });
+        try out.print("    {}.linkLibC();\n", .{zig.fmtId(module_name)});
+        for (repo.packages) |package| {
+            try out.print("    {}.linkSystemLibrary(\"{}\");\n", .{ zig.fmtId(module_name), zig.fmtEscapes(package.name) });
+        }
+    }
+
+    // Dependencies
+    for (repositories.repositories) |repo| {
+        const module_name = try moduleNameAlloc(allocator, repo.namespace.name, repo.namespace.version);
+        defer allocator.free(module_name);
+
+        var seen = HashMap(gir.Include, void, IncludeContext, std.hash_map.default_max_load_percentage).init(allocator);
+        defer seen.deinit();
+        var needed_deps = ArrayList(gir.Include).init(allocator);
+        defer needed_deps.deinit();
+        try needed_deps.appendSlice(deps.get(.{ .name = repo.namespace.name, .version = repo.namespace.version }) orelse &.{});
+        while (needed_deps.popOrNull()) |needed_dep| {
+            if (!seen.contains(needed_dep)) {
+                const dep_module_name = try moduleNameAlloc(allocator, needed_dep.name, needed_dep.version);
+                defer allocator.free(dep_module_name);
+                const alias = try ascii.allocLowerString(allocator, needed_dep.name);
+                defer allocator.free(alias);
+                try out.print("    try {}.dependencies.put(\"{}\", {});\n", .{ zig.fmtId(module_name), zig.fmtEscapes(dep_module_name), zig.fmtId(dep_module_name) });
+
+                try seen.put(needed_dep, {});
+                try needed_deps.appendSlice(deps.get(needed_dep) orelse &.{});
+            }
+        }
+    }
+
+    _ = try out.write("}\n");
+
+    try bw.flush();
+    try file.sync();
 }
 
 test {
