@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<repository xmlns="https://ianjohnson.dev/zig-gobject/extras">
+  <namespace name="Gtk" version="4.0">
+    <record name="WidgetClass">
+      <method name="bindTemplateChild">
+        <doc>Binds a field of the instance struct to an object declared in the class template.
+
+The name of the field in the instance struct defaults to the name of the template object, but can be set explicitly via the `field` option if it differs.</doc>
+        <parameter name="p_class" type="*Self" />
+        <parameter name="p_name" type="[:0]const u8" comptime="1" />
+        <parameter name="p_options" type="struct { field: ?[]const u8 = null, internal: bool = false }" comptime="1" />
+        <return-value type="void" />
+        <body>p_class.bindTemplateChildFull(p_name, p_options.internal, @offsetOf(Self.Instance, p_options.field orelse p_name));</body>
+      </method>
+      <method name="setTemplateFromSlice">
+        <doc>Sets the template for a widget from a byte slice.</doc>
+        <parameter name="p_class" type="*Self" />
+        <parameter name="p_template" type="[:0]const u8" />
+        <return-value type="void" />
+        <body>var bytes = glib.Bytes.newFromSlice(p_template);
+defer bytes.unref();
+p_class.setTemplate(bytes);</body>
+      </method>
+    </record>
+  </namespace>
+</repository>

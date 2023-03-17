@@ -1,9 +1,9 @@
 // https://docs.gtk.org/gtk4/getting_started.html#hello-world
 
 const std = @import("std");
-const glib = @import("glib-2.0");
-const gobject = @import("gobject-2.0");
-const gtk = @import("gtk-4.0");
+const glib = @import("glib");
+const gobject = @import("gobject");
+const gtk = @import("gtk");
 
 pub fn main() void {
     var app = gtk.Application.new("org.gtk.example", .{});

@@ -53,6 +53,9 @@ const class_info = @typeInfo(Self.Class);
 if (class_info != .Struct or class_info.Struct.layout != .Extern) {
     @compileError("a class type must be an extern struct");
 }
+if (!@hasDecl(Self.Class, "Instance") or Self.Class.Instance != Self) {
+    @compileError("a class type must have a member named Instance pointing to the instance type");
+}
 
 return struct {
     var registered_type: Type = 0;
@@ -169,7 +172,7 @@ comptime var curr_type = Self;
 inline while (@hasDecl(curr_type, "Parent")) {
     curr_type = curr_type.Parent;
     if (curr_type == T) {
-        return @ptrCast(*T, p_self);
+        return @ptrCast(*T, @alignCast(@alignOf(*T), p_self));
     }
 }
 

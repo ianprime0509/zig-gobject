@@ -13,6 +13,6 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     });
-    gobject2_tests.addModule("gobject-2.0", bindings.module("gobject-2.0"));
+    gobject2_tests.addModule("gobject", bindings.module("gobject-2.0"));
     test_step.dependOn(&gobject2_tests.step);
 }

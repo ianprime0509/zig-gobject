@@ -233,6 +233,7 @@ pub const Class = struct {
     constants: []const Constant = &.{},
     get_type: []const u8,
     type_struct: ?[]const u8 = null,
+    final: bool = false,
     documentation: ?Documentation = null,
 
     pub fn getTypeFunction(self: Class) Function {
@@ -251,6 +252,7 @@ pub const Class = struct {
         var constants = ArrayList(Constant).init(allocator);
         var get_type: ?[]const u8 = null;
         var type_struct: ?[]const u8 = null;
+        var final = false;
         var documentation: ?Documentation = null;
 
         var maybe_attr: ?*c.xmlAttr = node.properties;
@@ -263,6 +265,8 @@ pub const Class = struct {
                 get_type = try xml.attrContent(allocator, doc, attr);
             } else if (xml.attrIs(attr, ns.glib, "type-struct")) {
                 type_struct = try xml.attrContent(allocator, doc, attr);
+            } else if (xml.attrIs(attr, null, "final")) {
+                final = mem.eql(u8, try xml.attrContent(allocator, doc, attr), "1");
             }
         }
 
@@ -299,6 +303,10 @@ pub const Class = struct {
             .constants = constants.items,
             .get_type = get_type orelse return error.InvalidGir,
             .type_struct = type_struct,
+            // For some reason, the final attribute is very rarely used. A more
+            // reliable indicator seems to be the number of fields in the class (0
+            // means it's final).
+            .final = final or fields.items.len == 0,
             .documentation = documentation,
         };
     }

@@ -1,10 +1,10 @@
 // https://docs.gtk.org/gtk4/getting_started.html#custom-drawing
 
 const std = @import("std");
-const gtk = @import("gtk-4.0");
-const gdk = @import("gdk-4.0");
-const cairo = @import("cairo-1.0");
-const gobject = @import("gobject-2.0");
+const gtk = @import("gtk");
+const gdk = @import("gdk");
+const cairo = @import("cairo");
+const gobject = @import("gobject");
 
 pub fn main() void {
     const app = gtk.Application.new("org.gtk.example", .{});

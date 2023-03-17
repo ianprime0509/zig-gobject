@@ -12,12 +12,12 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     });
-    exe.addModule("glib-2.0", bindings.module("glib-2.0"));
-    exe.addModule("gobject-2.0", bindings.module("gobject-2.0"));
-    exe.addModule("gio-2.0", bindings.module("gio-2.0"));
-    exe.addModule("cairo-1.0", bindings.module("cairo-1.0"));
-    exe.addModule("gdk-4.0", bindings.module("gdk-4.0"));
-    exe.addModule("gtk-4.0", bindings.module("gtk-4.0"));
+    exe.addModule("glib", bindings.module("glib-2.0"));
+    exe.addModule("gobject", bindings.module("gobject-2.0"));
+    exe.addModule("gio", bindings.module("gio-2.0"));
+    exe.addModule("cairo", bindings.module("cairo-1.0"));
+    exe.addModule("gdk", bindings.module("gdk-4.0"));
+    exe.addModule("gtk", bindings.module("gtk-4.0"));
     exe.install();
 
     const run_cmd = b.addRunArtifact(exe);

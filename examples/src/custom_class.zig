@@ -1,8 +1,8 @@
 const std = @import("std");
-const gtk = @import("gtk-4.0");
-const gio = @import("gio-2.0");
-const gobject = @import("gobject-2.0");
-const glib = @import("glib-2.0");
+const gtk = @import("gtk");
+const gio = @import("gio");
+const gobject = @import("gobject");
+const glib = @import("glib");
 
 const ExampleApplication = extern struct {
     parent_instance: Parent,
@@ -32,6 +32,8 @@ const ExampleApplication = extern struct {
     pub const Class = extern struct {
         parent_class: Parent.Class,
 
+        pub const Instance = Self;
+
         pub fn init(self: *Class) callconv(.C) void {
             self.implementActivate(&ExampleApplication.activateImpl);
         }
@@ -43,6 +45,7 @@ const ExampleApplication = extern struct {
 
 const ExampleApplicationWindow = extern struct {
     parent_instance: Parent,
+    hello_label: *gtk.Label,
 
     const template =
         \\<?xml version="1.0" encoding="UTF-8"?>
@@ -73,6 +76,7 @@ const ExampleApplicationWindow = extern struct {
 
     pub fn init(self: *Self) callconv(.C) void {
         self.initTemplate();
+        std.debug.print("label text = '{s}'\n", .{self.hello_label.getText()});
     }
 
     pub usingnamespace Parent.Methods(Self);
@@ -80,8 +84,11 @@ const ExampleApplicationWindow = extern struct {
     pub const Class = extern struct {
         parent_class: Parent.Class,
 
+        pub const Instance = Self;
+
         pub fn init(self: *Class) callconv(.C) void {
-            self.setTemplate(glib.Bytes.newFromSlice(template));
+            self.setTemplateFromSlice(template);
+            self.bindTemplateChild("hello_label", .{});
         }
 
         pub usingnamespace Parent.Class.Methods(Class);

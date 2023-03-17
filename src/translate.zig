@@ -260,7 +260,12 @@ fn translateClass(allocator: Allocator, class: gir.Class, maybe_extras_class: ?e
     if (maybe_extras_class) |extras_class| {
         try translateExtraDocumentation(extras_class.documentation, false, "", out);
     }
-    try out.print("pub const {s} = extern struct {{\n", .{class.name});
+    try out.print("pub const {s} = ", .{class.name});
+    if (class.final) {
+        _ = try out.write("opaque {\n");
+    } else {
+        _ = try out.write("extern struct {\n");
+    }
 
     if (class.parent) |parent| {
         _ = try out.write("    pub const Parent = ");

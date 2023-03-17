@@ -1,4 +1,4 @@
-const gobject = @import("gobject-2.0");
+const gobject = @import("gobject");
 
 const std = @import("std");
 const testing = std.testing;
