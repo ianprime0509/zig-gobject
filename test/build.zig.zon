@@ -4,7 +4,7 @@
     .dependencies = .{
         .@"zig-gobject" = .{
             .path = "../bindings",
-            .hash = "12201897638878a25338a71ffa55c1d6c842d4b9dc16402126bfb4a6310bb7b47241",
+            .hash = "122044f97da27783ab9b32f85e2a6c4f3a79dbd7b2d1099f767e7e24f0dee3a0b100",
         },
     },
 }

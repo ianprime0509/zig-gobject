@@ -1,5 +1,6 @@
 <?xml version="1.0"?>
 <repository xmlns="https://ianjohnson.dev/zig-gobject/extras">
+  <!-- See https://www.cairographics.org/manual/index.html -->
   <namespace name="cairo" version="1.0">
     <record name="Context">
       <extern-function name="create" identifier="cairo_create">
@@ -82,7 +83,118 @@
         <parameter name="p_cr" type="*Context" />
         <return-value type="*Pattern" />
       </extern-method>
-      <extern-method name="paint" identifier="cairo_paint">
+      <extern-method name="setAntialias" identifier="cairo_set_antialias">
+        <parameter name="p_cr" type="*Context" />
+        <parameter name="p_antialias" type="Antialias" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="getAntialias" identifier="cairo_get_antialias">
+        <parameter name="p_cr" type="*Context" />
+        <return-value type="Antialias" />
+      </extern-method>
+      <extern-method name="setDash" identifier="cairo_set_dash">
+        <parameter name="p_cr" type="*Context" />
+        <parameter name="p_dashes" type="[*]const f64" />
+        <parameter name="p_num_dashes" type="c_int" />
+        <parameter name="p_offset" type="f64" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="getDashCount" identifier="cairo_get_dash_count">
+        <parameter name="p_cr" type="*Context" />
+        <return-value type="c_int" />
+      </extern-method>
+      <extern-method name="getDash" identifier="cairo_get_dash">
+        <parameter name="p_cr" type="*Context" />
+        <parameter name="p_dashes" type="?*f64" />
+        <parameter name="p_offset" type="?*f64" />
+        <return-value type="c_int" />
+      </extern-method>
+      <extern-method name="setFillRule" identifier="cairo_set_fill_rule">
+        <parameter name="p_cr" type="*Context" />
+        <parameter name="p_cr" type="FillRule" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="getFillRule" identifier="cairo_get_fill_rule">
+        <parameter name="p_cr" type="*Context" />
+        <return-value type="FillRule" />
+      </extern-method>
+      <extern-method name="setLineCap" identifier="cairo_set_line_cap">
+        <parameter name="p_cr" type="*Context" />
+        <parameter name="p_line_cap" type="LineCap" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="getLineCap" identifier="cairo_get_line_cap">
+        <parameter name="p_cr" type="*Context" />
+        <return-value type="LineCap" />
+      </extern-method>
+      <extern-method name="setLineJoin" identifier="cairo_set_line_join">
+        <parameter name="p_cr" type="*Context" />
+        <parameter name="p_line_join" type="LineJoin" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="getLineJoin" identifier="cairo_get_line_join">
+        <parameter name="p_cr" type="*Context" />
+        <return-value type="LineJoin" />
+      </extern-method>
+      <extern-method name="setLineWidth" identifier="cairo_set_line_width">
+        <parameter name="p_cr" type="*Context" />
+        <parameter name="p_line_width" type="f64" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="getLineWidth" identifier="cairo_get_line_width">
+        <parameter name="p_cr" type="*Context" />
+        <return-value type="f64" />
+      </extern-method>
+      <extern-method name="setMiterLimit" identifier="cairo_set_miter_limit">
+        <parameter name="p_cr" type="*Context" />
+        <parameter name="p_miter_limit" type="f64" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="getMiterLimit" identifier="cairo_get_miter_limit">
+        <parameter name="p_cr" type="*Context" />
+        <return-value type="f64" />
+      </extern-method>
+      <extern-method name="setOperator" identifier="cairo_set_operator">
+        <parameter name="p_cr" type="*Context" />
+        <parameter name="p_operator" type="Operator" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="getOperator" identifier="cairo_get_operator">
+        <parameter name="p_cr" type="*Context" />
+        <return-value type="Operator" />
+      </extern-method>
+      <extern-method name="setTolerance" identifier="cairo_set_tolerance">
+        <parameter name="p_cr" type="*Context" />
+        <parameter name="p_tolerance" type="f64" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="getTolerance" identifier="cairo_get_tolerance">
+        <parameter name="p_cr" type="*Context" />
+        <return-value type="f64" />
+      </extern-method>
+      <extern-method name="clip" identifier="cairo_clip">
+        <parameter name="p_cr" type="*Context" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="clipPreserve" identifier="cairo_clip_preserve">
+        <parameter name="p_cr" type="*Context" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="clipExtents" identifier="cairo_clip_extents">
+        <parameter name="p_cr" type="*Context" />
+        <parameter name="p_x1" type="*f64" />
+        <parameter name="p_y1" type="*f64" />
+        <parameter name="p_x2" type="*f64" />
+        <parameter name="p_y2" type="*f64" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="inClip" identifier="cairo_in_clip">
+        <parameter name="p_cr" type="*Context" />
+        <parameter name="p_x" type="f64" />
+        <parameter name="p_y" type="f64" />
+        <return-value type="bool" />
+      </extern-method>
+      <extern-method name="resetClip" identifier="cairo_reset_clip">
         <parameter name="p_cr" type="*Context" />
         <return-value type="void" />
       </extern-method>
@@ -90,6 +202,80 @@
         <parameter name="p_cr" type="*Context" />
         <return-value type="void" />
       </extern-method>
+      <extern-method name="fillPreserve" identifier="cairo_fill_preserve">
+        <parameter name="p_cr" type="*Context" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="fillExtents" identifier="cairo_fill_extents">
+        <parameter name="p_cr" type="*Context" />
+        <parameter name="p_x1" type="*f64" />
+        <parameter name="p_y1" type="*f64" />
+        <parameter name="p_x2" type="*f64" />
+        <parameter name="p_y2" type="*f64" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="inFill" identifier="cairo_in_fill">
+        <parameter name="p_cr" type="*Context" />
+        <parameter name="p_x" type="f64" />
+        <parameter name="p_y" type="f64" />
+        <return-value type="bool" />
+      </extern-method>
+      <extern-method name="mask" identifier="cairo_mask">
+        <parameter name="p_cr" type="*Context" />
+        <parameter name="p_pattern" type="*Pattern" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="maskSurface" identifier="cairo_mask_survace">
+        <parameter name="p_cr" type="*Context" />
+        <parameter name="p_surface" type="*Surface" />
+        <parameter name="p_surface_x" type="f64" />
+        <parameter name="p_surface_y" type="f64" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="paint" identifier="cairo_paint">
+        <parameter name="p_cr" type="*Context" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="paintWithAlpha" identifier="cairo_paint_with_alpha">
+        <parameter name="p_cr" type="*Context" />
+        <parameter name="p_alpha" type="f64" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="stroke" identifier="cairo_stroke">
+        <parameter name="p_cr" type="*Context" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="strokePreserve" identifier="cairo_stroke_preserve">
+        <parameter name="p_cr" type="*Context" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="strokeExtents" identifier="cairo_stroke_extents">
+        <parameter name="p_cr" type="*Context" />
+        <parameter name="p_x1" type="*f64" />
+        <parameter name="p_y1" type="*f64" />
+        <parameter name="p_x2" type="*f64" />
+        <parameter name="p_y2" type="*f64" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="inStroke" identifier="cairo_in_stroke">
+        <parameter name="p_cr" type="*Context" />
+        <parameter name="p_x" type="f64" />
+        <parameter name="p_y" type="f64" />
+        <return-value type="bool" />
+      </extern-method>
+      <extern-method name="copyPage" identifier="cairo_copy_page">
+        <parameter name="p_cr" type="*Context" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="showPage" identifier="cairo_show_page">
+        <parameter name="p_cr" type="*Context" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="getReferenceCount" identifier="cairo_get_reference_count">
+        <parameter name="p_cr" type="*Context" />
+        <return-value type="c_uint" />
+      </extern-method>
+      <!-- TODO: user data methods -->
       <extern-method name="rectangle" identifier="cairo_rectangle">
         <parameter name="p_cr" type="*Context" />
         <parameter name="p_x" type="f64" />
@@ -105,5 +291,6 @@
         <return-value type="void" />
       </extern-method>
     </record>
+    <!-- TODO: rectangle list -->
   </namespace>
 </repository>
