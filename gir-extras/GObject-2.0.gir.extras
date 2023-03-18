@@ -62,11 +62,21 @@ return struct {
 
     pub fn getType() Type {
         if (registered_type == 0) {
+            const classInitFunc = struct {
+                fn classInit(class: *Self.Class) callconv(.C) void {
+                    if (@hasDecl(Self.Class, "parent")) {
+                        Self.Class.parent = @ptrCast(*Self.Parent.Class, @alignCast(@alignOf(*Self.Parent.Class), class.peekParent()));
+                    }
+                    if (@hasDecl(Self.Class, "init")) {
+                        Self.Class.init(class);
+                    }
+                }
+            }.classInit;
             const info = TypeInfo{
                 .class_size = @sizeOf(Self.Class),
                 .base_init = if (@hasDecl(Self, "baseInit")) @ptrCast(BaseInitFunc, &amp;Self.baseInit) else null,
                 .base_finalize = if (@hasDecl(Self, "baseFinalize")) @ptrCast(BaseFinalizeFunc, &amp;Self.baseFinalize) else null,
-                .class_init = if (@hasDecl(Self.Class, "init")) @ptrCast(ClassInitFunc, &amp;Self.Class.init) else null,
+                .class_init = @ptrCast(ClassInitFunc, &amp;classInitFunc),
                 .class_finalize = if (@hasDecl(Self.Class, "finalize")) @ptrCast(ClassFinalizeFunc, &amp;Self.Class.finalize) else null,
                 .class_data = null,
                 .instance_size = @sizeOf(Self),
@@ -179,6 +189,29 @@ inline while (@hasDecl(curr_type, "Parent")) {
 @compileError("type is not guaranteed to be compatible with " ++ @typeName(T));</body>
       </method>
     </class>
+    <record name="ObjectClass">
+      <method name="as">
+        <doc>Safely casts this class to an instance of `T`, emitting a compilation error if the safety of the cast cannot be guaranteed.</doc>
+        <parameter name="class" type="*Self" />
+        <parameter name="T" type="type" comptime="1" />
+        <return-value type="*T" />
+        <body>if (T == Self) {
+    return class;
+}
+
+comptime var curr_type = Self;
+inline while (@hasDecl(curr_type.Instance, "Parent")) {
+    curr_type = curr_type.Instance.Parent.Class;
+    if (curr_type == T) {
+        return @ptrCast(*T, @alignCast(@alignOf(*T), class));
+    }
+}
+
+@compileError("type is not guaranteed to be compatible with " ++ @typeName(T));</body>
+      </method>
+      <methods-code>// Special case not exposed through normal GIR
+pub usingnamespace TypeClassMethods(Self);</methods-code>
+    </record>
     <record name="Value">
       <function name="new">
         <doc>Returns a new `Value` intended to hold data of the given type.</doc>

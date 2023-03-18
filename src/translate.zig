@@ -213,6 +213,7 @@ fn translateNamespace(allocator: Allocator, ns: gir.Namespace, maybe_extras_ns: 
         for (extras_ns.constants) |constant| {
             try translateExtraConstant(constant, "", out);
         }
+        try translateExtraCode(extras_ns.code, "", out);
     }
 
     for (ns.aliases) |alias| {
@@ -292,6 +293,7 @@ fn translateClass(allocator: Allocator, class: gir.Class, maybe_extras_class: ?e
         for (extras_class.extern_functions) |extern_function| {
             try translateExtraExternFunction(extern_function, " " ** 4, out);
         }
+        try translateExtraCode(extras_class.code, " " ** 4, out);
     }
 
     try translateFunction(allocator, class.getTypeFunction(), " " ** 4, out);
@@ -330,6 +332,7 @@ fn translateClass(allocator: Allocator, class: gir.Class, maybe_extras_class: ?e
         for (extras_class.extern_methods) |extern_method| {
             try translateExtraExternMethod(extern_method, " " ** 8, out);
         }
+        try translateExtraCode(extras_class.methods_code, " " ** 8, out);
     }
     for (class.methods) |method| {
         try translateMethod(allocator, method, " " ** 8, out);
@@ -383,6 +386,7 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, maybe_extr
         for (extras_interface.extern_functions) |extern_function| {
             try translateExtraExternFunction(extern_function, " " ** 4, out);
         }
+        try translateExtraCode(extras_interface.code, " " ** 4, out);
     }
 
     try translateFunction(allocator, interface.getTypeFunction(), " " ** 4, out);
@@ -421,6 +425,7 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, maybe_extr
         for (extras_interface.extern_methods) |extern_method| {
             try translateExtraExternMethod(extern_method, " " ** 8, out);
         }
+        try translateExtraCode(extras_interface.methods_code, " " ** 8, out);
     }
     for (interface.methods) |method| {
         try translateMethod(allocator, method, " " ** 8, out);
@@ -474,6 +479,7 @@ fn translateRecord(allocator: Allocator, record: gir.Record, maybe_extras_record
         for (extras_record.extern_functions) |extern_function| {
             try translateExtraExternFunction(extern_function, " " ** 4, out);
         }
+        try translateExtraCode(extras_record.code, " " ** 4, out);
     }
 
     if (record.getTypeFunction()) |get_type_function| {
@@ -512,6 +518,7 @@ fn translateRecord(allocator: Allocator, record: gir.Record, maybe_extras_record
         for (extras_record.extern_methods) |extern_method| {
             try translateExtraExternMethod(extern_method, " " ** 8, out);
         }
+        try translateExtraCode(extras_record.methods_code, " " ** 8, out);
     }
     for (record.methods) |method| {
         try translateMethod(allocator, method, " " ** 8, out);
@@ -710,26 +717,43 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
 
     // implementation
     try translateDocumentation(virtual_method.documentation, indent, out);
-    try out.print("{s}pub fn implement{s}(p_self: *Self, p_implementation: ", .{ indent, upper_method_name });
+    try out.print("{s}pub fn implement{s}(p_class: *Self, p_implementation: ", .{ indent, upper_method_name });
     try translateVirtualMethodImplementationType(allocator, virtual_method, "Instance", out);
     _ = try out.write(") void {\n");
-
-    try out.print("{s}    @ptrCast(*{s}, p_self).{} = @ptrCast(", .{ indent, container_type, zig.fmtId(virtual_method.name) });
+    try out.print("{s}    @ptrCast(*{s}, p_class).{} = @ptrCast(", .{ indent, container_type, zig.fmtId(virtual_method.name) });
     try translateVirtualMethodImplementationType(allocator, virtual_method, instance_type, out);
     _ = try out.write(", p_implementation);\n");
+    try out.print("{s}}}\n\n", .{indent});
 
+    // call
+    try out.print("{s}pub fn call{s}(p_class: *Self, ", .{ indent, upper_method_name });
+    for (virtual_method.parameters, 0..) |parameter, i| {
+        try translateParameter(allocator, parameter, instance_type, out);
+        if (i < virtual_method.parameters.len - 1) {
+            _ = try out.write(", ");
+        }
+    }
+    _ = try out.write(") ");
+    try translateReturnValue(allocator, virtual_method.return_value, out);
+    _ = try out.write(" {\n");
+    try out.print("{s}    return @ptrCast(*{s}, p_class).{}.?(", .{ indent, container_type, zig.fmtId(virtual_method.name) });
+    for (virtual_method.parameters, 0..) |parameter, i| {
+        try translateParameterName(allocator, parameter.name, out);
+        if (i < virtual_method.parameters.len - 1) {
+            _ = try out.write(", ");
+        }
+    }
+    _ = try out.write(");\n");
     try out.print("{s}}}\n\n", .{indent});
 }
 
 fn translateVirtualMethodImplementationType(allocator: Allocator, virtual_method: gir.VirtualMethod, instance_type: []const u8, out: anytype) !void {
     _ = try out.write("*const fn (");
-    var i: usize = 0;
-    for (virtual_method.parameters) |parameter| {
+    for (virtual_method.parameters, 0..) |parameter, i| {
         try translateParameter(allocator, parameter, instance_type, out);
         if (i < virtual_method.parameters.len - 1) {
             _ = try out.write(", ");
         }
-        i += 1;
     }
     _ = try out.write(") callconv(.C) ");
     try translateReturnValue(allocator, virtual_method.return_value, out);
@@ -1441,6 +1465,15 @@ fn translateExtraDocumentation(documentation: ?extras.Documentation, container: 
             } else {
                 try out.print("{s}/// {s}\n", .{ indent, line });
             }
+        }
+    }
+}
+
+fn translateExtraCode(maybe_code: ?extras.Code, indent: []const u8, out: anytype) !void {
+    if (maybe_code) |code| {
+        var lines = mem.split(u8, code.text, "\n");
+        while (lines.next()) |line| {
+            try out.print("{s}{s}\n", .{ indent, line });
         }
     }
 }

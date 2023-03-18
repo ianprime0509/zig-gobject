@@ -56,6 +56,7 @@ pub const Namespace = struct {
     extern_functions: []const ExternFunction = &.{},
     constants: []const Constant = &.{},
     documentation: ?Documentation = null,
+    code: ?Code = null,
 
     fn parse(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Namespace {
         var name: ?[]const u8 = null;
@@ -67,6 +68,7 @@ pub const Namespace = struct {
         var extern_functions = ArrayList(ExternFunction).init(allocator);
         var constants = ArrayList(Constant).init(allocator);
         var documentation: ?Documentation = null;
+        var code: ?Code = null;
 
         var maybe_attr: ?*c.xmlAttr = node.properties;
         while (maybe_attr) |attr| : (maybe_attr = attr.next) {
@@ -93,6 +95,8 @@ pub const Namespace = struct {
                 try constants.append(try Constant.parse(allocator, doc, child));
             } else if (xml.nodeIs(child, ns, "doc")) {
                 documentation = try Documentation.parse(allocator, doc, child);
+            } else if (xml.nodeIs(child, ns, "code")) {
+                code = try Code.parse(allocator, doc, child);
             }
         }
 
@@ -106,6 +110,7 @@ pub const Namespace = struct {
             .extern_functions = extern_functions.items,
             .constants = constants.items,
             .documentation = documentation,
+            .code = code,
         };
     }
 };
@@ -117,6 +122,8 @@ pub const Class = struct {
     methods: []const Method = &.{},
     extern_methods: []const ExternMethod = &.{},
     documentation: ?Documentation = null,
+    code: ?Code = null,
+    methods_code: ?Code = null,
 
     fn parse(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Class {
         var name: ?[]const u8 = null;
@@ -125,6 +132,8 @@ pub const Class = struct {
         var methods = ArrayList(Method).init(allocator);
         var extern_methods = ArrayList(ExternMethod).init(allocator);
         var documentation: ?Documentation = null;
+        var code: ?Code = null;
+        var methods_code: ?Code = null;
 
         var maybe_attr: ?*c.xmlAttr = node.properties;
         while (maybe_attr) |attr| : (maybe_attr = attr.next) {
@@ -145,6 +154,10 @@ pub const Class = struct {
                 try extern_methods.append(try ExternMethod.parse(allocator, doc, child));
             } else if (xml.nodeIs(child, ns, "doc")) {
                 documentation = try Documentation.parse(allocator, doc, child);
+            } else if (xml.nodeIs(child, ns, "code")) {
+                code = try Code.parse(allocator, doc, child);
+            } else if (xml.nodeIs(child, ns, "methods-code")) {
+                methods_code = try Code.parse(allocator, doc, child);
             }
         }
 
@@ -155,6 +168,8 @@ pub const Class = struct {
             .methods = methods.items,
             .extern_methods = extern_methods.items,
             .documentation = documentation,
+            .code = code,
+            .methods_code = methods_code,
         };
     }
 };
@@ -166,6 +181,8 @@ pub const Interface = struct {
     methods: []const Method = &.{},
     extern_methods: []const ExternMethod = &.{},
     documentation: ?Documentation = null,
+    code: ?Code = null,
+    methods_code: ?Code = null,
 
     fn parse(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Interface {
         // Interfaces currently have the same structure as classes
@@ -177,6 +194,8 @@ pub const Interface = struct {
             .methods = class.methods,
             .extern_methods = class.extern_methods,
             .documentation = class.documentation,
+            .code = class.code,
+            .methods_code = class.methods_code,
         };
     }
 };
@@ -188,6 +207,8 @@ pub const Record = struct {
     methods: []const Method = &.{},
     extern_methods: []const ExternMethod = &.{},
     documentation: ?Documentation = null,
+    code: ?Code = null,
+    methods_code: ?Code = null,
 
     fn parse(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Record {
         // Records currently have the same structure as classes
@@ -199,6 +220,8 @@ pub const Record = struct {
             .methods = class.methods,
             .extern_methods = class.extern_methods,
             .documentation = class.documentation,
+            .code = class.code,
+            .methods_code = class.methods_code,
         };
     }
 };
@@ -432,6 +455,14 @@ pub const Documentation = struct {
     text: []const u8,
 
     fn parse(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Documentation {
+        return .{ .text = try xml.nodeContent(allocator, doc, node.children) };
+    }
+};
+
+pub const Code = struct {
+    text: []const u8,
+
+    fn parse(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Code {
         return .{ .text = try xml.nodeContent(allocator, doc, node.children) };
     }
 };
