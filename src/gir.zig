@@ -1034,6 +1034,7 @@ pub const Callback = struct {
 pub const Parameter = struct {
     name: []const u8,
     nullable: bool = false,
+    optional: bool = false,
     type: ParameterType,
     instance: bool = false,
     documentation: ?Documentation = null,
@@ -1050,6 +1051,7 @@ pub const Parameter = struct {
     fn parse(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8, instance: bool) !Parameter {
         var name: ?[]const u8 = null;
         var nullable = false;
+        var optional = false;
         var @"type": ?ParameterType = null;
         var documentation: ?Documentation = null;
 
@@ -1059,6 +1061,8 @@ pub const Parameter = struct {
                 name = try xml.attrContent(allocator, doc, attr);
             } else if (xml.attrIs(attr, null, "nullable")) {
                 nullable = mem.eql(u8, try xml.attrContent(allocator, doc, attr), "1");
+            } else if (xml.attrIs(attr, null, "optional")) {
+                optional = mem.eql(u8, try xml.attrContent(allocator, doc, attr), "1");
             }
         }
 
@@ -1078,6 +1082,7 @@ pub const Parameter = struct {
         return .{
             .name = name orelse return error.InvalidGir,
             .nullable = nullable,
+            .optional = optional,
             .type = @"type" orelse return error.InvalidGir,
             .instance = instance,
             .documentation = documentation,

@@ -1319,7 +1319,7 @@ fn translateParameter(allocator: Allocator, parameter: gir.Parameter, self_type:
         }
     } else {
         switch (parameter.type) {
-            .simple => |simple_type| try translateType(allocator, simple_type, parameter.nullable, out),
+            .simple => |simple_type| try translateType(allocator, simple_type, parameter.nullable or parameter.optional, out),
             .array => |array_type| try translateArrayType(allocator, array_type, out),
             .varargs => unreachable, // handled above
         }
