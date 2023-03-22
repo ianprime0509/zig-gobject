@@ -251,7 +251,7 @@ fn translateNamespace(allocator: Allocator, ns: gir.Namespace, maybe_extras_ns: 
 fn translateAlias(allocator: Allocator, alias: gir.Alias, out: anytype) !void {
     try translateDocumentation(alias.documentation, "", out);
     try out.print("pub const {s} = ", .{alias.name});
-    try translateType(allocator, alias.type, false, out);
+    try translateType(allocator, alias.type, .{}, out);
     _ = try out.write(";\n\n");
 }
 
@@ -268,11 +268,10 @@ fn translateClass(allocator: Allocator, class: gir.Class, maybe_extras_class: ?e
         _ = try out.write("extern struct {\n");
     }
 
-    if (class.parent) |parent| {
-        _ = try out.write("    pub const Parent = ");
-        try translateNameNs(allocator, parent.ns, out);
-        try out.print("{s};\n", .{parent.local});
-    }
+    const parent = class.parent orelse gir.Name{ .ns = "GObject", .local = "TypeInstance" };
+    _ = try out.write("    pub const Parent = ");
+    try translateNameNs(allocator, parent.ns, out);
+    try out.print("{s};\n", .{parent.local});
     if (class.type_struct) |type_struct| {
         try out.print("    pub const Class = {s};\n", .{type_struct});
     }
@@ -321,9 +320,6 @@ fn translateClass(allocator: Allocator, class: gir.Class, maybe_extras_class: ?e
 
     // methods mixin
     try out.print("fn {s}Methods(comptime Self: type) type {{\n", .{class.name});
-    if (countTranslatableMethods(class.methods) == 0 and class.signals.len == 0 and class.parent == null and (maybe_extras_class == null or maybe_extras_class.?.methods.len == 0)) {
-        _ = try out.write("    _ = Self;\n");
-    }
     _ = try out.write("    return struct{\n");
     if (maybe_extras_class) |extras_class| {
         for (extras_class.methods) |method| {
@@ -340,9 +336,7 @@ fn translateClass(allocator: Allocator, class: gir.Class, maybe_extras_class: ?e
     for (class.signals) |signal| {
         try translateSignal(allocator, signal, " " ** 8, out);
     }
-    if (class.parent != null) {
-        try out.print("        pub usingnamespace {s}.Parent.Methods(Self);\n", .{class.name});
-    }
+    try out.print("        pub usingnamespace {s}.Parent.Methods(Self);\n", .{class.name});
     _ = try out.write("    };\n");
     _ = try out.write("}\n\n");
 
@@ -524,7 +518,17 @@ fn translateRecord(allocator: Allocator, record: gir.Record, maybe_extras_record
         try translateMethod(allocator, method, " " ** 8, out);
     }
     if (record.is_gtype_struct_for) |is_gtype_struct_for| {
-        try out.print("        pub usingnamespace if (@hasDecl({s}, \"Parent\")) {s}.Parent.Class.Methods(Self) else struct{{}};\n", .{ is_gtype_struct_for, is_gtype_struct_for });
+        try out.print(
+            \\        const ParentMethods = if (@hasDecl({0s}, "Parent") and @hasDecl({0s}.Parent, "Class"))
+            \\            {0s}.Parent.Class.Methods(Self)
+            \\        else if (@hasDecl({0s}, "Parent"))
+            \\            gobject.TypeClass.Methods(Self)
+            \\        else
+            \\            struct{{}}
+            \\        ;
+            \\        pub usingnamespace ParentMethods;
+            \\
+        , .{is_gtype_struct_for});
     }
     _ = try out.write("    };\n");
     _ = try out.write("}\n\n");
@@ -570,8 +574,8 @@ fn translateField(allocator: Allocator, field: gir.Field, out: anytype) !void {
 
 fn translateFieldType(allocator: Allocator, @"type": gir.FieldType, out: anytype) !void {
     switch (@"type") {
-        .simple => |simple_type| try translateType(allocator, simple_type, true, out),
-        .array => |array_type| try translateArrayType(allocator, array_type, out),
+        .simple => |simple_type| try translateType(allocator, simple_type, .{ .nullable = true }, out),
+        .array => |array_type| try translateArrayType(allocator, array_type, .{ .nullable = true }, out),
         .callback => |callback| try translateCallback(allocator, callback, false, out),
     }
 }
@@ -635,13 +639,13 @@ fn translateFunction(allocator: Allocator, function: gir.Function, indent: []con
 
     var i: usize = 0;
     while (i < function.parameters.len) : (i += 1) {
-        try translateParameter(allocator, function.parameters[i], "Self", out);
+        try translateParameter(allocator, function.parameters[i], .{}, out);
         if (i < function.parameters.len - 1) {
             _ = try out.write(", ");
         }
     }
     _ = try out.write(") ");
-    try translateReturnValue(allocator, function.return_value, out);
+    try translateReturnValue(allocator, function.return_value, .{}, out);
     _ = try out.write(";\n");
 
     // function rename
@@ -668,7 +672,7 @@ fn translateConstructor(allocator: Allocator, constructor: gir.Constructor, inde
 
     var i: usize = 0;
     while (i < constructor.parameters.len) : (i += 1) {
-        try translateParameter(allocator, constructor.parameters[i], "Self", out);
+        try translateParameter(allocator, constructor.parameters[i], .{}, out);
         if (i < constructor.parameters.len - 1) {
             _ = try out.write(", ");
         }
@@ -728,13 +732,13 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
     // call
     try out.print("{s}pub fn call{s}(p_class: *Self, ", .{ indent, upper_method_name });
     for (virtual_method.parameters, 0..) |parameter, i| {
-        try translateParameter(allocator, parameter, instance_type, out);
+        try translateParameter(allocator, parameter, .{ .self_type = instance_type }, out);
         if (i < virtual_method.parameters.len - 1) {
             _ = try out.write(", ");
         }
     }
     _ = try out.write(") ");
-    try translateReturnValue(allocator, virtual_method.return_value, out);
+    try translateReturnValue(allocator, virtual_method.return_value, .{}, out);
     _ = try out.write(" {\n");
     try out.print("{s}    return @ptrCast(*{s}, p_class).{}.?(", .{ indent, container_type, zig.fmtId(virtual_method.name) });
     for (virtual_method.parameters, 0..) |parameter, i| {
@@ -750,13 +754,13 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
 fn translateVirtualMethodImplementationType(allocator: Allocator, virtual_method: gir.VirtualMethod, instance_type: []const u8, out: anytype) !void {
     _ = try out.write("*const fn (");
     for (virtual_method.parameters, 0..) |parameter, i| {
-        try translateParameter(allocator, parameter, instance_type, out);
+        try translateParameter(allocator, parameter, .{ .self_type = instance_type }, out);
         if (i < virtual_method.parameters.len - 1) {
             _ = try out.write(", ");
         }
     }
     _ = try out.write(") callconv(.C) ");
-    try translateReturnValue(allocator, virtual_method.return_value, out);
+    try translateReturnValue(allocator, virtual_method.return_value, .{}, out);
 }
 
 fn translateSignal(allocator: Allocator, signal: gir.Signal, indent: []const u8, out: anytype) !void {
@@ -785,11 +789,11 @@ fn translateSignal(allocator: Allocator, signal: gir.Signal, indent: []const u8,
 fn translateSignalCallbackType(allocator: Allocator, signal: gir.Signal, out: anytype) !void {
     _ = try out.write("*const fn (*Self, ");
     for (signal.parameters) |parameter| {
-        try translateParameter(allocator, parameter, "Self", out);
+        try translateParameter(allocator, parameter, .{ .gobject_context = true }, out);
         _ = try out.write(", ");
     }
     _ = try out.write("T) callconv(.C) ");
-    try translateReturnValue(allocator, signal.return_value, out);
+    try translateReturnValue(allocator, signal.return_value, .{ .gobject_context = true }, out);
 }
 
 fn translateConstant(allocator: Allocator, constant: gir.Constant, indent: []const u8, out: anytype) !void {
@@ -799,7 +803,7 @@ fn translateConstant(allocator: Allocator, constant: gir.Constant, indent: []con
     // probably some heuristic we can use to at least lowercase most of them.
     try translateDocumentation(constant.documentation, indent, out);
     try out.print("{s}pub const {s}: ", .{ indent, zig.fmtId(constant.name) });
-    try translateAnyType(allocator, constant.type, false, out);
+    try translateAnyType(allocator, constant.type, .{}, out);
     _ = try out.write(" = ");
     if (constant.type == .simple and constant.type.simple.name != null and mem.eql(u8, constant.type.simple.name.?.local, "utf8")) {
         try out.print("\"{}\"", .{zig.fmtEscapes(constant.value)});
@@ -878,14 +882,24 @@ const builtins = std.ComptimeStringMap([]const u8, .{
     .{ "filename", "[*:0]u8" },
 });
 
-fn translateAnyType(allocator: Allocator, @"type": gir.AnyType, nullable: bool, out: anytype) !void {
+const TranslateTypeOptions = struct {
+    /// Whether the type should be translated as nullable.
+    nullable: bool = false,
+    /// Whether the type is being translated in a GObject-specific context, such
+    /// as a signal or property, where types are often specified without any
+    /// corresponding C type and in such a case are meant to be assumed to be
+    /// pointers.
+    gobject_context: bool = false,
+};
+
+fn translateAnyType(allocator: Allocator, @"type": gir.AnyType, options: TranslateTypeOptions, out: anytype) !void {
     switch (@"type") {
-        .simple => |simple| try translateType(allocator, simple, nullable, out),
-        .array => |array| try translateArrayType(allocator, array, out),
+        .simple => |simple| try translateType(allocator, simple, options, out),
+        .array => |array| try translateArrayType(allocator, array, options, out),
     }
 }
 
-fn translateType(allocator: Allocator, @"type": gir.Type, nullable: bool, out: anytype) TranslateError!void {
+fn translateType(allocator: Allocator, @"type": gir.Type, options: TranslateTypeOptions, out: anytype) TranslateError!void {
     const name = @"type".name orelse {
         _ = try out.write("@compileError(\"unnamed type not understood\")");
         return;
@@ -893,7 +907,7 @@ fn translateType(allocator: Allocator, @"type": gir.Type, nullable: bool, out: a
     var c_type = @"type".c_type orelse {
         // We should check for builtins first; utf8 is a common type to end up with here
         if (builtins.get(name.local)) |builtin| {
-            if (nullable and (std.mem.startsWith(u8, builtin, "*") or std.mem.startsWith(u8, builtin, "[*"))) {
+            if (options.nullable and (std.mem.startsWith(u8, builtin, "*") or std.mem.startsWith(u8, builtin, "[*"))) {
                 _ = try out.write("?");
             }
             _ = try out.write(builtin);
@@ -901,9 +915,12 @@ fn translateType(allocator: Allocator, @"type": gir.Type, nullable: bool, out: a
         }
 
         // At this point, the only thing we can do is assume a plain type.
-        // It seems that properties often (always?) specify types like this (no
-        // c_type), and there the intention seems to be different, but we're not
-        // concerned about translating that information at this point.
+        if (options.gobject_context) {
+            if (options.nullable) {
+                _ = try out.write("?");
+            }
+            _ = try out.write("*");
+        }
         try translateNameNs(allocator, name.ns, out);
         _ = try out.write(name.local);
         return;
@@ -913,7 +930,7 @@ fn translateType(allocator: Allocator, @"type": gir.Type, nullable: bool, out: a
     // the name often does not include any information about whether the type is
     // a pointer
     if (builtins.get(c_type)) |builtin| {
-        if (nullable and (std.mem.startsWith(u8, builtin, "*") or std.mem.startsWith(u8, builtin, "[*"))) {
+        if (options.nullable and (std.mem.startsWith(u8, builtin, "*") or std.mem.startsWith(u8, builtin, "[*"))) {
             _ = try out.write("?");
         }
         _ = try out.write(builtin);
@@ -921,7 +938,7 @@ fn translateType(allocator: Allocator, @"type": gir.Type, nullable: bool, out: a
     }
 
     if (parseCPointerType(c_type)) |pointer| {
-        if (nullable) {
+        if (options.nullable) {
             _ = try out.write("?");
         }
         // Special case: utf8 and filename should be treated as C strings
@@ -935,20 +952,20 @@ fn translateType(allocator: Allocator, @"type": gir.Type, nullable: bool, out: a
         }
         // Nullability does not apply recursively.
         // TODO: how does GIR expect to represent nullability more than one level deep?
-        return translateType(allocator, .{ .name = name, .c_type = pointer.element }, false, out);
+        return translateType(allocator, .{ .name = name, .c_type = pointer.element }, .{ .gobject_context = options.gobject_context }, out);
     }
 
     // Unnecessary const qualifier for non-pointer type
     if (std.mem.startsWith(u8, c_type, "const ")) {
         c_type = c_type["const ".len..];
-        return translateType(allocator, .{ .name = name, .c_type = c_type }, nullable, out);
+        return translateType(allocator, .{ .name = name, .c_type = c_type }, options, out);
     }
 
     // At this point, we've exhausted explicit pointers and we can look at
     // built-in interpretations of the name
     if (name.ns == null) {
         if (builtins.get(name.local)) |builtin| {
-            if (nullable and std.mem.startsWith(u8, builtin, "*")) {
+            if (options.nullable and std.mem.startsWith(u8, builtin, "*")) {
                 _ = try out.write("?");
             }
             _ = try out.write(builtin);
@@ -962,137 +979,140 @@ fn translateType(allocator: Allocator, @"type": gir.Type, nullable: bool, out: a
 }
 
 test "translateType" {
-    try testTranslateType("bool", .{ .name = .{ .ns = null, .local = "gboolean" }, .c_type = "gboolean" }, false);
-    try testTranslateType("bool", .{ .name = .{ .ns = null, .local = "gboolean" }, .c_type = "bool" }, false);
-    try testTranslateType("bool", .{ .name = .{ .ns = null, .local = "gboolean" }, .c_type = "_Bool" }, false);
-    try testTranslateType("u8", .{ .name = .{ .ns = null, .local = "gchar" }, .c_type = "gchar" }, false);
-    try testTranslateType("u8", .{ .name = .{ .ns = null, .local = "gchar" }, .c_type = "char" }, false);
-    try testTranslateType("u8", .{ .name = .{ .ns = null, .local = "guint8" }, .c_type = "guchar" }, false);
-    try testTranslateType("u8", .{ .name = .{ .ns = null, .local = "guint8" }, .c_type = "unsigned char" }, false);
-    try testTranslateType("i8", .{ .name = .{ .ns = null, .local = "gint8" }, .c_type = "gint8" }, false);
-    try testTranslateType("i8", .{ .name = .{ .ns = null, .local = "gint8" }, .c_type = "int8_t" }, false);
-    try testTranslateType("u8", .{ .name = .{ .ns = null, .local = "guint8" }, .c_type = "guint8" }, false);
-    try testTranslateType("u8", .{ .name = .{ .ns = null, .local = "guint8" }, .c_type = "uint8_t" }, false);
-    try testTranslateType("i16", .{ .name = .{ .ns = null, .local = "gint16" }, .c_type = "gint16" }, false);
-    try testTranslateType("i16", .{ .name = .{ .ns = null, .local = "gint16" }, .c_type = "int16_t" }, false);
-    try testTranslateType("u16", .{ .name = .{ .ns = null, .local = "guint16" }, .c_type = "guint16" }, false);
-    try testTranslateType("u16", .{ .name = .{ .ns = null, .local = "guint16" }, .c_type = "uint16_t" }, false);
-    try testTranslateType("i32", .{ .name = .{ .ns = null, .local = "gint32" }, .c_type = "gint32" }, false);
-    try testTranslateType("i32", .{ .name = .{ .ns = null, .local = "gint32" }, .c_type = "int32_t" }, false);
-    try testTranslateType("u32", .{ .name = .{ .ns = null, .local = "guint32" }, .c_type = "guint32" }, false);
-    try testTranslateType("u32", .{ .name = .{ .ns = null, .local = "guint32" }, .c_type = "uint32_t" }, false);
-    try testTranslateType("i64", .{ .name = .{ .ns = null, .local = "gint64" }, .c_type = "gint64" }, false);
-    try testTranslateType("i64", .{ .name = .{ .ns = null, .local = "gint64" }, .c_type = "int64_t" }, false);
-    try testTranslateType("u64", .{ .name = .{ .ns = null, .local = "guint64" }, .c_type = "guint64" }, false);
-    try testTranslateType("u64", .{ .name = .{ .ns = null, .local = "guint64" }, .c_type = "uint64_t" }, false);
-    try testTranslateType("c_short", .{ .name = .{ .ns = null, .local = "gshort" }, .c_type = "gshort" }, false);
-    try testTranslateType("c_short", .{ .name = .{ .ns = null, .local = "gshort" }, .c_type = "short" }, false);
-    try testTranslateType("c_ushort", .{ .name = .{ .ns = null, .local = "gushort" }, .c_type = "gushort" }, false);
-    try testTranslateType("c_ushort", .{ .name = .{ .ns = null, .local = "gushort" }, .c_type = "unsigned short" }, false);
-    try testTranslateType("c_int", .{ .name = .{ .ns = null, .local = "gint" }, .c_type = "gint" }, false);
-    try testTranslateType("c_int", .{ .name = .{ .ns = null, .local = "gint" }, .c_type = "int" }, false);
-    try testTranslateType("c_uint", .{ .name = .{ .ns = null, .local = "guint" }, .c_type = "uint" }, false);
-    try testTranslateType("c_uint", .{ .name = .{ .ns = null, .local = "guint" }, .c_type = "unsigned int" }, false);
-    try testTranslateType("c_long", .{ .name = .{ .ns = null, .local = "glong" }, .c_type = "glong" }, false);
-    try testTranslateType("c_long", .{ .name = .{ .ns = null, .local = "glong" }, .c_type = "long" }, false);
-    try testTranslateType("c_long", .{ .name = .{ .ns = null, .local = "glong" }, .c_type = "time_t" }, false);
-    try testTranslateType("c_ulong", .{ .name = .{ .ns = null, .local = "gulong" }, .c_type = "ulong" }, false);
-    try testTranslateType("c_ulong", .{ .name = .{ .ns = null, .local = "gulong" }, .c_type = "unsigned long" }, false);
-    try testTranslateType("usize", .{ .name = .{ .ns = null, .local = "gsize" }, .c_type = "gsize" }, false);
-    try testTranslateType("usize", .{ .name = .{ .ns = null, .local = "gsize" }, .c_type = "size_t" }, false);
-    try testTranslateType("isize", .{ .name = .{ .ns = null, .local = "gssize" }, .c_type = "gssize" }, false);
-    try testTranslateType("isize", .{ .name = .{ .ns = null, .local = "gssize" }, .c_type = "ssize_t" }, false);
-    try testTranslateType("u16", .{ .name = .{ .ns = null, .local = "gunichar2" }, .c_type = "gunichar2" }, false);
-    try testTranslateType("u32", .{ .name = .{ .ns = null, .local = "gunichar" }, .c_type = "gunichar" }, false);
-    try testTranslateType("f32", .{ .name = .{ .ns = null, .local = "gfloat" }, .c_type = "gfloat" }, false);
-    try testTranslateType("f32", .{ .name = .{ .ns = null, .local = "gfloat" }, .c_type = "float" }, false);
-    try testTranslateType("f64", .{ .name = .{ .ns = null, .local = "gdouble" }, .c_type = "gdouble" }, false);
-    try testTranslateType("f64", .{ .name = .{ .ns = null, .local = "gdouble" }, .c_type = "double" }, false);
-    try testTranslateType("c_longdouble", .{ .name = .{ .ns = null, .local = "long double" }, .c_type = "long double" }, false);
-    try testTranslateType("void", .{ .name = .{ .ns = null, .local = "none" }, .c_type = "void" }, false);
-    try testTranslateType("std.builtin.VaList", .{ .name = .{ .ns = null, .local = "va_list" }, .c_type = "va_list" }, false);
-    try testTranslateType("usize", .{ .name = .{ .ns = "GLib", .local = "GType" }, .c_type = "GType" }, false);
-    try testTranslateType("usize", .{ .name = .{ .ns = "GObject", .local = "GType" }, .c_type = "GType" }, false);
-    try testTranslateType("gdk.Rectangle", .{ .name = .{ .ns = "Gdk", .local = "Rectangle" }, .c_type = "GdkRectangle" }, false);
-    try testTranslateType("*anyopaque", .{ .name = .{ .ns = null, .local = "gpointer" }, .c_type = "gpointer" }, false);
-    try testTranslateType("?*anyopaque", .{ .name = .{ .ns = null, .local = "gpointer" }, .c_type = "gpointer" }, true);
-    try testTranslateType("*const anyopaque", .{ .name = .{ .ns = null, .local = "gpointer" }, .c_type = "gconstpointer" }, false);
-    try testTranslateType("?*const anyopaque", .{ .name = .{ .ns = null, .local = "gpointer" }, .c_type = "gconstpointer" }, true);
-    try testTranslateType("*anyopaque", .{ .name = .{ .ns = null, .local = "gpointer" }, .c_type = "void*" }, false);
-    try testTranslateType("?*anyopaque", .{ .name = .{ .ns = null, .local = "gpointer" }, .c_type = "void*" }, true);
-    try testTranslateType("*const anyopaque", .{ .name = .{ .ns = null, .local = "gpointer" }, .c_type = "const void*" }, false);
-    try testTranslateType("?*const anyopaque", .{ .name = .{ .ns = null, .local = "gpointer" }, .c_type = "const void*" }, true);
-    try testTranslateType("*glib.Mutex", .{ .name = .{ .ns = "GLib", .local = "Mutex" }, .c_type = "GMutex*" }, false);
-    try testTranslateType("?*glib.Mutex", .{ .name = .{ .ns = "GLib", .local = "Mutex" }, .c_type = "GMutex*" }, true);
-    try testTranslateType("*gobject.Object", .{ .name = .{ .ns = "GObject", .local = "Object" }, .c_type = "GObject*" }, false);
-    try testTranslateType("?*gobject.Object", .{ .name = .{ .ns = "GObject", .local = "Object" }, .c_type = "GObject*" }, true);
-    try testTranslateType("*c_longdouble", .{ .name = .{ .ns = null, .local = "long double" }, .c_type = "long double*" }, false);
-    try testTranslateType("?*c_longdouble", .{ .name = .{ .ns = null, .local = "long double" }, .c_type = "long double*" }, true);
-    try testTranslateType("*std.builtin.VaList", .{ .name = .{ .ns = null, .local = "va_list" }, .c_type = "va_list*" }, false);
-    try testTranslateType("?*std.builtin.VaList", .{ .name = .{ .ns = null, .local = "va_list" }, .c_type = "va_list*" }, true);
+    try testTranslateType("bool", .{ .name = .{ .ns = null, .local = "gboolean" }, .c_type = "gboolean" }, .{});
+    try testTranslateType("bool", .{ .name = .{ .ns = null, .local = "gboolean" }, .c_type = "bool" }, .{});
+    try testTranslateType("bool", .{ .name = .{ .ns = null, .local = "gboolean" }, .c_type = "_Bool" }, .{});
+    try testTranslateType("u8", .{ .name = .{ .ns = null, .local = "gchar" }, .c_type = "gchar" }, .{});
+    try testTranslateType("u8", .{ .name = .{ .ns = null, .local = "gchar" }, .c_type = "char" }, .{});
+    try testTranslateType("u8", .{ .name = .{ .ns = null, .local = "guint8" }, .c_type = "guchar" }, .{});
+    try testTranslateType("u8", .{ .name = .{ .ns = null, .local = "guint8" }, .c_type = "unsigned char" }, .{});
+    try testTranslateType("i8", .{ .name = .{ .ns = null, .local = "gint8" }, .c_type = "gint8" }, .{});
+    try testTranslateType("i8", .{ .name = .{ .ns = null, .local = "gint8" }, .c_type = "int8_t" }, .{});
+    try testTranslateType("u8", .{ .name = .{ .ns = null, .local = "guint8" }, .c_type = "guint8" }, .{});
+    try testTranslateType("u8", .{ .name = .{ .ns = null, .local = "guint8" }, .c_type = "uint8_t" }, .{});
+    try testTranslateType("i16", .{ .name = .{ .ns = null, .local = "gint16" }, .c_type = "gint16" }, .{});
+    try testTranslateType("i16", .{ .name = .{ .ns = null, .local = "gint16" }, .c_type = "int16_t" }, .{});
+    try testTranslateType("u16", .{ .name = .{ .ns = null, .local = "guint16" }, .c_type = "guint16" }, .{});
+    try testTranslateType("u16", .{ .name = .{ .ns = null, .local = "guint16" }, .c_type = "uint16_t" }, .{});
+    try testTranslateType("i32", .{ .name = .{ .ns = null, .local = "gint32" }, .c_type = "gint32" }, .{});
+    try testTranslateType("i32", .{ .name = .{ .ns = null, .local = "gint32" }, .c_type = "int32_t" }, .{});
+    try testTranslateType("u32", .{ .name = .{ .ns = null, .local = "guint32" }, .c_type = "guint32" }, .{});
+    try testTranslateType("u32", .{ .name = .{ .ns = null, .local = "guint32" }, .c_type = "uint32_t" }, .{});
+    try testTranslateType("i64", .{ .name = .{ .ns = null, .local = "gint64" }, .c_type = "gint64" }, .{});
+    try testTranslateType("i64", .{ .name = .{ .ns = null, .local = "gint64" }, .c_type = "int64_t" }, .{});
+    try testTranslateType("u64", .{ .name = .{ .ns = null, .local = "guint64" }, .c_type = "guint64" }, .{});
+    try testTranslateType("u64", .{ .name = .{ .ns = null, .local = "guint64" }, .c_type = "uint64_t" }, .{});
+    try testTranslateType("c_short", .{ .name = .{ .ns = null, .local = "gshort" }, .c_type = "gshort" }, .{});
+    try testTranslateType("c_short", .{ .name = .{ .ns = null, .local = "gshort" }, .c_type = "short" }, .{});
+    try testTranslateType("c_ushort", .{ .name = .{ .ns = null, .local = "gushort" }, .c_type = "gushort" }, .{});
+    try testTranslateType("c_ushort", .{ .name = .{ .ns = null, .local = "gushort" }, .c_type = "unsigned short" }, .{});
+    try testTranslateType("c_int", .{ .name = .{ .ns = null, .local = "gint" }, .c_type = "gint" }, .{});
+    try testTranslateType("c_int", .{ .name = .{ .ns = null, .local = "gint" }, .c_type = "int" }, .{});
+    try testTranslateType("c_uint", .{ .name = .{ .ns = null, .local = "guint" }, .c_type = "uint" }, .{});
+    try testTranslateType("c_uint", .{ .name = .{ .ns = null, .local = "guint" }, .c_type = "unsigned int" }, .{});
+    try testTranslateType("c_long", .{ .name = .{ .ns = null, .local = "glong" }, .c_type = "glong" }, .{});
+    try testTranslateType("c_long", .{ .name = .{ .ns = null, .local = "glong" }, .c_type = "long" }, .{});
+    try testTranslateType("c_long", .{ .name = .{ .ns = null, .local = "glong" }, .c_type = "time_t" }, .{});
+    try testTranslateType("c_ulong", .{ .name = .{ .ns = null, .local = "gulong" }, .c_type = "ulong" }, .{});
+    try testTranslateType("c_ulong", .{ .name = .{ .ns = null, .local = "gulong" }, .c_type = "unsigned long" }, .{});
+    try testTranslateType("usize", .{ .name = .{ .ns = null, .local = "gsize" }, .c_type = "gsize" }, .{});
+    try testTranslateType("usize", .{ .name = .{ .ns = null, .local = "gsize" }, .c_type = "size_t" }, .{});
+    try testTranslateType("isize", .{ .name = .{ .ns = null, .local = "gssize" }, .c_type = "gssize" }, .{});
+    try testTranslateType("isize", .{ .name = .{ .ns = null, .local = "gssize" }, .c_type = "ssize_t" }, .{});
+    try testTranslateType("u16", .{ .name = .{ .ns = null, .local = "gunichar2" }, .c_type = "gunichar2" }, .{});
+    try testTranslateType("u32", .{ .name = .{ .ns = null, .local = "gunichar" }, .c_type = "gunichar" }, .{});
+    try testTranslateType("f32", .{ .name = .{ .ns = null, .local = "gfloat" }, .c_type = "gfloat" }, .{});
+    try testTranslateType("f32", .{ .name = .{ .ns = null, .local = "gfloat" }, .c_type = "float" }, .{});
+    try testTranslateType("f64", .{ .name = .{ .ns = null, .local = "gdouble" }, .c_type = "gdouble" }, .{});
+    try testTranslateType("f64", .{ .name = .{ .ns = null, .local = "gdouble" }, .c_type = "double" }, .{});
+    try testTranslateType("c_longdouble", .{ .name = .{ .ns = null, .local = "long double" }, .c_type = "long double" }, .{});
+    try testTranslateType("void", .{ .name = .{ .ns = null, .local = "none" }, .c_type = "void" }, .{});
+    try testTranslateType("std.builtin.VaList", .{ .name = .{ .ns = null, .local = "va_list" }, .c_type = "va_list" }, .{});
+    try testTranslateType("usize", .{ .name = .{ .ns = "GLib", .local = "GType" }, .c_type = "GType" }, .{});
+    try testTranslateType("usize", .{ .name = .{ .ns = "GObject", .local = "GType" }, .c_type = "GType" }, .{});
+    try testTranslateType("gdk.Event", .{ .name = .{ .ns = "Gdk", .local = "Event" }, .c_type = "GdkEvent" }, .{});
+    try testTranslateType("gdk.Event", .{ .name = .{ .ns = "Gdk", .local = "Event" } }, .{});
+    try testTranslateType("*gdk.Event", .{ .name = .{ .ns = "Gdk", .local = "Event" } }, .{ .gobject_context = true });
+    try testTranslateType("?*gdk.Event", .{ .name = .{ .ns = "Gdk", .local = "Event" } }, .{ .gobject_context = true, .nullable = true });
+    try testTranslateType("*anyopaque", .{ .name = .{ .ns = null, .local = "gpointer" }, .c_type = "gpointer" }, .{});
+    try testTranslateType("?*anyopaque", .{ .name = .{ .ns = null, .local = "gpointer" }, .c_type = "gpointer" }, .{ .nullable = true });
+    try testTranslateType("*const anyopaque", .{ .name = .{ .ns = null, .local = "gpointer" }, .c_type = "gconstpointer" }, .{});
+    try testTranslateType("?*const anyopaque", .{ .name = .{ .ns = null, .local = "gpointer" }, .c_type = "gconstpointer" }, .{ .nullable = true });
+    try testTranslateType("*anyopaque", .{ .name = .{ .ns = null, .local = "gpointer" }, .c_type = "void*" }, .{});
+    try testTranslateType("?*anyopaque", .{ .name = .{ .ns = null, .local = "gpointer" }, .c_type = "void*" }, .{ .nullable = true });
+    try testTranslateType("*const anyopaque", .{ .name = .{ .ns = null, .local = "gpointer" }, .c_type = "const void*" }, .{});
+    try testTranslateType("?*const anyopaque", .{ .name = .{ .ns = null, .local = "gpointer" }, .c_type = "const void*" }, .{ .nullable = true });
+    try testTranslateType("*glib.Mutex", .{ .name = .{ .ns = "GLib", .local = "Mutex" }, .c_type = "GMutex*" }, .{});
+    try testTranslateType("?*glib.Mutex", .{ .name = .{ .ns = "GLib", .local = "Mutex" }, .c_type = "GMutex*" }, .{ .nullable = true });
+    try testTranslateType("*gobject.Object", .{ .name = .{ .ns = "GObject", .local = "Object" }, .c_type = "GObject*" }, .{});
+    try testTranslateType("?*gobject.Object", .{ .name = .{ .ns = "GObject", .local = "Object" }, .c_type = "GObject*" }, .{ .nullable = true });
+    try testTranslateType("*c_longdouble", .{ .name = .{ .ns = null, .local = "long double" }, .c_type = "long double*" }, .{});
+    try testTranslateType("?*c_longdouble", .{ .name = .{ .ns = null, .local = "long double" }, .c_type = "long double*" }, .{ .nullable = true });
+    try testTranslateType("*std.builtin.VaList", .{ .name = .{ .ns = null, .local = "va_list" }, .c_type = "va_list*" }, .{});
+    try testTranslateType("?*std.builtin.VaList", .{ .name = .{ .ns = null, .local = "va_list" }, .c_type = "va_list*" }, .{ .nullable = true });
     // This completely unnecessary const qualifier actually does show up in the
     // GLib GIR (the line parameter of assert_warning)
-    try testTranslateType("c_int", .{ .name = .{ .ns = null, .local = "gint" }, .c_type = "const int" }, false);
+    try testTranslateType("c_int", .{ .name = .{ .ns = null, .local = "gint" }, .c_type = "const int" }, .{});
     // I hate strings in GIR
-    try testTranslateType("[*:0]const u8", .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = "const gchar*" }, false);
-    try testTranslateType("?[*:0]const u8", .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = "const gchar*" }, true);
-    try testTranslateType("[*:0]const u8", .{ .name = .{ .ns = null, .local = "filename" }, .c_type = "const gchar*" }, false);
-    try testTranslateType("?[*:0]const u8", .{ .name = .{ .ns = null, .local = "filename" }, .c_type = "const gchar*" }, true);
-    try testTranslateType("[*:0]u8", .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = "gchar*" }, false);
-    try testTranslateType("?[*:0]u8", .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = "gchar*" }, true);
-    try testTranslateType("[*:0]u8", .{ .name = .{ .ns = null, .local = "filename" }, .c_type = "gchar*" }, false);
-    try testTranslateType("?[*:0]u8", .{ .name = .{ .ns = null, .local = "filename" }, .c_type = "gchar*" }, true);
-    try testTranslateType("[*:0]const u8", .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = "const char*" }, false);
-    try testTranslateType("?[*:0]const u8", .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = "const char*" }, true);
-    try testTranslateType("[*:0]const u8", .{ .name = .{ .ns = null, .local = "filename" }, .c_type = "const char*" }, false);
-    try testTranslateType("?[*:0]const u8", .{ .name = .{ .ns = null, .local = "filename" }, .c_type = "const char*" }, true);
-    try testTranslateType("[*:0]u8", .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = "char*" }, false);
-    try testTranslateType("?[*:0]u8", .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = "char*" }, true);
-    try testTranslateType("[*:0]u8", .{ .name = .{ .ns = null, .local = "filename" }, .c_type = "char*" }, false);
-    try testTranslateType("?[*:0]u8", .{ .name = .{ .ns = null, .local = "filename" }, .c_type = "char*" }, true);
-    try testTranslateType("[*:0]u8", .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = null }, false);
-    try testTranslateType("?[*:0]u8", .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = null }, true);
-    try testTranslateType("[*:0]u8", .{ .name = .{ .ns = null, .local = "filename" }, .c_type = null }, false);
-    try testTranslateType("?[*:0]u8", .{ .name = .{ .ns = null, .local = "filename" }, .c_type = null }, true);
+    try testTranslateType("[*:0]const u8", .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = "const gchar*" }, .{});
+    try testTranslateType("?[*:0]const u8", .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = "const gchar*" }, .{ .nullable = true });
+    try testTranslateType("[*:0]const u8", .{ .name = .{ .ns = null, .local = "filename" }, .c_type = "const gchar*" }, .{});
+    try testTranslateType("?[*:0]const u8", .{ .name = .{ .ns = null, .local = "filename" }, .c_type = "const gchar*" }, .{ .nullable = true });
+    try testTranslateType("[*:0]u8", .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = "gchar*" }, .{});
+    try testTranslateType("?[*:0]u8", .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = "gchar*" }, .{ .nullable = true });
+    try testTranslateType("[*:0]u8", .{ .name = .{ .ns = null, .local = "filename" }, .c_type = "gchar*" }, .{});
+    try testTranslateType("?[*:0]u8", .{ .name = .{ .ns = null, .local = "filename" }, .c_type = "gchar*" }, .{ .nullable = true });
+    try testTranslateType("[*:0]const u8", .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = "const char*" }, .{});
+    try testTranslateType("?[*:0]const u8", .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = "const char*" }, .{ .nullable = true });
+    try testTranslateType("[*:0]const u8", .{ .name = .{ .ns = null, .local = "filename" }, .c_type = "const char*" }, .{});
+    try testTranslateType("?[*:0]const u8", .{ .name = .{ .ns = null, .local = "filename" }, .c_type = "const char*" }, .{ .nullable = true });
+    try testTranslateType("[*:0]u8", .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = "char*" }, .{});
+    try testTranslateType("?[*:0]u8", .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = "char*" }, .{ .nullable = true });
+    try testTranslateType("[*:0]u8", .{ .name = .{ .ns = null, .local = "filename" }, .c_type = "char*" }, .{});
+    try testTranslateType("?[*:0]u8", .{ .name = .{ .ns = null, .local = "filename" }, .c_type = "char*" }, .{ .nullable = true });
+    try testTranslateType("[*:0]u8", .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = null }, .{});
+    try testTranslateType("?[*:0]u8", .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = null }, .{ .nullable = true });
+    try testTranslateType("[*:0]u8", .{ .name = .{ .ns = null, .local = "filename" }, .c_type = null }, .{});
+    try testTranslateType("?[*:0]u8", .{ .name = .{ .ns = null, .local = "filename" }, .c_type = null }, .{ .nullable = true });
     // TODO: why is this not an array type in GIR? This inhibits a good translation here.
     // See the invalidated_properties parameter in Gio and similar.
-    try testTranslateType("*const [*:0]const u8", .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = "const gchar* const*" }, false);
-    try testTranslateType("?*const [*:0]const u8", .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = "const gchar* const*" }, true);
+    try testTranslateType("*const [*:0]const u8", .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = "const gchar* const*" }, .{});
+    try testTranslateType("?*const [*:0]const u8", .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = "const gchar* const*" }, .{ .nullable = true });
     // TODO: this is perhaps not ideal, but it's how the C code is written, seemingly for compatibility with using the functions as generic callbacks.
     // Maybe we'll decide we don't care about this and try to do a translation with the proper type.
-    try testTranslateType("*anyopaque", .{ .name = .{ .ns = null, .local = "Object" }, .c_type = "gpointer" }, false);
-    try testTranslateType("?*anyopaque", .{ .name = .{ .ns = null, .local = "Object" }, .c_type = "gpointer" }, true);
-    try testTranslateType("*const anyopaque", .{ .name = .{ .ns = "GLib", .local = "Bytes" }, .c_type = "gconstpointer" }, false);
-    try testTranslateType("?*const anyopaque", .{ .name = .{ .ns = "GLib", .local = "Bytes" }, .c_type = "gconstpointer" }, true);
+    try testTranslateType("*anyopaque", .{ .name = .{ .ns = null, .local = "Object" }, .c_type = "gpointer" }, .{});
+    try testTranslateType("?*anyopaque", .{ .name = .{ .ns = null, .local = "Object" }, .c_type = "gpointer" }, .{ .nullable = true });
+    try testTranslateType("*const anyopaque", .{ .name = .{ .ns = "GLib", .local = "Bytes" }, .c_type = "gconstpointer" }, .{});
+    try testTranslateType("?*const anyopaque", .{ .name = .{ .ns = "GLib", .local = "Bytes" }, .c_type = "gconstpointer" }, .{ .nullable = true });
     // We may want to revisit these at some point, or they may just be a lost
     // cause, since the GIR doesn't tell us whether these are really meant to be
     // single or many pointers, and there are examples of both interpretations.
     // This is what C pointers are designed to solve, but GIR should really give us
     // enough information to tell the difference, so it would be a shame to use
     // them. Maybe the usage as a return value or out parameter can help?
-    try testTranslateType("*u16", .{ .name = .{ .ns = null, .local = "guint16" }, .c_type = "gunichar2*" }, false);
-    try testTranslateType("?*u16", .{ .name = .{ .ns = null, .local = "guint16" }, .c_type = "gunichar2*" }, true);
-    try testTranslateType("*const u32", .{ .name = .{ .ns = null, .local = "gunichar" }, .c_type = "const gunichar*" }, false);
-    try testTranslateType("?*const u32", .{ .name = .{ .ns = null, .local = "gunichar" }, .c_type = "const gunichar*" }, true);
+    try testTranslateType("*u16", .{ .name = .{ .ns = null, .local = "guint16" }, .c_type = "gunichar2*" }, .{});
+    try testTranslateType("?*u16", .{ .name = .{ .ns = null, .local = "guint16" }, .c_type = "gunichar2*" }, .{ .nullable = true });
+    try testTranslateType("*const u32", .{ .name = .{ .ns = null, .local = "gunichar" }, .c_type = "const gunichar*" }, .{});
+    try testTranslateType("?*const u32", .{ .name = .{ .ns = null, .local = "gunichar" }, .c_type = "const gunichar*" }, .{ .nullable = true });
     // This one has sub-elements (type parameters) in GIR, which we're not
     // currently parsing, and probably never will
-    try testTranslateType("*glib.HashTable", .{ .name = .{ .ns = "GLib", .local = "HashTable" }, .c_type = "GHashTable*" }, false);
-    try testTranslateType("?*glib.HashTable", .{ .name = .{ .ns = "GLib", .local = "HashTable" }, .c_type = "GHashTable*" }, true);
+    try testTranslateType("*glib.HashTable", .{ .name = .{ .ns = "GLib", .local = "HashTable" }, .c_type = "GHashTable*" }, .{});
+    try testTranslateType("?*glib.HashTable", .{ .name = .{ .ns = "GLib", .local = "HashTable" }, .c_type = "GHashTable*" }, .{ .nullable = true });
 }
 
-fn testTranslateType(expected: []const u8, @"type": gir.Type, nullable: bool) !void {
+fn testTranslateType(expected: []const u8, @"type": gir.Type, options: TranslateTypeOptions) !void {
     var buf = ArrayList(u8).init(testing.allocator);
     defer buf.deinit();
     const out = buf.writer();
-    try translateType(testing.allocator, @"type", nullable, out);
+    try translateType(testing.allocator, @"type", options, out);
     try testing.expectEqualStrings(expected, buf.items);
 }
 
-fn translateArrayType(allocator: Allocator, @"type": gir.ArrayType, out: anytype) !void {
+fn translateArrayType(allocator: Allocator, @"type": gir.ArrayType, options: TranslateTypeOptions, out: anytype) !void {
     // This special case is useful for types like glib.Array which are
     // translated as array types even though they're not really arrays
     if (@"type".name != null and @"type".c_type != null) {
-        return translateType(allocator, .{ .name = @"type".name, .c_type = @"type".c_type }, false, out);
+        return translateType(allocator, .{ .name = @"type".name, .c_type = @"type".c_type }, options, out);
     }
 
     var pointer_type: ?CPointerType = null;
@@ -1149,12 +1169,12 @@ fn translateArrayType(allocator: Allocator, @"type": gir.ArrayType, out: anytype
         .simple => |element| {
             var modified_element = element;
             modified_element.c_type = element_c_type orelse element.c_type;
-            try translateType(allocator, modified_element, false, out);
+            try translateType(allocator, modified_element, .{ .gobject_context = options.gobject_context }, out);
         },
         .array => |element| {
             var modified_element = element;
             modified_element.c_type = element_c_type orelse element.c_type;
-            try translateArrayType(allocator, modified_element, out);
+            try translateArrayType(allocator, modified_element, .{ .gobject_context = options.gobject_context }, out);
         },
     }
 }
@@ -1165,83 +1185,83 @@ test "translateArrayType" {
         .element = &.{
             .simple = .{ .name = .{ .ns = null, .local = "gpointer" }, .c_type = "gpointer" },
         },
-    });
+    }, .{});
     try testTranslateArrayType("[*:0]u8", .{
         .c_type = "gpointer",
         .zero_terminated = true,
         .element = &.{
             .simple = .{ .name = .{ .ns = null, .local = "guint8" } },
         },
-    });
+    }, .{});
     try testTranslateArrayType("[*:0]const u8", .{
         .c_type = "gconstpointer",
         .zero_terminated = true,
         .element = &.{
             .simple = .{ .name = .{ .ns = null, .local = "guint8" } },
         },
-    });
+    }, .{});
     try testTranslateArrayType("*glib.Array", .{
         .name = .{ .ns = "GLib", .local = "Array" },
         .c_type = "GArray*",
         .element = &.{
             .simple = .{ .name = .{ .ns = null, .local = "gpointer" }, .c_type = "gpointer" },
         },
-    });
+    }, .{});
     try testTranslateArrayType("[*][*:0]const u8", .{
         .c_type = "const gchar**",
         .element = &.{
             .simple = .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = "gchar*" },
         },
-    });
+    }, .{});
     try testTranslateArrayType("[*][*:0]const u8", .{
         .c_type = "const gchar**",
         .element = &.{
             .simple = .{ .name = .{ .ns = null, .local = "filename" }, .c_type = null },
         },
-    });
+    }, .{});
     try testTranslateArrayType("[*]const u8", .{
         .c_type = "const gchar*",
         .element = &.{
             .simple = .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = "gchar" },
         },
-    });
+    }, .{});
     try testTranslateArrayType("[*][*:0]const u8", .{
         .c_type = "const gchar**",
         .element = &.{
             .simple = .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = null },
         },
-    });
+    }, .{});
     try testTranslateArrayType("[*][*:0]u8", .{
         .c_type = "GStrv",
         .element = &.{
             .simple = .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = null },
         },
-    });
+    }, .{});
     try testTranslateArrayType("[*][*:0]u8", .{
         .element = &.{
             .simple = .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = null },
         },
-    });
+    }, .{});
     try testTranslateArrayType("*const [4]gdk.RGBA", .{
         .c_type = "const GdkRGBA*",
         .fixed_size = 4,
         .element = &.{
             .simple = .{ .name = .{ .ns = "Gdk", .local = "RGBA" }, .c_type = "GdkRGBA" },
         },
-    });
+    }, .{});
     try testTranslateArrayType("[2]gobject._Value__data__union", .{
         .fixed_size = 2,
         .element = &.{
             .simple = .{ .name = .{ .ns = "GObject", .local = "_Value__data__union" }, .c_type = null },
         },
-    });
+    }, .{});
 }
 
-fn testTranslateArrayType(expected: []const u8, @"type": gir.ArrayType) !void {
+fn testTranslateArrayType(expected: []const u8, @"type": gir.ArrayType, options: TranslateTypeOptions) !void {
     var buf = ArrayList(u8).init(testing.allocator);
     defer buf.deinit();
     const out = buf.writer();
-    try translateArrayType(testing.allocator, @"type", out);
+    try translateArrayType(testing.allocator, @"type", options, out);
     try testing.expectEqualStrings(expected, buf.items);
 }
 
@@ -1286,15 +1306,16 @@ fn translateCallback(allocator: Allocator, callback: gir.Callback, named: bool, 
     _ = try out.write("?*const fn (");
     var i: usize = 0;
     while (i < callback.parameters.len) : (i += 1) {
-        try translateParameter(allocator, callback.parameters[i], "Self", out);
+        try translateParameter(allocator, callback.parameters[i], .{}, out);
         if (i < callback.parameters.len - 1) {
             _ = try out.write(", ");
         }
     }
     _ = try out.write(") callconv(.C) ");
+    const type_options = TranslateTypeOptions{ .nullable = callback.return_value.nullable };
     switch (callback.return_value.type) {
-        .simple => |simple_type| try translateType(allocator, simple_type, callback.return_value.nullable, out),
-        .array => |array_type| try translateArrayType(allocator, array_type, out),
+        .simple => |simple_type| try translateType(allocator, simple_type, type_options, out),
+        .array => |array_type| try translateArrayType(allocator, array_type, type_options, out),
     }
 
     if (named) {
@@ -1302,7 +1323,12 @@ fn translateCallback(allocator: Allocator, callback: gir.Callback, named: bool, 
     }
 }
 
-fn translateParameter(allocator: Allocator, parameter: gir.Parameter, self_type: []const u8, out: anytype) !void {
+const TranslateParameterOptions = struct {
+    self_type: []const u8 = "Self",
+    gobject_context: bool = false,
+};
+
+fn translateParameter(allocator: Allocator, parameter: gir.Parameter, options: TranslateParameterOptions, out: anytype) !void {
     if (parameter.type == .varargs) {
         _ = try out.write("...");
         return;
@@ -1313,14 +1339,18 @@ fn translateParameter(allocator: Allocator, parameter: gir.Parameter, self_type:
     if (parameter.instance) {
         // TODO: what if the instance parameter isn't a pointer?
         if (mem.startsWith(u8, parameter.type.simple.c_type.?, "const ")) {
-            try out.print("*const {s}", .{self_type});
+            try out.print("*const {s}", .{options.self_type});
         } else {
-            try out.print("*{s}", .{self_type});
+            try out.print("*{s}", .{options.self_type});
         }
     } else {
+        const type_options = TranslateTypeOptions{
+            .nullable = parameter.nullable or parameter.optional,
+            .gobject_context = options.gobject_context,
+        };
         switch (parameter.type) {
-            .simple => |simple_type| try translateType(allocator, simple_type, parameter.nullable or parameter.optional, out),
-            .array => |array_type| try translateArrayType(allocator, array_type, out),
+            .simple => |simple_type| try translateType(allocator, simple_type, type_options, out),
+            .array => |array_type| try translateArrayType(allocator, array_type, type_options, out),
             .varargs => unreachable, // handled above
         }
     }
@@ -1332,8 +1362,15 @@ fn translateParameterName(allocator: Allocator, parameterName: []const u8, out: 
     try out.print("{s}", .{zig.fmtId(translatedName)});
 }
 
-fn translateReturnValue(allocator: Allocator, return_value: gir.ReturnValue, out: anytype) !void {
-    try translateAnyType(allocator, return_value.type, return_value.nullable, out);
+const TranslateReturnValueOptions = struct {
+    gobject_context: bool = false,
+};
+
+fn translateReturnValue(allocator: Allocator, return_value: gir.ReturnValue, options: TranslateReturnValueOptions, out: anytype) !void {
+    try translateAnyType(allocator, return_value.type, .{
+        .nullable = return_value.nullable,
+        .gobject_context = options.gobject_context,
+    }, out);
 }
 
 fn translateDocumentation(documentation: ?gir.Documentation, indent: []const u8, out: anytype) !void {

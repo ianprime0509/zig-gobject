@@ -44,7 +44,7 @@ pub fn build(b: *std.Build) !void {
     libxml2_lib.link(exe_tests);
 
     const test_exe_step = b.step("test-exe", "Run tests for the binding generator");
-    test_exe_step.dependOn(&exe_tests.step);
+    test_exe_step.dependOn(&exe_tests.run().step);
     test_step.dependOn(test_exe_step);
 
     const test_bindings_cmd = b.addSystemCommand(&.{ b.zig_exe, "build", "test" });

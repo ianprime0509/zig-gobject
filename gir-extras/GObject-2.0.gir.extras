@@ -100,9 +100,9 @@ return struct {
     </function>
     <function name="typeMakeFundamental">
       <doc>A translation of the `G_TYPE_MAKE_FUNDAMENTAL` macro, for internal use.</doc>
-      <parameter name="p_x" type="usize" />
+      <parameter name="x" type="usize" />
       <return-value type="Type" />
-      <body>return p_x &lt;&lt; TYPE_FUNDAMENTAL_SHIFT;</body>
+      <body>return x &lt;&lt; TYPE_FUNDAMENTAL_SHIFT;</body>
     </function>
     <function name="typeFor">
       <doc>Returns the GObject `Type` corresponding to the given type.</doc>
@@ -152,37 +152,69 @@ if (comptime std.meta.trait.hasFn("getType")(T)) {
     @compileError("unable to determine GObject type for " ++ @typeName(T));
 }</body>
     </function>
+    <record name="TypeInstance">
+      <method name="cast">
+        <doc>Casts this to another type, or returns null if this is not an instance of the type.</doc>
+        <parameter name="self" type="*Self" />
+        <parameter name="T" type="type" comptime="1" />
+        <return-value type="?*T" />
+        <body>return if (self.isA(T)) self.castUnchecked(T) else null;</body>
+      </method>
+      <method name="castUnchecked">
+        <doc>Casts this to another type, without checking whether such a cast is actually valid.</doc>
+        <parameter name="self" type="*Self" />
+        <parameter name="T" type="type" comptime="1" />
+        <return-value type="*T" />
+        <body>return @ptrCast(*T, @alignCast(@alignOf(*T), self));</body>
+      </method>
+      <method name="isA">
+        <doc>Returns whether this is an instance of the given type or some sub-type.</doc>
+        <parameter name="self" type="*Self" />
+        <parameter name="T" type="type" comptime="1" />
+        <return-value type="bool" />
+        <body>return typeCheckInstanceIsA(self.castUnchecked(TypeInstance), typeFor(T));</body>
+      </method>
+    </record>
+    <record name="TypeClass">
+      <method name="castUnchecked">
+        <doc>Casts this to another type, without checking whether such a cast is actually valid.</doc>
+        <parameter name="self" type="*Self" />
+        <parameter name="T" type="type" comptime="1" />
+        <return-value type="*T" />
+        <body>return @ptrCast(*T, @alignCast(@alignOf(*T), self));</body>
+      </method>
+    </record>
     <class name="Object">
       <method name="newFrom">
         <doc>Creates a new instance of this object type with the given properties.</doc>
-        <parameter name="p_properties" type="anytype" />
+        <parameter name="properties" type="anytype" />
         <return-value type="*Self" />
-        <body>const typeInfo = @typeInfo(@TypeOf(p_properties)).Struct;
+        <body>const typeInfo = @typeInfo(@TypeOf(properties)).Struct;
 const n_props = typeInfo.fields.len;
 var names: [n_props][*:0]const u8 = undefined;
 var values: [n_props]Value = undefined;
 inline for (typeInfo.fields, 0..) |field, i| {
     names[i] = field.name ++ "\x00";
-    values[i] = Value.wrap(@field(p_properties, field.name));
+    values[i] = Value.wrap(@field(properties, field.name));
 }
 defer for (&amp;values) |*value| value.unset();
 // TODO: the names parameter should actually be [*][*:0]const u8
-return @ptrCast(*Self, Object.newWithProperties(Self.getType(), n_props, @ptrCast([*][*:0]u8, &amp;names), &amp;values));</body>
+return Object.newWithProperties(Self.getType(), n_props, @ptrCast([*][*:0]u8, &amp;names), &amp;values).castUnchecked(Self);</body>
       </method>
       <method name="as">
         <doc>Safely casts this object to an instance of `T`, emitting a compilation error if the safety of the cast cannot be guaranteed.</doc>
-        <parameter name="p_self" type="*Self" />
+        <parameter name="self" type="*Self" />
         <parameter name="T" type="type" comptime="1" />
         <return-value type="*T" />
         <body>if (T == Self) {
-    return p_self;
+    return self;
 }
 
 comptime var curr_type = Self;
 inline while (@hasDecl(curr_type, "Parent")) {
     curr_type = curr_type.Parent;
     if (curr_type == T) {
-        return @ptrCast(*T, @alignCast(@alignOf(*T), p_self));
+        return self.castUnchecked(T);
     }
 }
 
@@ -215,83 +247,83 @@ pub usingnamespace TypeClassMethods(Self);</methods-code>
     <record name="Value">
       <function name="new">
         <doc>Returns a new `Value` intended to hold data of the given type.</doc>
-        <parameter name="p_type" type="type" comptime="1" />
+        <parameter name="T" type="type" comptime="1" />
         <return-value type="Self" />
         <body>var value = std.mem.zeroes(Self);
-_ = value.init(typeFor(p_type));
+_ = value.init(typeFor(T));
 return value;</body>
       </function>
       <function name="wrap">
         <doc>Wraps a value in a `Value`.
 
 This does not take ownership of the value (if applicable).</doc>
-        <parameter name="p_value" type="anytype" />
+        <parameter name="value" type="anytype" />
         <return-value type="Self" />
-        <body>comptime var T = @TypeOf(p_value);
+        <body>comptime var T = @TypeOf(value);
 const typeInfo = @typeInfo(T);
-var value: Value = undefined;
+var wrapped: Value = undefined;
 if (T == i8) {
-    value = new(T);
-    value.setSchar(p_value);
+    wrapped = new(T);
+    wrapped.setSchar(value);
 } else if (T == u8) {
-    value = new(T);
-    value.setUchar(p_value);
+    wrapped = new(T);
+    wrapped.setUchar(value);
 } else if (T == bool) {
-    value = new(T);
-    value.setBoolean(p_value);
+    wrapped = new(T);
+    wrapped.setBoolean(value);
 } else if (T == c_int) {
-    value = new(T);
-    value.setInt(p_value);
+    wrapped = new(T);
+    wrapped.setInt(value);
 } else if (T == c_uint) {
-    value = new(T);
-    value.setUint(p_value);
+    wrapped = new(T);
+    wrapped.setUint(value);
 } else if (T == c_long) {
-    value = new(T);
-    value.setLong(p_value);
+    wrapped = new(T);
+    wrapped.setLong(value);
 } else if (T == c_ulong) {
-    value = new(T);
-    value.setUlong(p_value);
+    wrapped = new(T);
+    wrapped.setUlong(value);
 } else if (T == i64) {
-    value = new(T);
-    value.setInt64(p_value);
+    wrapped = new(T);
+    wrapped.setInt64(value);
 } else if (T == u64) {
-    value = new(T);
-    value.setUint64(p_value);
+    wrapped = new(T);
+    wrapped.setUint64(value);
 } else if (T == f32) {
-    value = new(T);
-    value.setFloat(p_value);
+    wrapped = new(T);
+    wrapped.setFloat(value);
 } else if (T == f64) {
-    value = new(T);
-    value.setDouble(p_value);
+    wrapped = new(T);
+    wrapped.setDouble(value);
 } else if (comptime isCString(T)) {
-    value = new(T);
-    value.setString(p_value);
+    wrapped = new(T);
+    wrapped.setString(value);
 } else if (T == *anyopaque or T == *const anyopaque) {
-    value = new(T);
-    value.setPointer(p_value);
+    wrapped = new(T);
+    wrapped.setPointer(value);
 } else if (T == ParamSpec) {
-    value = new(T);
-    value.setParam(p_value);
+    wrapped = new(T);
+    wrapped.setParam(value);
 } else if (T == glib.Variant) {
-    value = new(T);
-    value.setVariant(p_value);
+    wrapped = new(T);
+    wrapped.setVariant(value);
 } else if (typeInfo == .Enum and typeInfo.Enum.tag_type == c_int) {
-    value = new(T);
-    value.setEnum(@enumToInt(p_value));
+    wrapped = new(T);
+    wrapped.setEnum(@enumToInt(value));
 } else if (typeInfo == .Struct and typeInfo.Struct.backing_integer == c_uint) {
-    value = new(T);
-    value.setFlags(@bitCast(c_uint, p_value));
+    wrapped = new(T);
+    wrapped.setFlags(@bitCast(c_uint, value));
 } else if (typeInfo == .Pointer and comptime std.meta.trait.hasFn("getType")(typeInfo.Pointer.child)) {
-    value = new(typeInfo.Pointer.child);
+    wrapped = new(typeInfo.Pointer.child);
     if (typeInfo.Pointer.child.getType() == Boxed) {
-        value.setBoxed(p_value);
+        wrapped.setBoxed(value);
     } else {
-        value.setObject(@ptrCast(*Object, p_value));
+        wrapped.setObject(@ptrCast(*Object, value));
     }
 } else {
     @compileError("cannot construct Value containing " ++ @typeName(T));
 }
-return value;</body>
+return wrapped;</body>
       </function>
     </record>
     <!-- Implementation details -->
