@@ -2,6 +2,8 @@ const gobject = @import("gobject");
 
 const std = @import("std");
 const testing = std.testing;
+const expectEqual = testing.expectEqual;
+const expectEqualStrings = testing.expectEqualStrings;
 const Value = gobject.Value;
 
 test "Value.new" {
@@ -22,7 +24,7 @@ test "Value.new([*:0]const u8)" {
     var value = Value.new([*:0]const u8);
     defer value.unset();
     value.setString("Hello, world!");
-    try testing.expectEqualStrings("Hello, world!", std.mem.sliceTo(value.getString(), 0));
+    try expectEqualStrings("Hello, world!", std.mem.sliceTo(value.getString(), 0));
 }
 
 test "Value.new(*anyopaque)" {
@@ -30,12 +32,56 @@ test "Value.new(*anyopaque)" {
     defer value.unset();
     var something: i32 = 123;
     value.setPointer(&something);
-    try testing.expectEqual(@as(?*anyopaque, &something), value.getPointer());
+    try expectEqual(@as(?*anyopaque, &something), value.getPointer());
 }
 
 fn testValueNew(comptime T: type, data: T, getter: fn (*const Value) callconv(.C) T, setter: fn (*Value, T) callconv(.C) void) !void {
     var value = Value.new(T);
     defer value.unset();
     setter(&value, data);
-    try testing.expectEqual(data, getter(&value));
+    try expectEqual(data, getter(&value));
+}
+
+test "Object subclass" {
+    const Subclass = extern struct {
+        parent_instance: Parent,
+
+        pub const Parent = gobject.Object;
+        const Self = @This();
+
+        pub const Private = struct {
+            some_value: i32,
+
+            pub var offset: c_int = 0;
+        };
+
+        pub const getType = gobject.registerType(Self, .{});
+
+        pub fn new() *Self {
+            return Self.newWith(.{});
+        }
+
+        pub fn init(self: *Self) callconv(.C) void {
+            self.private().some_value = 123;
+        }
+
+        pub fn getSomeValue(self: *Self) i32 {
+            return self.private().some_value;
+        }
+
+        pub usingnamespace Parent.Methods(Self);
+
+        pub const Class = extern struct {
+            parent_class: Parent.Class,
+
+            pub const Instance = Self;
+
+            pub usingnamespace Parent.Class.Methods(Class);
+            pub usingnamespace Parent.Class.VirtualMethods(Class, Self);
+        };
+    };
+
+    const obj = Subclass.new();
+    defer obj.unref();
+    try expectEqual(@as(i32, 123), obj.getSomeValue());
 }

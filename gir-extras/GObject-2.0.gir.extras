@@ -57,6 +57,12 @@ if (!@hasDecl(Self.Class, "Instance") or Self.Class.Instance != Self) {
     @compileError("a class type must have a member named Instance pointing to the instance type");
 }
 
+if (@hasDecl(Self, "Private")) {
+    if (!@hasDecl(Self.Private, "offset") or @TypeOf(Self.Private.offset) != c_int) {
+        @compileError("private type must have an offset member of type c_int to store the private data offset");
+    }
+}
+
 return struct {
     var registered_type: Type = 0;
 
@@ -65,7 +71,10 @@ return struct {
             const classInitFunc = struct {
                 fn classInit(class: *Self.Class) callconv(.C) void {
                     if (@hasDecl(Self.Class, "parent")) {
-                        Self.Class.parent = @ptrCast(*Self.Parent.Class, @alignCast(@alignOf(*Self.Parent.Class), class.peekParent()));
+                        Self.Class.parent = class.peekParent().castUnchecked(Self.Parent.Class);
+                    }
+                    if (@hasDecl(Self, "Private")) {
+                        TypeClass.adjustPrivateOffset(class, &amp;Self.Private.offset);
                     }
                     if (@hasDecl(Self.Class, "init")) {
                         Self.Class.init(class);
@@ -93,6 +102,9 @@ return struct {
               break :blk self_name;
             };
             registered_type = typeRegisterStatic(Self.Parent.getType(), type_name, &amp;info, options.flags);
+            if (@hasDecl(Self, "Private")) {
+                Self.Private.offset = typeAddInstancePrivate(registered_type, @sizeOf(Self.Private));
+            }
         }
         return registered_type;
     }
@@ -174,6 +186,17 @@ if (comptime std.meta.trait.hasFn("getType")(T)) {
         <return-value type="bool" />
         <body>return typeCheckInstanceIsA(self.castUnchecked(TypeInstance), typeFor(T));</body>
       </method>
+      <method name="private">
+        <doc>Returns the private data struct for this object.</doc>
+        <parameter name="self" type="*Self" />
+        <return-value type="*TypeInstance.PrivateType(Self)" />
+        <body>return @intToPtr(*Self.Private, @ptrToInt(self) +% @bitCast(usize, @as(isize, Self.Private.offset)));</body>
+      </method>
+      <function name="PrivateType" private="1">
+        <parameter name="T" type="type" comptime="1" />
+        <return-value type="type" />
+        <body>return if (@hasDecl(T, "Private")) T.Private else @compileError("no private data available for " ++ @typeName(T));</body>
+      </function>
     </record>
     <record name="TypeClass">
       <method name="castUnchecked">
@@ -185,7 +208,7 @@ if (comptime std.meta.trait.hasFn("getType")(T)) {
       </method>
     </record>
     <class name="Object">
-      <method name="newFrom">
+      <method name="newWith">
         <doc>Creates a new instance of this object type with the given properties.</doc>
         <parameter name="properties" type="anytype" />
         <return-value type="*Self" />
