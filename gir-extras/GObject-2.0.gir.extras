@@ -20,30 +20,59 @@
     <function name="registerType">
       <doc>Registers a new class type in the GObject type system.
 
-The `Self` parameter is the instance struct for the type. There are several constraints on this type:
+The `Self` parameter is the instance struct for the type. There are several
+constraints on this type:
 
 - It must be an `extern struct`, and the first member must be of type `Parent`
-- It must have a public declaration named `Parent` referring to the parent type (creating new fundamental types is not currently supported)
+- It must have a public declaration named `Parent` referring to the parent type
+  (creating new fundamental types is not currently supported)
 - `Parent` must be a valid GObject type
 - It must have a public declaration named `Class` referring to the class struct
-- `Class` must be an `extern struct`, and the first member must be of type `Parent.Class`
+- `Class` must be an `extern struct`, and the first member must be of type
+  `Parent.Class`
+- `Class` must have a public declaration named `Instance` referring to the
+  instance struct
+- Optionally, it may have a public declaration named `Private` which, if
+  present, must be refer to a struct type representing the instance's private
+  data
+- `Private` must have a public declaration named `offset` of type `c_int`, which
+  will be used to store the private data offset and should not be modified by
+  the user (it must be `var` to allow the class initialization logic to set it,
+  however)
 
-Implementations of lifecycle methods such as `init`, etc. are taken from the corresponding methods in `Self` and `Class`, if available.</doc>
+The following lifecycle methods are supported through public functions declared
+on the instance or class struct, as indicated below:
+
+- `Class.base_init` - `fn (*Class) callconv(.C) void`
+- `Class.base_finalize` - `fn (*Class) callconv(.C) void`
+- `Class.init` - `fn (*Class) callconv(.C) void`
+- `Class.finalize` - `fn (*Class) callconv(.C) void`
+- `Self.init` - `fn (*Self, *Class) callconv(.C) void`
+
+It is also highly recommended to mix all parent methods into the instance and
+class structs. In the instance struct, this is `pub usingnamespace
+Parent.Methods(Self)`; in the class struct, this is `pub usingnamespace
+Parent.Class.Methods(Class)` and `Parent.Class.VirtualMethods(Class,
+Self)`. This is not enforced by the type registration logic, and has no bearing
+on the validity of the type from a GObject perspective, but other helper methods
+may depend on base class methods being present.</doc>
       <parameter name="Self" type="type" comptime="1" />
       <parameter name="options" type="struct { name: ?[:0]const u8 = null, flags: TypeFlags = .{} }" comptime="1" />
       <return-value type="fn () Type" />
-      <!-- TODO: various validations, maybe support class_data? -->
       <body>const self_info = @typeInfo(Self);
 if (self_info != .Struct or self_info.Struct.layout != .Extern) {
     @compileError("an instance type must be an extern struct");
 }
 
 if (!@hasDecl(Self, "Parent")) {
-    @compileError("a class type must have a member named Parent pointing to the parent type");
+    @compileError("a class type must have a declaration named Parent pointing to the parent type");
 }
 const parent_info = @typeInfo(Self.Parent);
 if (parent_info != .Struct or parent_info.Struct.layout != .Extern or !@hasDecl(Self.Parent, "getType")) {
     @compileError("the defined parent type " ++ @typeName(Self.Parent) ++ " does not appear to be a GObject class type");
+}
+if (self_info.Struct.fields.len == 0 or self_info.Struct.fields[0].type != Self.Parent) {
+    @compileError("the first field of the instance struct must have type " ++ @typeName(Self.Parent));
 }
 
 if (!@hasDecl(Self, "Class")) {
@@ -54,13 +83,32 @@ if (class_info != .Struct or class_info.Struct.layout != .Extern) {
     @compileError("a class type must be an extern struct");
 }
 if (!@hasDecl(Self.Class, "Instance") or Self.Class.Instance != Self) {
-    @compileError("a class type must have a member named Instance pointing to the instance type");
+    @compileError("a class type must have a declaration named Instance pointing to the instance type");
+}
+if (class_info.Struct.fields.len == 0 or class_info.Struct.fields[0].type != Self.Parent.Class) {
+    @compileError("the first field of the class struct must have type " ++ @typeName(Self.Parent.Class));
 }
 
 if (@hasDecl(Self, "Private")) {
-    if (!@hasDecl(Self.Private, "offset") or @TypeOf(Self.Private.offset) != c_int) {
-        @compileError("private type must have an offset member of type c_int to store the private data offset");
+    if (@typeInfo(Self.Private) != .Struct or !@hasDecl(Self.Private, "offset") or @TypeOf(Self.Private.offset) != c_int) {
+        @compileError("private type must be a struct with an offset declaration of type c_int to store the private data offset");
     }
+}
+
+if (@hasDecl(Self.Class, "baseInit")) {
+    assertTypesEqual("Class.baseInit", fn (*Self.Class) callconv(.C) void, @TypeOf(Self.Class.baseInit));
+}
+if (@hasDecl(Self.Class, "baseFinalize")) {
+    assertTypesEqual("Class.baseFinalize", fn (*Self.Class) callconv(.C) void, @TypeOf(Self.Class.baseFinalize));
+}
+if (@hasDecl(Self.Class, "init")) {
+    assertTypesEqual("Class.init", fn (*Self.Class) callconv(.C) void, @TypeOf(Self.Class.init));
+}
+if (@hasDecl(Self.Class, "finalize")) {
+    assertTypesEqual("Class.finalize", fn (*Self.Class) callconv(.C) void, @TypeOf(Self.Class.finalize));
+}
+if (@hasDecl(Self, "init")) {
+    assertTypesEqual("init", fn (*Self, *Self.Class) callconv(.C) void, @TypeOf(Self.init));
 }
 
 return struct {
@@ -71,7 +119,7 @@ return struct {
             const classInitFunc = struct {
                 fn classInit(class: *Self.Class) callconv(.C) void {
                     if (@hasDecl(Self.Class, "parent")) {
-                        Self.Class.parent = class.peekParent().castUnchecked(Self.Parent.Class);
+                        Self.Class.parent = @ptrCast(*Self.Parent.Class, @alignCast(@alignOf(*Self.Parent.Class), class.peekParent()));
                     }
                     if (@hasDecl(Self, "Private")) {
                         TypeClass.adjustPrivateOffset(class, &amp;Self.Private.offset);
@@ -185,6 +233,15 @@ if (comptime std.meta.trait.hasFn("getType")(T)) {
         <parameter name="T" type="type" comptime="1" />
         <return-value type="bool" />
         <body>return typeCheckInstanceIsA(self.castUnchecked(TypeInstance), typeFor(T));</body>
+      </method>
+      <method name="offsetOfPrivate">
+        <doc>Returns the offset of a private data field relative to the instance struct.</doc>
+        <parameter name="field_name" type="[]const u8" comptime="1" />
+        <return-value type="isize" />
+        <body>if (!@hasDecl(Self, "Private")) {
+    @compileError("no private data available for " ++ @typeName(Self));
+}
+return @as(isize, Self.Private.offset) + @offsetOf(Self.Private, field_name);</body>
       </method>
       <method name="private">
         <doc>Returns the private data struct for this object.</doc>
@@ -350,6 +407,15 @@ return wrapped;</body>
       </function>
     </record>
     <!-- Implementation details -->
+    <function name="assertTypesEqual" private="1">
+      <parameter name="name" type="[]const u8" comptime="1" />
+      <parameter name="Expected" type="type" comptime="1" />
+      <parameter name="Actual" type="type" comptime="1" />
+      <return-value type="void" />
+      <body>if (Expected != Actual) {
+    @compileError(std.fmt.comptimePrint("expected type of {s} to be {s}, found {s}", .{ name, @typeName(Expected), @typeName(Actual) }));
+}</body>
+    </function>
     <function name="isCString" private="1">
       <parameter name="T" type="type" comptime="1" />
       <return-value type="bool" />

@@ -8,9 +8,11 @@
 The name of the field in the instance struct defaults to the name of the template object, but can be set explicitly via the `field` option if it differs.</doc>
         <parameter name="class" type="*Self" />
         <parameter name="name" type="[:0]const u8" comptime="1" />
-        <parameter name="options" type="struct { field: ?[]const u8 = null, internal: bool = false }" comptime="1" />
+        <parameter name="options" type="struct { field: ?[]const u8 = null, private: bool = false, internal: bool = false }" comptime="1" />
         <return-value type="void" />
-        <body>class.bindTemplateChildFull(name, options.internal, @offsetOf(Self.Instance, options.field orelse name));</body>
+        <body>const field = options.field orelse name;
+const offset = if (options.private) Self.Instance.offsetOfPrivate(field) else @offsetOf(Self.Instance, field);
+class.bindTemplateChildFull(name, options.internal, offset);</body>
       </method>
       <method name="setTemplateFromSlice">
         <doc>Sets the template for a widget from a byte slice.</doc>

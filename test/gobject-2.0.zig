@@ -61,7 +61,7 @@ test "Object subclass" {
             return Self.newWith(.{});
         }
 
-        pub fn init(self: *Self) callconv(.C) void {
+        pub fn init(self: *Self, _: *Self.Class) callconv(.C) void {
             self.private().some_value = 123;
         }
 

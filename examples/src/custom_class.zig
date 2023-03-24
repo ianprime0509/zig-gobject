@@ -42,7 +42,6 @@ const ExampleApplication = extern struct {
 
 const ExampleApplicationWindow = extern struct {
     parent_instance: Parent,
-    hello_label: *gtk.Label,
 
     const template =
         \\<?xml version="1.0" encoding="UTF-8"?>
@@ -65,15 +64,21 @@ const ExampleApplicationWindow = extern struct {
     pub const Parent = gtk.ApplicationWindow;
     const Self = @This();
 
+    pub const Private = struct {
+        hello_label: *gtk.Label,
+
+        pub var offset: c_int = 0;
+    };
+
     pub const getType = gobject.registerType(Self, .{});
 
     pub fn new(app: *ExampleApplication) *Self {
         return Self.newWith(.{ .application = app });
     }
 
-    pub fn init(self: *Self) callconv(.C) void {
+    pub fn init(self: *Self, _: *Class) callconv(.C) void {
         self.initTemplate();
-        std.debug.print("label text = '{s}'\n", .{self.hello_label.getText()});
+        std.debug.print("label text = '{s}'\n", .{self.private().hello_label.getText()});
     }
 
     pub usingnamespace Parent.Methods(Self);
@@ -85,7 +90,7 @@ const ExampleApplicationWindow = extern struct {
 
         pub fn init(self: *Class) callconv(.C) void {
             self.setTemplateFromSlice(template);
-            self.bindTemplateChild("hello_label", .{});
+            self.bindTemplateChild("hello_label", .{ .private = true });
         }
 
         pub usingnamespace Parent.Class.Methods(Class);
