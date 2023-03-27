@@ -282,6 +282,17 @@
         <parameter name="p_y" type="f64" />
         <return-value type="void" />
       </extern-method>
+      <extern-method name="translate" identifier="cairo_translate">
+        <parameter name="p_cr" type="*Context" />
+        <parameter name="p_x" type="f64" />
+        <parameter name="p_y" type="f64" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="rotate" identifier="cairo_rotate">
+        <parameter name="p_cr" type="*Context" />
+        <parameter name="p_angle" type="f64" />
+        <return-value type="void" />
+      </extern-method>
       <extern-method name="rectangle" identifier="cairo_rectangle">
         <parameter name="p_cr" type="*Context" />
         <parameter name="p_x" type="f64" />
