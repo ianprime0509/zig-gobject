@@ -276,6 +276,12 @@
         <return-value type="c_uint" />
       </extern-method>
       <!-- TODO: user data methods -->
+      <extern-method name="moveTo" identifier="cairo_move_to">
+        <parameter name="p_cr" type="*Context" />
+        <parameter name="p_x" type="f64" />
+        <parameter name="p_y" type="f64" />
+        <return-value type="void" />
+      </extern-method>
       <extern-method name="rectangle" identifier="cairo_rectangle">
         <parameter name="p_cr" type="*Context" />
         <parameter name="p_x" type="f64" />
