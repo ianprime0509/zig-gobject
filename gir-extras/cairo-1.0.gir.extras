@@ -276,6 +276,16 @@
         <return-value type="c_uint" />
       </extern-method>
       <!-- TODO: user data methods -->
+      <extern-method name="newPath" identifier="cairo_new_path">
+        <parameter name="p_cr" type="*Context" />
+        <return-value type="void" />
+      </extern-method>
+      <extern-method name="lineTo" identifier="cairo_line_to">
+        <parameter name="p_cr" type="*Context" />
+        <parameter name="p_x" type="f64" />
+        <parameter name="p_y" type="f64" />
+        <return-value type="void" />
+      </extern-method>
       <extern-method name="moveTo" identifier="cairo_move_to">
         <parameter name="p_cr" type="*Context" />
         <parameter name="p_x" type="f64" />
