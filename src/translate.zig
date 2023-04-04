@@ -666,14 +666,7 @@ fn translateFunction(allocator: Allocator, function: gir.Function, indent: []con
 
     // extern declaration
     try out.print("{s}extern fn {}(", .{ indent, zig.fmtId(function.c_identifier) });
-
-    var i: usize = 0;
-    while (i < function.parameters.len) : (i += 1) {
-        try translateParameter(allocator, function.parameters[i], .{}, out);
-        if (i < function.parameters.len - 1) {
-            _ = try out.write(", ");
-        }
-    }
+    try translateParameters(allocator, function.parameters, .{ .throws = function.throws }, out);
     _ = try out.write(") ");
     try translateReturnValue(allocator, function.return_value, .{}, out);
     _ = try out.write(";\n");
@@ -699,14 +692,7 @@ fn translateConstructor(allocator: Allocator, constructor: gir.Constructor, inde
 
     // extern declaration
     try out.print("{s}extern fn {s}(", .{ indent, zig.fmtId(constructor.c_identifier) });
-
-    var i: usize = 0;
-    while (i < constructor.parameters.len) : (i += 1) {
-        try translateParameter(allocator, constructor.parameters[i], .{}, out);
-        if (i < constructor.parameters.len - 1) {
-            _ = try out.write(", ");
-        }
-    }
+    try translateParameters(allocator, constructor.parameters, .{ .throws = constructor.throws }, out);
     // TODO: consider if the return value is const, or maybe not even a pointer at all
     _ = try out.write(") callconv(.C) *Self;\n");
 
@@ -761,34 +747,25 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
 
     // call
     try out.print("{s}pub fn call{s}(p_class: *Self, ", .{ indent, upper_method_name });
-    for (virtual_method.parameters, 0..) |parameter, i| {
-        try translateParameter(allocator, parameter, .{ .self_type = instance_type }, out);
-        if (i < virtual_method.parameters.len - 1) {
-            _ = try out.write(", ");
-        }
-    }
+    try translateParameters(allocator, virtual_method.parameters, .{
+        .self_type = instance_type,
+        .throws = virtual_method.throws,
+    }, out);
     _ = try out.write(") ");
     try translateReturnValue(allocator, virtual_method.return_value, .{}, out);
     _ = try out.write(" {\n");
     try out.print("{s}    return @ptrCast(*{s}, p_class).{}.?(", .{ indent, container_type, zig.fmtId(virtual_method.name) });
-    for (virtual_method.parameters, 0..) |parameter, i| {
-        try translateParameterName(allocator, parameter.name, out);
-        if (i < virtual_method.parameters.len - 1) {
-            _ = try out.write(", ");
-        }
-    }
+    try translateParameterNames(allocator, virtual_method.parameters, .{ .throws = virtual_method.throws }, out);
     _ = try out.write(");\n");
     try out.print("{s}}}\n\n", .{indent});
 }
 
 fn translateVirtualMethodImplementationType(allocator: Allocator, virtual_method: gir.VirtualMethod, instance_type: []const u8, out: anytype) !void {
     _ = try out.write("*const fn (");
-    for (virtual_method.parameters, 0..) |parameter, i| {
-        try translateParameter(allocator, parameter, .{ .self_type = instance_type }, out);
-        if (i < virtual_method.parameters.len - 1) {
-            _ = try out.write(", ");
-        }
-    }
+    try translateParameters(allocator, virtual_method.parameters, .{
+        .self_type = instance_type,
+        .throws = virtual_method.throws,
+    }, out);
     _ = try out.write(") callconv(.C) ");
     try translateReturnValue(allocator, virtual_method.return_value, .{}, out);
 }
@@ -817,12 +794,12 @@ fn translateSignal(allocator: Allocator, signal: gir.Signal, indent: []const u8,
 }
 
 fn translateSignalCallbackType(allocator: Allocator, signal: gir.Signal, out: anytype) !void {
-    _ = try out.write("*const fn (*Self, ");
-    for (signal.parameters) |parameter| {
-        try translateParameter(allocator, parameter, .{ .gobject_context = true }, out);
+    _ = try out.write("*const fn (*Self");
+    if (signal.parameters.len > 0) {
         _ = try out.write(", ");
     }
-    _ = try out.write("T) callconv(.C) ");
+    try translateParameters(allocator, signal.parameters, .{ .gobject_context = true }, out);
+    _ = try out.write(", T) callconv(.C) ");
     try translateReturnValue(allocator, signal.return_value, .{ .gobject_context = true }, out);
 }
 
@@ -1334,13 +1311,7 @@ fn translateCallback(allocator: Allocator, callback: gir.Callback, named: bool, 
     }
 
     _ = try out.write("?*const fn (");
-    var i: usize = 0;
-    while (i < callback.parameters.len) : (i += 1) {
-        try translateParameter(allocator, callback.parameters[i], .{}, out);
-        if (i < callback.parameters.len - 1) {
-            _ = try out.write(", ");
-        }
-    }
+    try translateParameters(allocator, callback.parameters, .{ .throws = callback.throws }, out);
     _ = try out.write(") callconv(.C) ");
     const type_options = TranslateTypeOptions{ .nullable = callback.return_value.nullable };
     switch (callback.return_value.type) {
@@ -1350,6 +1321,29 @@ fn translateCallback(allocator: Allocator, callback: gir.Callback, named: bool, 
 
     if (named) {
         _ = try out.write(";\n\n");
+    }
+}
+
+const TranslateParametersOptions = struct {
+    self_type: []const u8 = "Self",
+    gobject_context: bool = false,
+    throws: bool = false,
+};
+
+fn translateParameters(allocator: Allocator, parameters: []const gir.Parameter, options: TranslateParametersOptions, out: anytype) !void {
+    for (parameters, 0..) |parameter, i| {
+        try translateParameter(allocator, parameter, .{
+            .self_type = options.self_type,
+            .gobject_context = options.gobject_context,
+        }, out);
+        if (options.throws or i < parameters.len - 1) {
+            _ = try out.write(", ");
+        }
+    }
+    // Why does GIR encode the presence of a parameter in an attribute outside
+    // the parameters element?
+    if (options.throws) {
+        _ = try out.write("p_error: ?*?*glib.Error");
     }
 }
 
@@ -1386,10 +1380,26 @@ fn translateParameter(allocator: Allocator, parameter: gir.Parameter, options: T
     }
 }
 
-fn translateParameterName(allocator: Allocator, parameterName: []const u8, out: anytype) !void {
-    var translatedName = try fmt.allocPrint(allocator, "p_{s}", .{parameterName});
-    defer allocator.free(translatedName);
-    try out.print("{s}", .{zig.fmtId(translatedName)});
+const TranslateParameterNamesOptions = struct {
+    throws: bool = false,
+};
+
+fn translateParameterNames(allocator: Allocator, parameters: []const gir.Parameter, options: TranslateParameterNamesOptions, out: anytype) !void {
+    for (parameters, 0..) |parameter, i| {
+        try translateParameterName(allocator, parameter.name, out);
+        if (options.throws or i < parameters.len - 1) {
+            _ = try out.write(", ");
+        }
+    }
+    if (options.throws) {
+        _ = try out.write("p_error");
+    }
+}
+
+fn translateParameterName(allocator: Allocator, parameter_name: []const u8, out: anytype) !void {
+    var translated_name = try fmt.allocPrint(allocator, "p_{s}", .{parameter_name});
+    defer allocator.free(translated_name);
+    try out.print("{s}", .{zig.fmtId(translated_name)});
 }
 
 const TranslateReturnValueOptions = struct {

@@ -691,6 +691,7 @@ pub const Function = struct {
     moved_to: ?[]const u8 = null,
     parameters: []const Parameter,
     return_value: ReturnValue,
+    throws: bool = false,
     documentation: ?Documentation = null,
 
     fn forGetType(elem: anytype, comptime required: bool) if (required) Function else ?Function {
@@ -703,7 +704,6 @@ pub const Function = struct {
         return .{
             .name = "get_type",
             .c_identifier = get_type,
-            .moved_to = null,
             .parameters = &.{},
             .return_value = .{
                 .nullable = false,
@@ -711,9 +711,7 @@ pub const Function = struct {
                     .name = .{ .ns = "GObject", .local = "Type" },
                     .c_type = "GType",
                 } },
-                .documentation = null,
             },
-            .documentation = null,
         };
     }
 
@@ -723,6 +721,7 @@ pub const Function = struct {
         var moved_to: ?[]const u8 = null;
         var parameters = ArrayList(Parameter).init(allocator);
         var return_value: ?ReturnValue = null;
+        var throws = false;
         var documentation: ?Documentation = null;
 
         var maybe_attr: ?*c.xmlAttr = node.properties;
@@ -733,6 +732,8 @@ pub const Function = struct {
                 c_identifier = try xml.attrContent(allocator, doc, attr);
             } else if (xml.attrIs(attr, null, "moved-to")) {
                 moved_to = try xml.attrContent(allocator, doc, attr);
+            } else if (xml.attrIs(attr, null, "throws")) {
+                throws = mem.eql(u8, try xml.attrContent(allocator, doc, attr), "1");
             }
         }
 
@@ -753,6 +754,7 @@ pub const Function = struct {
             .moved_to = moved_to,
             .parameters = parameters.items,
             .return_value = return_value orelse return error.InvalidGir,
+            .throws = throws,
             .documentation = documentation,
         };
     }
@@ -764,6 +766,7 @@ pub const Constructor = struct {
     moved_to: ?[]const u8 = null,
     parameters: []const Parameter,
     return_value: ReturnValue,
+    throws: bool = false,
     documentation: ?Documentation = null,
 
     fn parse(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Constructor {
@@ -775,6 +778,7 @@ pub const Constructor = struct {
             .moved_to = function.moved_to,
             .parameters = function.parameters,
             .return_value = function.return_value,
+            .throws = function.throws,
             .documentation = function.documentation,
         };
     }
@@ -786,6 +790,7 @@ pub const Method = struct {
     moved_to: ?[]const u8,
     parameters: []const Parameter,
     return_value: ReturnValue,
+    throws: bool = false,
     documentation: ?Documentation,
 
     fn parse(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Method {
@@ -797,6 +802,7 @@ pub const Method = struct {
             .moved_to = function.moved_to,
             .parameters = function.parameters,
             .return_value = function.return_value,
+            .throws = function.throws,
             .documentation = function.documentation,
         };
     }
@@ -806,18 +812,22 @@ pub const VirtualMethod = struct {
     name: []const u8,
     parameters: []const Parameter,
     return_value: ReturnValue,
+    throws: bool = false,
     documentation: ?Documentation = null,
 
     fn parse(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !VirtualMethod {
         var name: ?[]const u8 = null;
         var parameters = ArrayList(Parameter).init(allocator);
         var return_value: ?ReturnValue = null;
+        var throws = false;
         var documentation: ?Documentation = null;
 
         var maybe_attr: ?*c.xmlAttr = node.properties;
         while (maybe_attr) |attr| : (maybe_attr = attr.next) {
             if (xml.attrIs(attr, null, "name")) {
                 name = try xml.attrContent(allocator, doc, attr);
+            } else if (xml.attrIs(attr, null, "throws")) {
+                throws = mem.eql(u8, try xml.attrContent(allocator, doc, attr), "1");
             }
         }
 
@@ -836,6 +846,7 @@ pub const VirtualMethod = struct {
             .name = name orelse return error.InvalidGir,
             .parameters = parameters.items,
             .return_value = return_value orelse return error.InvalidGir,
+            .throws = throws,
             .documentation = documentation,
         };
     }
@@ -1001,18 +1012,22 @@ pub const Callback = struct {
     name: []const u8,
     parameters: []const Parameter,
     return_value: ReturnValue,
+    throws: bool = false,
     documentation: ?Documentation,
 
     fn parse(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Callback {
         var name: ?[]const u8 = null;
         var parameters = ArrayList(Parameter).init(allocator);
         var return_value: ?ReturnValue = null;
+        var throws = false;
         var documentation: ?Documentation = null;
 
         var maybe_attr: ?*c.xmlAttr = node.properties;
         while (maybe_attr) |attr| : (maybe_attr = attr.next) {
             if (xml.attrIs(attr, null, "name")) {
                 name = try xml.attrContent(allocator, doc, attr);
+            } else if (xml.attrIs(attr, null, "throws")) {
+                throws = mem.eql(u8, try xml.attrContent(allocator, doc, attr), "1");
             }
         }
 
@@ -1031,6 +1046,7 @@ pub const Callback = struct {
             .name = name orelse return error.InvalidGir,
             .parameters = parameters.items,
             .return_value = return_value orelse return error.InvalidGir,
+            .throws = throws,
             .documentation = documentation,
         };
     }
