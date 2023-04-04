@@ -272,6 +272,17 @@ fn translateClass(allocator: Allocator, class: gir.Class, maybe_extras_class: ?e
     _ = try out.write("    pub const Parent = ");
     try translateNameNs(allocator, parent.ns, out);
     try out.print("{s};\n", .{parent.local});
+
+    _ = try out.write("    pub const Implements = [_]type{");
+    for (class.implements, 0..) |implements, i| {
+        try translateNameNs(allocator, implements.name.ns, out);
+        _ = try out.write(implements.name.local);
+        if (i < class.implements.len - 1) {
+            _ = try out.write(", ");
+        }
+    }
+    _ = try out.write("};\n");
+
     if (class.type_struct) |type_struct| {
         try out.print("    pub const Class = {s};\n", .{type_struct});
     }
@@ -295,7 +306,10 @@ fn translateClass(allocator: Allocator, class: gir.Class, maybe_extras_class: ?e
         try translateExtraCode(extras_class.code, " " ** 4, out);
     }
 
-    try translateFunction(allocator, class.getTypeFunction(), " " ** 4, out);
+    const get_type_function = class.getTypeFunction();
+    if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
+        try translateFunction(allocator, get_type_function, " " ** 4, out);
+    }
     for (class.functions) |function| {
         try translateFunction(allocator, function, " " ** 4, out);
     }
@@ -316,6 +330,11 @@ fn translateClass(allocator: Allocator, class: gir.Class, maybe_extras_class: ?e
     }
     try out.print("    pub const Methods = {s}Methods;\n", .{class.name});
     _ = try out.write("    pub usingnamespace Methods(Self);\n");
+    for (class.implements) |implements| {
+        _ = try out.write("    pub usingnamespace ");
+        try translateNameNs(allocator, implements.name.ns, out);
+        try out.print("{s}.Methods(Self);\n", .{implements.name.local});
+    }
     _ = try out.write("};\n\n");
 
     // methods mixin
@@ -383,7 +402,10 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, maybe_extr
         try translateExtraCode(extras_interface.code, " " ** 4, out);
     }
 
-    try translateFunction(allocator, interface.getTypeFunction(), " " ** 4, out);
+    const get_type_function = interface.getTypeFunction();
+    if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
+        try translateFunction(allocator, get_type_function, " " ** 4, out);
+    }
     for (interface.functions) |function| {
         try translateFunction(allocator, function, " " ** 4, out);
     }
@@ -477,7 +499,9 @@ fn translateRecord(allocator: Allocator, record: gir.Record, maybe_extras_record
     }
 
     if (record.getTypeFunction()) |get_type_function| {
-        try translateFunction(allocator, get_type_function, " " ** 4, out);
+        if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
+            try translateFunction(allocator, get_type_function, " " ** 4, out);
+        }
     }
     for (record.functions) |function| {
         try translateFunction(allocator, function, " " ** 4, out);
@@ -545,7 +569,9 @@ fn translateUnion(allocator: Allocator, @"union": gir.Union, out: anytype) !void
         _ = try out.write("\n");
     }
     if (@"union".getTypeFunction()) |get_type_function| {
-        try translateFunction(allocator, get_type_function, " " ** 4, out);
+        if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
+            try translateFunction(allocator, get_type_function, " " ** 4, out);
+        }
     }
     for (@"union".functions) |function| {
         try translateFunction(allocator, function, " " ** 4, out);
@@ -597,7 +623,9 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, out: anytype
     try out.print("\n    const Self = {s};\n\n", .{bit_field.name});
 
     if (bit_field.getTypeFunction()) |get_type_function| {
-        try translateFunction(allocator, get_type_function, " " ** 4, out);
+        if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
+            try translateFunction(allocator, get_type_function, " " ** 4, out);
+        }
     }
     for (bit_field.functions) |function| {
         try translateFunction(allocator, function, " " ** 4, out);
@@ -616,7 +644,9 @@ fn translateEnum(allocator: Allocator, @"enum": gir.Enum, out: anytype) !void {
     try out.print("\n    const Self = {s};\n\n", .{@"enum".name});
 
     if (@"enum".getTypeFunction()) |get_type_function| {
-        try translateFunction(allocator, get_type_function, " " ** 4, out);
+        if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
+            try translateFunction(allocator, get_type_function, " " ** 4, out);
+        }
     }
     for (@"enum".functions) |function| {
         try translateFunction(allocator, function, " " ** 4, out);

@@ -224,6 +224,7 @@ pub const Alias = struct {
 pub const Class = struct {
     name: []const u8,
     parent: ?Name = null,
+    implements: []const Implements = &.{},
     fields: []const Field,
     functions: []const Function = &.{},
     constructors: []const Constructor = &.{},
@@ -243,6 +244,7 @@ pub const Class = struct {
     fn parse(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Class {
         var name: ?[]const u8 = null;
         var parent: ?Name = null;
+        var implements = ArrayList(Implements).init(allocator);
         var fields = ArrayList(Field).init(allocator);
         var functions = ArrayList(Function).init(allocator);
         var constructors = ArrayList(Constructor).init(allocator);
@@ -272,7 +274,9 @@ pub const Class = struct {
 
         var maybe_child: ?*c.xmlNode = node.children;
         while (maybe_child) |child| : (maybe_child = child.next) {
-            if (xml.nodeIs(child, ns.core, "field")) {
+            if (xml.nodeIs(child, ns.core, "implements")) {
+                try implements.append(try Implements.parse(allocator, doc, child, current_ns));
+            } else if (xml.nodeIs(child, ns.core, "field")) {
                 try fields.append(try Field.parse(allocator, doc, child, current_ns));
             } else if (xml.nodeIs(child, ns.core, "function")) {
                 try functions.append(try Function.parse(allocator, doc, child, current_ns));
@@ -294,6 +298,7 @@ pub const Class = struct {
         return .{
             .name = name orelse return error.InvalidGir,
             .parent = parent,
+            .implements = implements.items,
             .fields = fields.items,
             .functions = functions.items,
             .constructors = constructors.items,
@@ -1129,6 +1134,23 @@ pub const ReturnValue = struct {
             .type = @"type" orelse return error.InvalidGir,
             .documentation = documentation,
         };
+    }
+};
+
+pub const Implements = struct {
+    name: Name,
+
+    fn parse(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Implements {
+        var name: ?Name = null;
+
+        var maybe_attr: ?*c.xmlAttr = node.properties;
+        while (maybe_attr) |attr| : (maybe_attr = attr.next) {
+            if (xml.attrIs(attr, null, "name")) {
+                name = Name.parse(try xml.attrContent(allocator, doc, attr), current_ns);
+            }
+        }
+
+        return .{ .name = name orelse return error.InvalidGir };
     }
 };
 

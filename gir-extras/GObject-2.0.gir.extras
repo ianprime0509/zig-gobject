@@ -58,7 +58,7 @@ on the validity of the type from a GObject perspective, but other helper methods
 may depend on base class methods being present.</doc>
       <parameter name="Self" type="type" comptime="1" />
       <parameter name="options" type="struct { name: ?[:0]const u8 = null, flags: TypeFlags = .{} }" comptime="1" />
-      <return-value type="fn () Type" />
+      <return-value type="fn () callconv(.C) Type" />
       <body>const self_info = @typeInfo(Self);
 if (self_info != .Struct or self_info.Struct.layout != .Extern) {
     @compileError("an instance type must be an extern struct");
@@ -114,8 +114,8 @@ if (@hasDecl(Self, "init")) {
 return struct {
     var registered_type: Type = 0;
 
-    pub fn getType() Type {
-        if (registered_type == 0) {
+    pub fn getType() callconv(.C) Type {
+        if (glib.Once.initEnter(&amp;registered_type)) {
             const classInitFunc = struct {
                 fn classInit(class: *Self.Class) callconv(.C) void {
                     if (@hasDecl(Self.Class, "parent")) {
@@ -149,10 +149,11 @@ return struct {
               }
               break :blk self_name;
             };
-            registered_type = typeRegisterStatic(Self.Parent.getType(), type_name, &amp;info, options.flags);
+            const type_id = typeRegisterStatic(Self.Parent.getType(), type_name, &amp;info, options.flags);
             if (@hasDecl(Self, "Private")) {
-                Self.Private.offset = typeAddInstancePrivate(registered_type, @sizeOf(Self.Private));
+                Self.Private.offset = typeAddInstancePrivate(type_id, @sizeOf(Self.Private));
             }
+            glib.Once.initLeave(&amp;registered_type, type_id);
         }
         return registered_type;
     }
@@ -170,8 +171,8 @@ return struct {
       <return-value type="Type" />
       <body>const typeInfo = @typeInfo(T);
 // Types manually extracted from gtype.h since they don't seem to show up in GIR
-if (comptime std.meta.trait.hasFn("getType")(T)) {
-    return T.getType();
+if (typeInfo == .Pointer and comptime isRegisteredType(typeInfo.Pointer.child)) {
+    return typeInfo.Pointer.child.getType();
 } else if (T == void) {
     return typeMakeFundamental(1);
 } else if (T == i8) {
@@ -198,12 +199,12 @@ if (comptime std.meta.trait.hasFn("getType")(T)) {
     return typeMakeFundamental(15);
 } else if (comptime isCString(T)) {
     return typeMakeFundamental(16);
-} else if (T == *anyopaque or T == *const anyopaque) {
-    return typeMakeFundamental(17);
-} else if (T == ParamSpec) {
+} else if (T == *ParamSpec) {
     return typeMakeFundamental(19);
-} else if (T == glib.Variant) {
+} else if (T == *glib.Variant) {
     return typeMakeFundamental(21);
+} else if (typeInfo == .Pointer or (typeInfo == .Optional and @typeInfo(typeInfo.Optional.child) == .Pointer)) {
+    return typeMakeFundamental(17);
 } else if (typeInfo == .Enum and typeInfo.Enum.tag_type == c_int) {
     return Enum;
 } else if (typeInfo == .Struct and typeInfo.Struct.backing_integer == c_uint) {
@@ -290,6 +291,14 @@ return Object.newWithProperties(Self.getType(), n_props, @ptrCast([*][*:0]u8, &a
     return self;
 }
 
+if (@hasDecl(Self, "Implements")) {
+    inline for (Self.Implements) |implements| {
+        if (implements == T) {
+            return self.castUnchecked(T);
+        }
+    }
+}
+
 comptime var curr_type = Self;
 inline while (@hasDecl(curr_type, "Parent")) {
     curr_type = curr_type.Parent;
@@ -342,7 +351,14 @@ This does not take ownership of the value (if applicable).</doc>
         <body>comptime var T = @TypeOf(value);
 const typeInfo = @typeInfo(T);
 var wrapped: Value = undefined;
-if (T == i8) {
+if (typeInfo == .Pointer and comptime isRegisteredType(typeInfo.Pointer.child)) {
+    wrapped = new(T);
+    if (typeInfo.Pointer.child.getType() == Boxed) {
+        wrapped.setBoxed(value);
+    } else {
+        wrapped.setObject(@ptrCast(*Object, value));
+    }
+} else if (T == i8) {
     wrapped = new(T);
     wrapped.setSchar(value);
 } else if (T == u8) {
@@ -378,28 +394,21 @@ if (T == i8) {
 } else if (comptime isCString(T)) {
     wrapped = new(T);
     wrapped.setString(value);
-} else if (T == *anyopaque or T == *const anyopaque) {
-    wrapped = new(T);
-    wrapped.setPointer(value);
-} else if (T == ParamSpec) {
+} else if (T == *ParamSpec) {
     wrapped = new(T);
     wrapped.setParam(value);
-} else if (T == glib.Variant) {
+} else if (T == *glib.Variant) {
     wrapped = new(T);
     wrapped.setVariant(value);
+} else if (typeInfo == .Pointer or (typeInfo == .Optional and @typeInfo(typeInfo.Optional.child) == .Pointer)) {
+    wrapped = new(T);
+    wrapped.setPointer(value);
 } else if (typeInfo == .Enum and typeInfo.Enum.tag_type == c_int) {
     wrapped = new(T);
     wrapped.setEnum(@enumToInt(value));
 } else if (typeInfo == .Struct and typeInfo.Struct.backing_integer == c_uint) {
     wrapped = new(T);
     wrapped.setFlags(@bitCast(c_uint, value));
-} else if (typeInfo == .Pointer and comptime std.meta.trait.hasFn("getType")(typeInfo.Pointer.child)) {
-    wrapped = new(typeInfo.Pointer.child);
-    if (typeInfo.Pointer.child.getType() == Boxed) {
-        wrapped.setBoxed(value);
-    } else {
-        wrapped.setObject(@ptrCast(*Object, value));
-    }
 } else {
     @compileError("cannot construct Value containing " ++ @typeName(T));
 }
@@ -430,6 +439,11 @@ return wrapped;</body>
     },
     else => false,
 };</body>
+    </function>
+    <function name="isRegisteredType" private="1">
+      <parameter name="T" type="type" comptime="1" />
+      <return-value type="bool" />
+      <body>return std.meta.trait.hasFn("getType")(T) and @TypeOf(T.getType) == fn () callconv(.C) Type;</body>
     </function>
   </namespace>
 </repository>
