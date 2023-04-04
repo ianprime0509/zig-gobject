@@ -668,7 +668,7 @@ fn translateFunction(allocator: Allocator, function: gir.Function, indent: []con
     try out.print("{s}extern fn {}(", .{ indent, zig.fmtId(function.c_identifier) });
     try translateParameters(allocator, function.parameters, .{ .throws = function.throws }, out);
     _ = try out.write(") ");
-    try translateReturnValue(allocator, function.return_value, .{}, out);
+    try translateReturnValue(allocator, function.return_value, .{ .nullable = function.throws }, out);
     _ = try out.write(";\n");
 
     // function rename
@@ -694,7 +694,11 @@ fn translateConstructor(allocator: Allocator, constructor: gir.Constructor, inde
     try out.print("{s}extern fn {s}(", .{ indent, zig.fmtId(constructor.c_identifier) });
     try translateParameters(allocator, constructor.parameters, .{ .throws = constructor.throws }, out);
     // TODO: consider if the return value is const, or maybe not even a pointer at all
-    _ = try out.write(") callconv(.C) *Self;\n");
+    _ = try out.write(") callconv(.C) ");
+    if (constructor.throws) {
+        _ = try out.write("?");
+    }
+    _ = try out.write("*Self;\n");
 
     // constructor rename
     try translateDocumentation(constructor.documentation, indent, out);
@@ -724,6 +728,7 @@ fn translateMethod(allocator: Allocator, method: gir.Method, indent: []const u8,
         .moved_to = method.moved_to,
         .parameters = method.parameters,
         .return_value = method.return_value,
+        .throws = method.throws,
         .documentation = method.documentation,
     }, indent, out);
 }
@@ -752,7 +757,7 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
         .throws = virtual_method.throws,
     }, out);
     _ = try out.write(") ");
-    try translateReturnValue(allocator, virtual_method.return_value, .{}, out);
+    try translateReturnValue(allocator, virtual_method.return_value, .{ .nullable = virtual_method.throws }, out);
     _ = try out.write(" {\n");
     try out.print("{s}    return @ptrCast(*{s}, p_class).{}.?(", .{ indent, container_type, zig.fmtId(virtual_method.name) });
     try translateParameterNames(allocator, virtual_method.parameters, .{ .throws = virtual_method.throws }, out);
@@ -767,7 +772,7 @@ fn translateVirtualMethodImplementationType(allocator: Allocator, virtual_method
         .throws = virtual_method.throws,
     }, out);
     _ = try out.write(") callconv(.C) ");
-    try translateReturnValue(allocator, virtual_method.return_value, .{}, out);
+    try translateReturnValue(allocator, virtual_method.return_value, .{ .nullable = virtual_method.throws }, out);
 }
 
 fn translateSignal(allocator: Allocator, signal: gir.Signal, indent: []const u8, out: anytype) !void {
@@ -1403,12 +1408,17 @@ fn translateParameterName(allocator: Allocator, parameter_name: []const u8, out:
 }
 
 const TranslateReturnValueOptions = struct {
+    /// Whether the return value should be forced to be nullable. This is
+    /// relevant for "throwing" functions, where return values are expected to
+    /// be null in case of failure, but for some reason GIR doesn't mark them as
+    /// nullable explicitly.
+    nullable: bool = false,
     gobject_context: bool = false,
 };
 
 fn translateReturnValue(allocator: Allocator, return_value: gir.ReturnValue, options: TranslateReturnValueOptions, out: anytype) !void {
     try translateAnyType(allocator, return_value.type, .{
-        .nullable = return_value.nullable,
+        .nullable = options.nullable or return_value.nullable,
         .gobject_context = options.gobject_context,
     }, out);
 }
