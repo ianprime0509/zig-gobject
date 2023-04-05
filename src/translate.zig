@@ -330,11 +330,6 @@ fn translateClass(allocator: Allocator, class: gir.Class, maybe_extras_class: ?e
     }
     try out.print("    pub const Methods = {s}Methods;\n", .{class.name});
     _ = try out.write("    pub usingnamespace Methods(Self);\n");
-    for (class.implements) |implements| {
-        _ = try out.write("    pub usingnamespace ");
-        try translateNameNs(allocator, implements.name.ns, out);
-        try out.print("{s}.Methods(Self);\n", .{implements.name.local});
-    }
     _ = try out.write("};\n\n");
 
     // methods mixin
@@ -356,6 +351,11 @@ fn translateClass(allocator: Allocator, class: gir.Class, maybe_extras_class: ?e
         try translateSignal(allocator, signal, " " ** 8, out);
     }
     try out.print("        pub usingnamespace {s}.Parent.Methods(Self);\n", .{class.name});
+    for (class.implements) |implements| {
+        _ = try out.write("        pub usingnamespace ");
+        try translateNameNs(allocator, implements.name.ns, out);
+        try out.print("{s}.Methods(Self);\n", .{implements.name.local});
+    }
     _ = try out.write("    };\n");
     _ = try out.write("}\n\n");
 
@@ -385,6 +385,22 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, maybe_extr
         try translateExtraDocumentation(extras_interface.documentation, false, "", out);
     }
     try out.print("pub const {s} = opaque {{\n", .{interface.name});
+
+    _ = try out.write("    pub const Prerequisites = [_]type{");
+    // This doesn't seem to be correct (since it seems to be possible to create
+    // an interface with actually no prerequisites), but it seems to be assumed
+    // by GIR documentation generation tools
+    if (interface.prerequisites.len == 0) {
+        _ = try out.write("gobject.Object");
+    }
+    for (interface.prerequisites, 0..) |prerequisite, i| {
+        try translateNameNs(allocator, prerequisite.name.ns, out);
+        _ = try out.write(prerequisite.name.local);
+        if (i < interface.prerequisites.len - 1) {
+            _ = try out.write(", ");
+        }
+    }
+    _ = try out.write("};\n");
 
     if (interface.type_struct) |type_struct| {
         try out.print("    pub const Iface = {s};\n", .{type_struct});
@@ -430,9 +446,6 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, maybe_extr
 
     // methods mixin
     try out.print("fn {s}Methods(comptime Self: type) type {{\n", .{interface.name});
-    if (countTranslatableMethods(interface.methods) == 0 and interface.signals.len == 0 and (maybe_extras_interface == null or maybe_extras_interface.?.methods.len == 0)) {
-        _ = try out.write("    _ = Self;\n");
-    }
     _ = try out.write("    return struct{\n");
     if (maybe_extras_interface) |extras_interface| {
         for (extras_interface.methods) |method| {
@@ -448,6 +461,15 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, maybe_extr
     }
     for (interface.signals) |signal| {
         try translateSignal(allocator, signal, " " ** 8, out);
+    }
+    // See the note above on this implicit prerequisite
+    if (interface.prerequisites.len == 0) {
+        _ = try out.write("        pub usingnamespace gobject.Object.Methods(Self);\n");
+    }
+    for (interface.prerequisites) |prerequisite| {
+        _ = try out.write("        pub usingnamespace ");
+        try translateNameNs(allocator, prerequisite.name.ns, out);
+        try out.print("{s}.Methods(Self);\n", .{prerequisite.name.local});
     }
     _ = try out.write("    };\n");
     _ = try out.write("}\n\n");

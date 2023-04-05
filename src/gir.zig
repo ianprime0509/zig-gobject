@@ -319,6 +319,7 @@ pub const Class = struct {
 
 pub const Interface = struct {
     name: []const u8,
+    prerequisites: []const Prerequisite = &.{},
     functions: []const Function = &.{},
     constructors: []const Constructor = &.{},
     methods: []const Method = &.{},
@@ -335,6 +336,7 @@ pub const Interface = struct {
 
     fn parse(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Interface {
         var name: ?[]const u8 = null;
+        var prerequisites = ArrayList(Prerequisite).init(allocator);
         var functions = ArrayList(Function).init(allocator);
         var constructors = ArrayList(Constructor).init(allocator);
         var methods = ArrayList(Method).init(allocator);
@@ -358,7 +360,9 @@ pub const Interface = struct {
 
         var maybe_child: ?*c.xmlNode = node.children;
         while (maybe_child) |child| : (maybe_child = child.next) {
-            if (xml.nodeIs(child, ns.core, "function")) {
+            if (xml.nodeIs(child, ns.core, "prerequisite")) {
+                try prerequisites.append(try Prerequisite.parse(allocator, doc, child, current_ns));
+            } else if (xml.nodeIs(child, ns.core, "function")) {
                 try functions.append(try Function.parse(allocator, doc, child, current_ns));
             } else if (xml.nodeIs(child, ns.core, "constructor")) {
                 try constructors.append(try Constructor.parse(allocator, doc, child, current_ns));
@@ -377,6 +381,7 @@ pub const Interface = struct {
 
         return .{
             .name = name orelse return error.InvalidGir,
+            .prerequisites = prerequisites.items,
             .functions = functions.items,
             .constructors = constructors.items,
             .methods = methods.items,
@@ -1157,6 +1162,23 @@ pub const Implements = struct {
     name: Name,
 
     fn parse(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Implements {
+        var name: ?Name = null;
+
+        var maybe_attr: ?*c.xmlAttr = node.properties;
+        while (maybe_attr) |attr| : (maybe_attr = attr.next) {
+            if (xml.attrIs(attr, null, "name")) {
+                name = Name.parse(try xml.attrContent(allocator, doc, attr), current_ns);
+            }
+        }
+
+        return .{ .name = name orelse return error.InvalidGir };
+    }
+};
+
+pub const Prerequisite = struct {
+    name: Name,
+
+    fn parse(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Prerequisite {
         var name: ?Name = null;
 
         var maybe_attr: ?*c.xmlAttr = node.properties;
