@@ -105,9 +105,10 @@ fn addCodegenStep(b: *std.Build, codegen_exe: *std.Build.CompileStep) !*std.Buil
     };
 
     const extras = [_][]const u8{
-        "cairo-1.0.gir.extras",
-        "GLib-2.0.gir.extras",
-        "GObject-2.0.gir.extras",
+        "cairo-1.0.extras.zig",
+        "glib-2.0.extras.zig",
+        "gtk-4.0.extras.zig",
+        "gobject-2.0.extras.zig",
     };
 
     const codegen_cmd = b.addRunArtifact(codegen_exe);
@@ -118,11 +119,11 @@ fn addCodegenStep(b: *std.Build, codegen_exe: *std.Build.CompileStep) !*std.Buil
         try file_deps.append(try b.build_root.join(b.allocator, &.{ "lib", "gir-files", file }));
     }
     for (extras) |file| {
-        try file_deps.append(try b.build_root.join(b.allocator, &.{ "gir-extras", file }));
+        try file_deps.append(try b.build_root.join(b.allocator, &.{ "extras", file }));
     }
     codegen_cmd.extra_file_dependencies = file_deps.items;
     codegen_cmd.addArg(try b.build_root.join(b.allocator, &.{ "lib", "gir-files" }));
-    codegen_cmd.addArg(try b.build_root.join(b.allocator, &.{"gir-extras"}));
+    codegen_cmd.addArg(try b.build_root.join(b.allocator, &.{"extras"}));
     codegen_cmd.addArg(try b.build_root.join(b.allocator, &.{"bindings"}));
     codegen_cmd.addArgs(repo_names.items);
 

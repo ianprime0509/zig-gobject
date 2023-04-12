@@ -13,7 +13,6 @@ const ArenaAllocator = heap.ArenaAllocator;
 const HashMap = std.HashMap;
 const StringHashMap = std.StringHashMap;
 
-const extras = @import("extras.zig");
 const gir = @import("gir.zig");
 
 pub const Repositories = struct {
@@ -68,9 +67,7 @@ fn findRepository(allocator: Allocator, input_dir: fs.Dir, name: []const u8) !gi
     return try gir.Repository.parseFile(allocator, path);
 }
 
-pub const TranslateError = error{
-    InvalidExtras,
-} || Allocator.Error || fs.File.OpenError || fs.File.WriteError || error{
+pub const TranslateError = Allocator.Error || fs.File.OpenError || fs.File.WriteError || fs.Dir.CopyFileError || error{
     FileSystem,
     NotSupported,
 };
@@ -100,20 +97,26 @@ pub fn translate(repositories: *Repositories, extras_dir: fs.Dir, out_dir: fs.Di
     for (repositories.repositories) |repo| {
         const source_name = try fmt.allocPrint(allocator, "{s}-{s}", .{ repo.namespace.name, repo.namespace.version });
         defer allocator.free(source_name);
-        const extras_repo = try findExtrasRepository(allocator, source_name, extras_dir);
-        try translateRepository(allocator, repo, extras_repo, deps, out_dir);
+        const extras_file = try copyExtrasFile(allocator, repo.namespace.name, repo.namespace.version, extras_dir, out_dir);
+        defer if (extras_file) |path| allocator.free(path);
+        try translateRepository(allocator, repo, extras_file, deps, out_dir);
     }
 }
 
-fn findExtrasRepository(allocator: Allocator, name: []const u8, extras_dir: fs.Dir) !?extras.Repository {
-    const extras_name = try fmt.allocPrint(allocator, "{s}.gir.extras", .{name});
+fn copyExtrasFile(allocator: Allocator, name: []const u8, version: []const u8, extras_dir: fs.Dir, out_dir: fs.Dir) !?[]u8 {
+    const extras_name = try extrasFileNameAlloc(allocator, name, version);
     defer allocator.free(extras_name);
-    const path = realpathAllocZ(allocator, extras_dir, extras_name) catch |err| switch (err) {
+    extras_dir.copyFile(extras_name, out_dir, extras_name, .{}) catch |err| switch (err) {
         error.FileNotFound => return null,
         else => return err,
     };
-    defer allocator.free(path);
-    return try extras.Repository.parseFile(allocator, path);
+    return try allocator.dupe(u8, extras_name);
+}
+
+fn extrasFileNameAlloc(allocator: Allocator, name: []const u8, version: []const u8) ![]u8 {
+    const file_name = try fmt.allocPrint(allocator, "{s}-{s}.extras.zig", .{ name, version });
+    _ = ascii.lowerString(file_name, file_name);
+    return file_name;
 }
 
 fn realpathAllocZ(allocator: Allocator, dir: fs.Dir, name: []const u8) ![:0]u8 {
@@ -122,7 +125,7 @@ fn realpathAllocZ(allocator: Allocator, dir: fs.Dir, name: []const u8) ![:0]u8 {
     return try allocator.dupeZ(u8, path);
 }
 
-fn translateRepository(allocator: Allocator, repo: gir.Repository, maybe_extras_repo: ?extras.Repository, deps: NamespaceDependencies, out_dir: fs.Dir) !void {
+fn translateRepository(allocator: Allocator, repo: gir.Repository, maybe_extras_path: ?[]const u8, deps: NamespaceDependencies, out_dir: fs.Dir) !void {
     const ns = repo.namespace;
     const file_name = try fileNameAlloc(allocator, ns.name, ns.version);
     defer allocator.free(file_name);
@@ -131,16 +134,14 @@ fn translateRepository(allocator: Allocator, repo: gir.Repository, maybe_extras_
     var bw = io.bufferedWriter(file.writer());
     const out = bw.writer();
 
-    const maybe_extras_ns = if (maybe_extras_repo) |extras_repo| extras_repo.namespace else null;
-    if (maybe_extras_ns) |extras_ns| {
-        if (extras_ns.documentation) |doc| {
-            try translateExtraDocumentation(doc, true, "", out);
-            _ = try out.write("\n");
-        }
+    if (maybe_extras_path) |path| {
+        try out.print("const extras = @import(\"{}\");\n", .{zig.fmtEscapes(path)});
+    } else {
+        _ = try out.write("const extras = struct {};\n");
     }
 
     try translateIncludes(allocator, ns, deps, out);
-    try translateNamespace(allocator, ns, maybe_extras_ns, out);
+    try translateNamespace(allocator, ns, out);
 
     try bw.flush();
     try file.sync();
@@ -153,7 +154,7 @@ fn translateIncludes(allocator: Allocator, ns: gir.Namespace, deps: NamespaceDep
     defer allocator.free(ns_lower);
     try out.print("const {s} = @This();\n\n", .{ns_lower});
 
-    // Including std is also convenient for extra bindings
+    // std is needed for std.builtin.VaList
     _ = try out.write("const std = @import(\"std\");\n");
 
     var seen = HashMap(gir.Include, void, IncludeContext, std.hash_map.default_max_load_percentage).init(allocator);
@@ -187,46 +188,18 @@ fn moduleNameAlloc(allocator: Allocator, name: []const u8, version: []const u8) 
     return module_name;
 }
 
-fn translateNamespace(allocator: Allocator, ns: gir.Namespace, maybe_extras_ns: ?extras.Namespace, out: anytype) !void {
-    var extras_classes = StringHashMap(extras.Class).init(allocator);
-    defer extras_classes.deinit();
-    var extras_interfaces = StringHashMap(extras.Interface).init(allocator);
-    defer extras_interfaces.deinit();
-    var extras_records = StringHashMap(extras.Record).init(allocator);
-    defer extras_records.deinit();
-    if (maybe_extras_ns) |extras_ns| {
-        for (extras_ns.classes) |class| {
-            try extras_classes.put(class.name, class);
-        }
-        for (extras_ns.interfaces) |interface| {
-            try extras_interfaces.put(interface.name, interface);
-        }
-        for (extras_ns.records) |record| {
-            try extras_records.put(record.name, record);
-        }
-        for (extras_ns.functions) |function| {
-            try translateExtraFunction(function, "", out);
-        }
-        for (extras_ns.extern_functions) |extern_function| {
-            try translateExtraExternFunction(extern_function, "", out);
-        }
-        for (extras_ns.constants) |constant| {
-            try translateExtraConstant(constant, "", out);
-        }
-        try translateExtraCode(extras_ns.code, "", out);
-    }
-
+fn translateNamespace(allocator: Allocator, ns: gir.Namespace, out: anytype) !void {
     for (ns.aliases) |alias| {
         try translateAlias(allocator, alias, out);
     }
     for (ns.classes) |class| {
-        try translateClass(allocator, class, extras_classes.get(class.name), out);
+        try translateClass(allocator, class, out);
     }
     for (ns.interfaces) |interface| {
-        try translateInterface(allocator, interface, extras_interfaces.get(interface.name), out);
+        try translateInterface(allocator, interface, out);
     }
     for (ns.records) |record| {
-        try translateRecord(allocator, record, extras_records.get(record.name), out);
+        try translateRecord(allocator, record, out);
     }
     for (ns.unions) |@"union"| {
         try translateUnion(allocator, @"union", out);
@@ -246,6 +219,7 @@ fn translateNamespace(allocator: Allocator, ns: gir.Namespace, maybe_extras_ns: 
     for (ns.constants) |constant| {
         try translateConstant(allocator, constant, "", out);
     }
+    _ = try out.write("pub usingnamespace if (@hasDecl(extras, \"namespace\")) extras.namespace else struct {};\n");
 }
 
 fn translateAlias(allocator: Allocator, alias: gir.Alias, out: anytype) !void {
@@ -255,12 +229,9 @@ fn translateAlias(allocator: Allocator, alias: gir.Alias, out: anytype) !void {
     _ = try out.write(";\n\n");
 }
 
-fn translateClass(allocator: Allocator, class: gir.Class, maybe_extras_class: ?extras.Class, out: anytype) !void {
+fn translateClass(allocator: Allocator, class: gir.Class, out: anytype) !void {
     // class type
     try translateDocumentation(class.documentation, "", out);
-    if (maybe_extras_class) |extras_class| {
-        try translateExtraDocumentation(extras_class.documentation, false, "", out);
-    }
     try out.print("pub const {s} = ", .{class.name});
     if (class.final) {
         _ = try out.write("opaque {\n");
@@ -296,16 +267,6 @@ fn translateClass(allocator: Allocator, class: gir.Class, maybe_extras_class: ?e
         _ = try out.write("\n");
     }
 
-    if (maybe_extras_class) |extras_class| {
-        for (extras_class.functions) |function| {
-            try translateExtraFunction(function, " " ** 4, out);
-        }
-        for (extras_class.extern_functions) |extern_function| {
-            try translateExtraExternFunction(extern_function, " " ** 4, out);
-        }
-        try translateExtraCode(extras_class.code, " " ** 4, out);
-    }
-
     const get_type_function = class.getTypeFunction();
     if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
         try translateFunction(allocator, get_type_function, " " ** 4, out);
@@ -330,20 +291,12 @@ fn translateClass(allocator: Allocator, class: gir.Class, maybe_extras_class: ?e
     }
     try out.print("    pub const Methods = {s}Methods;\n", .{class.name});
     _ = try out.write("    pub usingnamespace Methods(Self);\n");
+    try out.print("    pub usingnamespace if (@hasDecl(extras, \"{0s}\")) extras.{0s}(Self) else struct {{}};\n", .{class.name});
     _ = try out.write("};\n\n");
 
     // methods mixin
     try out.print("fn {s}Methods(comptime Self: type) type {{\n", .{class.name});
     _ = try out.write("    return struct{\n");
-    if (maybe_extras_class) |extras_class| {
-        for (extras_class.methods) |method| {
-            try translateExtraMethod(method, " " ** 8, out);
-        }
-        for (extras_class.extern_methods) |extern_method| {
-            try translateExtraExternMethod(extern_method, " " ** 8, out);
-        }
-        try translateExtraCode(extras_class.methods_code, " " ** 8, out);
-    }
     for (class.methods) |method| {
         try translateMethod(allocator, method, " " ** 8, out);
     }
@@ -356,16 +309,13 @@ fn translateClass(allocator: Allocator, class: gir.Class, maybe_extras_class: ?e
         try translateNameNs(allocator, implements.name.ns, out);
         try out.print("{s}.Methods(Self);\n", .{implements.name.local});
     }
+    try out.print("        pub usingnamespace if (@hasDecl(extras, \"{0s}Methods\")) extras.{0s}Methods(Self) else struct {{}};\n", .{class.name});
     _ = try out.write("    };\n");
     _ = try out.write("}\n\n");
 
     // virtual methods mixin
     if (class.type_struct) |type_struct| {
         try out.print("fn {s}VirtualMethods(comptime Self: type, comptime Instance: type) type {{\n", .{class.name});
-        if (countTranslatableMethods(class.methods) == 0 and class.parent == null) {
-            _ = try out.write("    _ = Self;\n");
-            _ = try out.write("    _ = Instance;\n");
-        }
         _ = try out.write("    return struct{\n");
         for (class.virtual_methods) |virtual_method| {
             try translateVirtualMethod(allocator, virtual_method, type_struct, class.name, " " ** 8, out);
@@ -373,17 +323,15 @@ fn translateClass(allocator: Allocator, class: gir.Class, maybe_extras_class: ?e
         if (class.parent != null) {
             try out.print("        pub usingnamespace {s}.Parent.Class.VirtualMethods(Self, Instance);\n", .{class.name});
         }
+        try out.print("        pub usingnamespace if (@hasDecl(extras, \"{0s}VirtualMethods\")) extras.{0s}VirtualMethods(Self, Instance) else struct {{}};\n", .{class.name});
         _ = try out.write("    };\n");
         _ = try out.write("}\n\n");
     }
 }
 
-fn translateInterface(allocator: Allocator, interface: gir.Interface, maybe_extras_interface: ?extras.Interface, out: anytype) !void {
+fn translateInterface(allocator: Allocator, interface: gir.Interface, out: anytype) !void {
     // interface type
     try translateDocumentation(interface.documentation, "", out);
-    if (maybe_extras_interface) |extras_interface| {
-        try translateExtraDocumentation(extras_interface.documentation, false, "", out);
-    }
     try out.print("pub const {s} = opaque {{\n", .{interface.name});
 
     _ = try out.write("    pub const Prerequisites = [_]type{");
@@ -407,16 +355,6 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, maybe_extr
     }
     try out.print("    const Self = {s};\n", .{interface.name});
     _ = try out.write("\n");
-
-    if (maybe_extras_interface) |extras_interface| {
-        for (extras_interface.functions) |function| {
-            try translateExtraFunction(function, " " ** 4, out);
-        }
-        for (extras_interface.extern_functions) |extern_function| {
-            try translateExtraExternFunction(extern_function, " " ** 4, out);
-        }
-        try translateExtraCode(extras_interface.code, " " ** 4, out);
-    }
 
     const get_type_function = interface.getTypeFunction();
     if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
@@ -442,20 +380,12 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, maybe_extr
     }
     try out.print("    pub const Methods = {s}Methods;\n", .{interface.name});
     _ = try out.write("    pub usingnamespace Methods(Self);\n");
+    try out.print("    pub usingnamespace if (@hasDecl(extras, \"{0s}\")) extras.{0s}(Self) else struct {{}};\n", .{interface.name});
     _ = try out.write("};\n\n");
 
     // methods mixin
     try out.print("fn {s}Methods(comptime Self: type) type {{\n", .{interface.name});
     _ = try out.write("    return struct{\n");
-    if (maybe_extras_interface) |extras_interface| {
-        for (extras_interface.methods) |method| {
-            try translateExtraMethod(method, " " ** 8, out);
-        }
-        for (extras_interface.extern_methods) |extern_method| {
-            try translateExtraExternMethod(extern_method, " " ** 8, out);
-        }
-        try translateExtraCode(extras_interface.methods_code, " " ** 8, out);
-    }
     for (interface.methods) |method| {
         try translateMethod(allocator, method, " " ** 8, out);
     }
@@ -471,31 +401,26 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, maybe_extr
         try translateNameNs(allocator, prerequisite.name.ns, out);
         try out.print("{s}.Methods(Self);\n", .{prerequisite.name.local});
     }
+    try out.print("        pub usingnamespace if (@hasDecl(extras, \"{0s}Methods\")) extras.{0s}Methods(Self) else struct {{}};\n", .{interface.name});
     _ = try out.write("    };\n");
     _ = try out.write("}\n\n");
 
     // virtual methods mixin
     if (interface.type_struct) |type_struct| {
         try out.print("fn {s}VirtualMethods(comptime Self: type, comptime Instance: type) type {{\n", .{interface.name});
-        if (interface.virtual_methods.len == 0) {
-            _ = try out.write("    _ = Self;\n");
-            _ = try out.write("    _ = Instance;\n");
-        }
         _ = try out.write("    return struct{\n");
         for (interface.virtual_methods) |virtual_method| {
             try translateVirtualMethod(allocator, virtual_method, type_struct, interface.name, " " ** 8, out);
         }
+        try out.print("        pub usingnamespace if (@hasDecl(extras, \"{0s}VirtualMethods\")) extras.{0s}VirtualMethods(Self, Instance) else struct {{}};\n", .{interface.name});
         _ = try out.write("    };\n");
         _ = try out.write("}\n\n");
     }
 }
 
-fn translateRecord(allocator: Allocator, record: gir.Record, maybe_extras_record: ?extras.Record, out: anytype) !void {
+fn translateRecord(allocator: Allocator, record: gir.Record, out: anytype) !void {
     // record type
     try translateDocumentation(record.documentation, "", out);
-    if (maybe_extras_record) |extras_record| {
-        try translateExtraDocumentation(extras_record.documentation, false, "", out);
-    }
     try out.print("pub const {s} = extern struct {{\n", .{record.name});
 
     if (record.is_gtype_struct_for) |is_gtype_struct_for| {
@@ -508,16 +433,6 @@ fn translateRecord(allocator: Allocator, record: gir.Record, maybe_extras_record
     }
     if (record.fields.len > 0) {
         _ = try out.write("\n");
-    }
-
-    if (maybe_extras_record) |extras_record| {
-        for (extras_record.functions) |function| {
-            try translateExtraFunction(function, " " ** 4, out);
-        }
-        for (extras_record.extern_functions) |extern_function| {
-            try translateExtraExternFunction(extern_function, " " ** 4, out);
-        }
-        try translateExtraCode(extras_record.code, " " ** 4, out);
     }
 
     if (record.getTypeFunction()) |get_type_function| {
@@ -543,39 +458,28 @@ fn translateRecord(allocator: Allocator, record: gir.Record, maybe_extras_record
         try out.print("    pub const VirtualMethods = {s}VirtualMethods;\n", .{is_gtype_struct_for});
         _ = try out.write("    pub usingnamespace VirtualMethods(Self, Instance);\n");
     }
+    try out.print("    pub usingnamespace if (@hasDecl(extras, \"{0s}\")) extras.{0s}(Self) else struct {{}};\n", .{record.name});
     _ = try out.write("};\n\n");
 
     // methods mixin
     try out.print("fn {s}Methods(comptime Self: type) type {{\n", .{record.name});
-    if (countTranslatableMethods(record.methods) == 0 and record.is_gtype_struct_for == null and (maybe_extras_record == null or maybe_extras_record.?.methods.len == 0)) {
-        _ = try out.write("    _ = Self;\n");
-    }
     _ = try out.write("    return struct{\n");
-    if (maybe_extras_record) |extras_record| {
-        for (extras_record.methods) |method| {
-            try translateExtraMethod(method, " " ** 8, out);
-        }
-        for (extras_record.extern_methods) |extern_method| {
-            try translateExtraExternMethod(extern_method, " " ** 8, out);
-        }
-        try translateExtraCode(extras_record.methods_code, " " ** 8, out);
-    }
     for (record.methods) |method| {
         try translateMethod(allocator, method, " " ** 8, out);
     }
     if (record.is_gtype_struct_for) |is_gtype_struct_for| {
         try out.print(
-            \\        const ParentMethods = if (@hasDecl({0s}, "Parent") and @hasDecl({0s}.Parent, "Class"))
+            \\        pub usingnamespace if (@hasDecl({0s}, "Parent") and @hasDecl({0s}.Parent, "Class"))
             \\            {0s}.Parent.Class.Methods(Self)
             \\        else if (@hasDecl({0s}, "Parent"))
             \\            gobject.TypeClass.Methods(Self)
             \\        else
             \\            struct{{}}
             \\        ;
-            \\        pub usingnamespace ParentMethods;
             \\
         , .{is_gtype_struct_for});
     }
+    try out.print("        pub usingnamespace if (@hasDecl(extras, \"{0s}Methods\")) extras.{0s}Methods(Self) else struct {{}};\n", .{record.name});
     _ = try out.write("    };\n");
     _ = try out.write("}\n\n");
 }
@@ -1479,114 +1383,6 @@ fn toCamelCase(allocator: Allocator, name: []const u8, word_sep: []const u8) ![]
     return out.toOwnedSlice();
 }
 
-fn translateExtraFunction(function: extras.Function, indent: []const u8, out: anytype) !void {
-    try translateExtraDocumentation(function.documentation, false, indent, out);
-    _ = try out.write(indent);
-    if (!function.private) {
-        _ = try out.write("pub ");
-    }
-    try out.print("fn {}(", .{zig.fmtId(function.name)});
-    try translateExtraParameters(function.parameters, out);
-    try out.print(") {s} {{\n", .{function.return_value.type});
-
-    var lines = mem.split(u8, function.body, "\n");
-    while (lines.next()) |line| {
-        try out.print("{s}    {s}\n", .{ indent, line });
-    }
-
-    try out.print("{s}}}\n\n", .{indent});
-}
-
-fn translateExtraExternFunction(extern_function: extras.ExternFunction, indent: []const u8, out: anytype) !void {
-    // extern declaration
-    try out.print("{s}extern fn {}(", .{ indent, zig.fmtId(extern_function.identifier) });
-    try translateExtraParameters(extern_function.parameters, out);
-    try out.print(") {s};\n", .{extern_function.return_value.type});
-
-    // function rename
-    try translateExtraDocumentation(extern_function.documentation, false, indent, out);
-    try out.print("{s}pub const {} = {};\n\n", .{ indent, zig.fmtId(extern_function.name), zig.fmtId(extern_function.identifier) });
-}
-
-fn translateExtraMethod(method: extras.Method, indent: []const u8, out: anytype) !void {
-    try translateExtraFunction(.{
-        .name = method.name,
-        .parameters = method.parameters,
-        .return_value = method.return_value,
-        .body = method.body,
-        .private = method.private,
-        .documentation = method.documentation,
-    }, indent, out);
-}
-
-fn translateExtraExternMethod(extern_method: extras.ExternMethod, indent: []const u8, out: anytype) !void {
-    try translateExtraExternFunction(.{
-        .name = extern_method.name,
-        .identifier = extern_method.identifier,
-        .parameters = extern_method.parameters,
-        .return_value = extern_method.return_value,
-        .documentation = extern_method.documentation,
-    }, indent, out);
-}
-
-fn translateExtraParameters(parameters: []const extras.Parameter, out: anytype) !void {
-    for (parameters, 0..) |parameter, i| {
-        if (parameter.@"comptime") {
-            _ = try out.write("comptime ");
-        }
-        try out.print("{}: {s}", .{ zig.fmtId(parameter.name), parameter.type });
-        if (i < parameters.len - 1) {
-            _ = try out.write(", ");
-        }
-    }
-}
-
-fn translateExtraConstant(constant: extras.Constant, indent: []const u8, out: anytype) !void {
-    try translateExtraDocumentation(constant.documentation, false, indent, out);
-    _ = try out.write(indent);
-    if (!constant.private) {
-        _ = try out.write("pub ");
-    }
-    try out.print("const {}", .{zig.fmtId(constant.name)});
-    if (constant.type) |@"type"| {
-        try out.print(": {s}", .{@"type"});
-    }
-    _ = try out.write(" = ");
-
-    var lines = mem.split(u8, constant.value, "\n");
-    var i: usize = 0;
-    while (lines.next()) |line| : (i += 1) {
-        if (i > 0) {
-            try out.print("\n{s}", .{indent});
-        }
-        try out.print("{s}", .{line});
-    }
-
-    _ = try out.write(";\n\n");
-}
-
-fn translateExtraDocumentation(documentation: ?extras.Documentation, container: bool, indent: []const u8, out: anytype) !void {
-    if (documentation) |doc| {
-        var lines = mem.split(u8, doc.text, "\n");
-        while (lines.next()) |line| {
-            if (container) {
-                try out.print("{s}//! {s}\n", .{ indent, line });
-            } else {
-                try out.print("{s}/// {s}\n", .{ indent, line });
-            }
-        }
-    }
-}
-
-fn translateExtraCode(maybe_code: ?extras.Code, indent: []const u8, out: anytype) !void {
-    if (maybe_code) |code| {
-        var lines = mem.split(u8, code.text, "\n");
-        while (lines.next()) |line| {
-            try out.print("{s}{s}\n", .{ indent, line });
-        }
-    }
-}
-
 pub const CreateBuildFileError = Allocator.Error || fs.File.OpenError || fs.File.WriteError || error{
     FileSystem,
     NotSupported,
@@ -1646,6 +1442,8 @@ pub fn createBuildFile(repositories: *Repositories, out_dir: fs.Dir) !void {
                 try needed_deps.appendSlice(deps.get(needed_dep) orelse &.{});
             }
         }
+        // The self-dependency is useful for extras files to be able to import their own module by name
+        try out.print("    try {0}.dependencies.put(\"{1}\", {0});\n", .{ zig.fmtId(module_name), zig.fmtEscapes(module_name) });
     }
 
     _ = try out.write("}\n");
