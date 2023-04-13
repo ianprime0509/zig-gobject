@@ -268,7 +268,7 @@ pub fn ObjectMethods(comptime Self: type) type {
             var values: [n_props]gobject.Value = undefined;
             inline for (typeInfo.fields, 0..) |field, i| {
                 names[i] = field.name ++ "\x00";
-                values[i] = gobject.Value.wrap(@field(properties, field.name));
+                values[i] = gobject.Value.newFrom(@field(properties, field.name));
             }
             defer for (&values) |*value| value.unset();
             // TODO: the names parameter should actually be [*][*:0]const u8
@@ -335,75 +335,75 @@ pub fn Value(comptime Self: type) type {
             return value;
         }
 
-        /// Wraps a value in a `Value`.
+        /// Returns a new `Value` with the given contents.
         ///
         /// This does not take ownership of the value (if applicable).
-        pub fn wrap(value: anytype) Self {
-            comptime var T = @TypeOf(value);
+        pub fn newFrom(contents: anytype) Self {
+            comptime var T = @TypeOf(contents);
             const typeInfo = @typeInfo(T);
-            var wrapped: Self = undefined;
+            var value: Self = undefined;
             if (typeInfo == .Pointer and comptime isRegisteredType(typeInfo.Pointer.child)) {
-                wrapped = new(T);
+                value = new(T);
                 if (typeInfo.Pointer.child.getType() == gobject.Boxed) {
-                    wrapped.setBoxed(value);
+                    value.setBoxed(contents);
                 } else {
-                    wrapped.setObject(@ptrCast(*gobject.Object, value));
+                    value.setObject(@ptrCast(*gobject.Object, contents));
                 }
             } else if (T == i8) {
-                wrapped = new(T);
-                wrapped.setSchar(value);
+                value = new(T);
+                value.setSchar(contents);
             } else if (T == u8) {
-                wrapped = new(T);
-                wrapped.setUchar(value);
+                value = new(T);
+                value.setUchar(contents);
             } else if (T == bool) {
-                wrapped = new(T);
-                wrapped.setBoolean(value);
+                value = new(T);
+                value.setBoolean(contents);
             } else if (T == c_int) {
-                wrapped = new(T);
-                wrapped.setInt(value);
+                value = new(T);
+                value.setInt(contents);
             } else if (T == c_uint) {
-                wrapped = new(T);
-                wrapped.setUint(value);
+                value = new(T);
+                value.setUint(contents);
             } else if (T == c_long) {
-                wrapped = new(T);
-                wrapped.setLong(value);
+                value = new(T);
+                value.setLong(contents);
             } else if (T == c_ulong) {
-                wrapped = new(T);
-                wrapped.setUlong(value);
+                value = new(T);
+                value.setUlong(contents);
             } else if (T == i64) {
-                wrapped = new(T);
-                wrapped.setInt64(value);
+                value = new(T);
+                value.setInt64(contents);
             } else if (T == u64) {
-                wrapped = new(T);
-                wrapped.setUint64(value);
+                value = new(T);
+                value.setUint64(contents);
             } else if (T == f32) {
-                wrapped = new(T);
-                wrapped.setFloat(value);
+                value = new(T);
+                value.setFloat(contents);
             } else if (T == f64) {
-                wrapped = new(T);
-                wrapped.setDouble(value);
+                value = new(T);
+                value.setDouble(contents);
             } else if (comptime isCString(T)) {
-                wrapped = new(T);
-                wrapped.setString(value);
+                value = new(T);
+                value.setString(contents);
             } else if (T == *gobject.ParamSpec) {
-                wrapped = new(T);
-                wrapped.setParam(value);
+                value = new(T);
+                value.setParam(contents);
             } else if (T == *glib.Variant) {
-                wrapped = new(T);
-                wrapped.setVariant(value);
+                value = new(T);
+                value.setVariant(contents);
             } else if (typeInfo == .Pointer or (typeInfo == .Optional and @typeInfo(typeInfo.Optional.child) == .Pointer)) {
-                wrapped = new(T);
-                wrapped.setPointer(value);
+                value = new(T);
+                value.setPointer(contents);
             } else if (typeInfo == .Enum and typeInfo.Enum.tag_type == c_int) {
-                wrapped = new(T);
-                wrapped.setEnum(@enumToInt(value));
+                value = new(T);
+                value.setEnum(@enumToInt(contents));
             } else if (typeInfo == .Struct and typeInfo.Struct.backing_integer == c_uint) {
-                wrapped = new(T);
-                wrapped.setFlags(@bitCast(c_uint, value));
+                value = new(T);
+                value.setFlags(@bitCast(c_uint, contents));
             } else {
-                @compileError("cannot construct Value containing " ++ @typeName(T));
+                @compileError("cannot construct Value from " ++ @typeName(T));
             }
-            return wrapped;
+            return value;
         }
     };
 }
