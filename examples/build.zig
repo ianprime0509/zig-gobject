@@ -20,7 +20,7 @@ pub fn build(b: *std.Build) !void {
     exe.addModule("pangocairo", bindings.module("pangocairo-1.0"));
     exe.addModule("gdk", bindings.module("gdk-4.0"));
     exe.addModule("gtk", bindings.module("gtk-4.0"));
-    exe.install();
+    b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());

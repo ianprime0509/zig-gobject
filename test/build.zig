@@ -14,5 +14,5 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
     gobject2_tests.addModule("gobject", bindings.module("gobject-2.0"));
-    test_step.dependOn(&gobject2_tests.run().step);
+    test_step.dependOn(&b.addRunArtifact(gobject2_tests).step);
 }
