@@ -658,28 +658,23 @@ fn isConstructorTranslatable(constructor: gir.Constructor) bool {
 }
 
 fn translateConstructor(allocator: Allocator, constructor: gir.Constructor, indent: []const u8, ctx: TranslationContext, out: anytype) !void {
-    // TODO: reduce duplication with translateFunction; we need to override the
-    // return type here due to many GTK constructors returning just "Widget"
-    // instead of their actual type
-    if (!isConstructorTranslatable(constructor)) {
-        return;
-    }
-
-    // extern declaration
-    try out.print("{s}extern fn {s}(", .{ indent, zig.fmtId(constructor.c_identifier) });
-    try translateParameters(allocator, constructor.parameters, .{ .throws = constructor.throws }, ctx, out);
-    // TODO: consider if the return value is const, or maybe not even a pointer at all
-    _ = try out.write(") callconv(.C) ");
-    if (constructor.throws) {
-        _ = try out.write("?");
-    }
-    _ = try out.write("*Self;\n");
-
-    // constructor rename
-    try translateDocumentation(constructor.documentation, indent, out);
-    var fnName = try toCamelCase(allocator, constructor.name, "_");
-    defer allocator.free(fnName);
-    try out.print("{s}pub const {s} = {s};\n\n", .{ indent, zig.fmtId(fnName), zig.fmtId(constructor.c_identifier) });
+    try translateFunction(allocator, .{
+        .name = constructor.name,
+        .c_identifier = constructor.c_identifier,
+        .moved_to = constructor.moved_to,
+        .parameters = constructor.parameters,
+        // This is a somewhat hacky way to ensure the constructor always returns
+        // the type it's constructing and not some less specific type (like
+        // certain GTK widget constructors which return Widget rather than the
+        // actual type being constructed)
+        // TODO: consider if the return value is const, or maybe not even a pointer at all
+        .return_value = .{ .type = .{ .simple = .{
+            .name = .{ .ns = null, .local = "Self" },
+            .c_type = "Self*",
+        } } },
+        .throws = constructor.throws,
+        .documentation = constructor.documentation,
+    }, indent, ctx, out);
 }
 
 fn isMethodTranslatable(method: gir.Method) bool {
