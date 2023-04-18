@@ -779,10 +779,6 @@ fn translateSignalCallbackType(allocator: Allocator, signal: gir.Signal, ctx: Tr
 }
 
 fn translateConstant(allocator: Allocator, constant: gir.Constant, indent: []const u8, ctx: TranslationContext, out: anytype) !void {
-    // TODO: it would be more idiomatic to use lowercase constant names, but
-    // there are way too many constant pairs which differ only in case, especially
-    // the names of keyboard keys (e.g. KEY_A and KEY_a in GDK). There is
-    // probably some heuristic we can use to at least lowercase most of them.
     try translateDocumentation(constant.documentation, indent, out);
     try out.print("{s}pub const {s}: ", .{ indent, zig.fmtId(constant.name) });
     try translateAnyType(allocator, constant.type, .{}, ctx, out);
