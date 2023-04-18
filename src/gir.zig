@@ -235,10 +235,11 @@ pub const Class = struct {
     get_type: []const u8,
     type_struct: ?[]const u8 = null,
     final: bool = false,
+    symbol_prefix: ?[]const u8 = null,
     documentation: ?Documentation = null,
 
     pub fn getTypeFunction(self: Class) Function {
-        return Function.forGetType(self, true);
+        return Function.forGetType(self, self.symbol_prefix, true);
     }
 
     fn parse(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Class {
@@ -255,6 +256,7 @@ pub const Class = struct {
         var get_type: ?[]const u8 = null;
         var type_struct: ?[]const u8 = null;
         var final = false;
+        var symbol_prefix: ?[]const u8 = null;
         var documentation: ?Documentation = null;
 
         var maybe_attr: ?*c.xmlAttr = node.properties;
@@ -269,6 +271,8 @@ pub const Class = struct {
                 type_struct = try xml.attrContent(allocator, doc, attr);
             } else if (xml.attrIs(attr, null, "final")) {
                 final = mem.eql(u8, try xml.attrContent(allocator, doc, attr), "1");
+            } else if (xml.attrIs(attr, ns.c, "symbol-prefix")) {
+                symbol_prefix = try xml.attrContent(allocator, doc, attr);
             }
         }
 
@@ -312,6 +316,7 @@ pub const Class = struct {
             // reliable indicator seems to be the number of fields in the class (0
             // means it's final).
             .final = final or fields.items.len == 0,
+            .symbol_prefix = symbol_prefix,
             .documentation = documentation,
         };
     }
@@ -328,10 +333,11 @@ pub const Interface = struct {
     constants: []const Constant = &.{},
     get_type: []const u8,
     type_struct: ?[]const u8 = null,
+    symbol_prefix: ?[]const u8 = null,
     documentation: ?Documentation = null,
 
     pub fn getTypeFunction(self: Interface) Function {
-        return Function.forGetType(self, true);
+        return Function.forGetType(self, self.symbol_prefix, true);
     }
 
     fn parse(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Interface {
@@ -345,6 +351,7 @@ pub const Interface = struct {
         var constants = ArrayList(Constant).init(allocator);
         var get_type: ?[]const u8 = null;
         var type_struct: ?[]const u8 = null;
+        var symbol_prefix: ?[]const u8 = null;
         var documentation: ?Documentation = null;
 
         var maybe_attr: ?*c.xmlAttr = node.properties;
@@ -355,6 +362,8 @@ pub const Interface = struct {
                 get_type = try xml.attrContent(allocator, doc, attr);
             } else if (xml.attrIs(attr, ns.glib, "type-struct")) {
                 type_struct = try xml.attrContent(allocator, doc, attr);
+            } else if (xml.attrIs(attr, ns.c, "symbol-prefix")) {
+                symbol_prefix = try xml.attrContent(allocator, doc, attr);
             }
         }
 
@@ -390,6 +399,7 @@ pub const Interface = struct {
             .constants = constants.items,
             .get_type = get_type orelse return error.InvalidGir,
             .type_struct = type_struct,
+            .symbol_prefix = symbol_prefix,
             .documentation = documentation,
         };
     }
@@ -403,10 +413,11 @@ pub const Record = struct {
     methods: []const Method = &.{},
     get_type: ?[]const u8 = null,
     is_gtype_struct_for: ?[]const u8 = null,
+    symbol_prefix: ?[]const u8 = null,
     documentation: ?Documentation = null,
 
     pub fn getTypeFunction(self: Record) ?Function {
-        return Function.forGetType(self, false);
+        return Function.forGetType(self, self.symbol_prefix, false);
     }
 
     fn parse(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Record {
@@ -417,6 +428,7 @@ pub const Record = struct {
         var methods = ArrayList(Method).init(allocator);
         var get_type: ?[]const u8 = null;
         var is_gtype_struct_for: ?[]const u8 = null;
+        var symbol_prefix: ?[]const u8 = null;
         var documentation: ?Documentation = null;
 
         var maybe_attr: ?*c.xmlAttr = node.properties;
@@ -427,6 +439,8 @@ pub const Record = struct {
                 get_type = try xml.attrContent(allocator, doc, attr);
             } else if (xml.attrIs(attr, ns.glib, "is-gtype-struct-for")) {
                 is_gtype_struct_for = try xml.attrContent(allocator, doc, attr);
+            } else if (xml.attrIs(attr, ns.c, "symbol-prefix")) {
+                symbol_prefix = try xml.attrContent(allocator, doc, attr);
             }
         }
 
@@ -453,6 +467,7 @@ pub const Record = struct {
             .methods = methods.items,
             .get_type = get_type,
             .is_gtype_struct_for = is_gtype_struct_for,
+            .symbol_prefix = symbol_prefix,
             .documentation = documentation,
         };
     }
@@ -465,10 +480,11 @@ pub const Union = struct {
     constructors: []const Constructor = &.{},
     methods: []const Method = &.{},
     get_type: ?[]const u8 = null,
+    symbol_prefix: ?[]const u8 = null,
     documentation: ?Documentation = null,
 
     pub fn getTypeFunction(self: Union) ?Function {
-        return Function.forGetType(self, false);
+        return Function.forGetType(self, self.symbol_prefix, false);
     }
 
     fn parse(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Union {
@@ -478,6 +494,7 @@ pub const Union = struct {
         var constructors = ArrayList(Constructor).init(allocator);
         var methods = ArrayList(Method).init(allocator);
         var get_type: ?[]const u8 = null;
+        var symbol_prefix: ?[]const u8 = null;
         var documentation: ?Documentation = null;
 
         var maybe_attr: ?*c.xmlAttr = node.properties;
@@ -486,6 +503,8 @@ pub const Union = struct {
                 name = try xml.attrContent(allocator, doc, attr);
             } else if (xml.attrIs(attr, ns.glib, "get-type")) {
                 get_type = try xml.attrContent(allocator, doc, attr);
+            } else if (xml.attrIs(attr, ns.c, "symbol-prefix")) {
+                symbol_prefix = try xml.attrContent(allocator, doc, attr);
             }
         }
 
@@ -511,6 +530,7 @@ pub const Union = struct {
             .constructors = constructors.items,
             .methods = methods.items,
             .get_type = get_type,
+            .symbol_prefix = symbol_prefix,
             .documentation = documentation,
         };
     }
@@ -568,7 +588,7 @@ pub const BitField = struct {
     documentation: ?Documentation = null,
 
     pub fn getTypeFunction(self: BitField) ?Function {
-        return Function.forGetType(self, false);
+        return Function.forGetType(self, null, false);
     }
 
     fn parse(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !BitField {
@@ -616,7 +636,7 @@ pub const Enum = struct {
     documentation: ?Documentation = null,
 
     pub fn getTypeFunction(self: Enum) ?Function {
-        return Function.forGetType(self, false);
+        return Function.forGetType(self, null, false);
     }
 
     fn parse(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Enum {
@@ -699,16 +719,17 @@ pub const Function = struct {
     throws: bool = false,
     documentation: ?Documentation = null,
 
-    fn forGetType(elem: anytype, comptime required: bool) if (required) Function else ?Function {
+    fn forGetType(elem: anytype, symbol_prefix: ?[]const u8, comptime required: bool) if (required) Function else ?Function {
         if (!required and elem.get_type == null) {
             return null;
         }
 
-        const get_type = if (required) elem.get_type else elem.get_type.?;
+        const c_identifier = if (required) elem.get_type else elem.get_type.?;
+        const name = if (symbol_prefix) |prefix| stripSymbolPrefix(c_identifier, prefix) else "get_type";
 
         return .{
-            .name = "get_type",
-            .c_identifier = get_type,
+            .name = name,
+            .c_identifier = c_identifier,
             .parameters = &.{},
             .return_value = .{
                 .nullable = false,
@@ -1222,6 +1243,14 @@ pub const Name = struct {
         }
     }
 };
+
+fn stripSymbolPrefix(identifier: []const u8, symbol_prefix: []const u8) []const u8 {
+    if (mem.indexOf(u8, identifier, symbol_prefix)) |index| {
+        const stripped = identifier[index + symbol_prefix.len ..];
+        return if (stripped.len > 0 and stripped[0] == '_') stripped[1..] else stripped;
+    }
+    return identifier;
+}
 
 test {
     testing.refAllDecls(@This());
