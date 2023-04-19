@@ -1,4 +1,5 @@
 const std = @import("std");
+const zigWriter = @import("zig_writer.zig").zigWriter;
 const ascii = std.ascii;
 const fmt = std.fmt;
 const fs = std.fs;
@@ -6,7 +7,6 @@ const heap = std.heap;
 const io = std.io;
 const mem = std.mem;
 const testing = std.testing;
-const zig = std.zig;
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
 const ArenaAllocator = heap.ArenaAllocator;
@@ -181,16 +181,16 @@ fn translateRepository(allocator: Allocator, repo: gir.Repository, maybe_extras_
     const file = try out_dir.createFile(file_name, .{});
     defer file.close();
     var bw = io.bufferedWriter(file.writer());
-    const out = bw.writer();
+    var out = zigWriter(bw.writer());
 
     if (maybe_extras_path) |path| {
-        try out.print("const extras = @import(\"{}\");\n", .{zig.fmtEscapes(path)});
+        try out.print("const extras = @import($S);\n", .{path});
     } else {
-        _ = try out.write("const extras = struct {};\n");
+        try out.print("const extras = struct {};\n", .{});
     }
 
-    try translateIncludes(allocator, ns, deps, out);
-    try translateNamespace(allocator, ns, ctx, out);
+    try translateIncludes(allocator, ns, deps, &out);
+    try translateNamespace(allocator, ns, ctx, &out);
 
     try bw.flush();
     try file.sync();
@@ -201,10 +201,10 @@ fn translateIncludes(allocator: Allocator, ns: gir.Namespace, deps: NamespaceDep
     // translation logic simpler (no need to know what namespace we're in)
     const ns_lower = try ascii.allocLowerString(allocator, ns.name);
     defer allocator.free(ns_lower);
-    try out.print("const {s} = @This();\n\n", .{ns_lower});
+    try out.print("const $I = @This();\n\n", .{ns_lower});
 
     // std is needed for std.builtin.VaList
-    _ = try out.write("const std = @import(\"std\");\n");
+    try out.print("const std = @import(\"std\");\n", .{});
 
     var seen = HashMap(gir.Include, void, IncludeContext, std.hash_map.default_max_load_percentage).init(allocator);
     defer seen.deinit();
@@ -217,7 +217,7 @@ fn translateIncludes(allocator: Allocator, ns: gir.Namespace, deps: NamespaceDep
             defer allocator.free(module_name);
             const alias = try ascii.allocLowerString(allocator, needed_dep.name);
             defer allocator.free(alias);
-            try out.print("const {s} = @import(\"{s}\");\n", .{ alias, module_name });
+            try out.print("const $I = @import($S);\n", .{ alias, module_name });
 
             try seen.put(needed_dep, {});
             try needed_deps.appendSlice(deps.get(needed_dep) orelse &.{});
@@ -260,317 +260,312 @@ fn translateNamespace(allocator: Allocator, ns: gir.Namespace, ctx: TranslationC
         try translateBitField(allocator, bit_field, ctx, out);
     }
     for (ns.functions) |function| {
-        try translateFunction(allocator, function, "", ctx, out);
+        try translateFunction(allocator, function, ctx, out);
     }
     for (ns.callbacks) |callback| {
         try translateCallback(allocator, callback, true, ctx, out);
     }
     for (ns.constants) |constant| {
-        try translateConstant(allocator, constant, "", ctx, out);
+        try translateConstant(allocator, constant, ctx, out);
     }
-    _ = try out.write("pub usingnamespace if (@hasDecl(extras, \"namespace\")) extras.namespace else struct {};\n");
+    try out.print("pub usingnamespace if (@hasDecl(extras, \"namespace\")) extras.namespace else struct {};\n", .{});
 }
 
 fn translateAlias(allocator: Allocator, alias: gir.Alias, ctx: TranslationContext, out: anytype) !void {
-    try translateDocumentation(alias.documentation, "", out);
-    try out.print("pub const {s} = ", .{alias.name});
+    try translateDocumentation(alias.documentation, out);
+    try out.print("pub const $I = ", .{alias.name});
     try translateType(allocator, alias.type, .{}, ctx, out);
-    _ = try out.write(";\n\n");
+    try out.print(";\n\n", .{});
 }
 
 fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContext, out: anytype) !void {
     // class type
-    try translateDocumentation(class.documentation, "", out);
-    try out.print("pub const {s} = ", .{class.name});
+    try translateDocumentation(class.documentation, out);
+    try out.print("pub const $I = ", .{class.name});
     if (class.final) {
-        _ = try out.write("opaque {\n");
+        try out.print("opaque ${\n", .{});
     } else {
-        _ = try out.write("extern struct {\n");
+        try out.print("extern struct ${\n", .{});
     }
 
     const parent = class.parent orelse gir.Name{ .ns = "GObject", .local = "TypeInstance" };
-    _ = try out.write("    pub const Parent = ");
-    try translateNameNs(allocator, parent.ns, out);
-    try out.print("{s};\n", .{parent.local});
+    try out.print("pub const Parent = ", .{});
+    try translateName(allocator, parent, out);
+    try out.print(";\n", .{});
 
-    _ = try out.write("    pub const Implements = [_]type{");
+    try out.print("pub const Implements = [_]type{", .{});
     for (class.implements, 0..) |implements, i| {
-        try translateNameNs(allocator, implements.name.ns, out);
-        _ = try out.write(implements.name.local);
+        try translateName(allocator, implements.name, out);
         if (i < class.implements.len - 1) {
-            _ = try out.write(", ");
+            try out.print(", ", .{});
         }
     }
-    _ = try out.write("};\n");
+    try out.print("};\n", .{});
 
     if (class.type_struct) |type_struct| {
-        try out.print("    pub const Class = {s};\n", .{type_struct});
+        try out.print("pub const Class = $I;\n", .{type_struct});
     }
-    try out.print("    const Self = {s};\n", .{class.name});
-    _ = try out.write("\n");
+    try out.print("const Self = $I;\n\n", .{class.name});
 
     for (class.fields) |field| {
         try translateField(allocator, field, ctx, out);
     }
     if (class.fields.len > 0) {
-        _ = try out.write("\n");
+        try out.print("\n", .{});
     }
 
     const get_type_function = class.getTypeFunction();
     if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
-        try translateFunction(allocator, get_type_function, " " ** 4, ctx, out);
+        try translateFunction(allocator, get_type_function, ctx, out);
     }
     for (class.functions) |function| {
-        try translateFunction(allocator, function, " " ** 4, ctx, out);
+        try translateFunction(allocator, function, ctx, out);
     }
     if (class.functions.len > 0) {
-        _ = try out.write("\n");
+        try out.print("\n", .{});
     }
     for (class.constructors) |constructor| {
-        try translateConstructor(allocator, constructor, " " ** 4, ctx, out);
+        try translateConstructor(allocator, constructor, ctx, out);
     }
     if (class.constructors.len > 0) {
-        _ = try out.write("\n");
+        try out.print("\n", .{});
     }
     for (class.constants) |constant| {
-        try translateConstant(allocator, constant, " " ** 4, ctx, out);
+        try translateConstant(allocator, constant, ctx, out);
     }
     if (class.constants.len > 0) {
-        _ = try out.write("\n");
+        try out.print("\n", .{});
     }
-    try out.print("    pub const Methods = {s}Methods;\n", .{class.name});
-    _ = try out.write("    pub usingnamespace Methods(Self);\n");
-    try out.print("    pub usingnamespace if (@hasDecl(extras, \"{0s}\")) extras.{0s}(Self) else struct {{}};\n", .{class.name});
-    _ = try out.write("};\n\n");
+    try out.print("pub const Methods = $LMethods;\n", .{class.name});
+    try out.print("pub usingnamespace Methods(Self);\n", .{});
+    try out.print("pub usingnamespace if (@hasDecl(extras, $S)) extras.$I(Self) else struct {};\n", .{ class.name, class.name });
+    try out.print("$};\n\n", .{});
 
     // methods mixin
-    try out.print("fn {s}Methods(comptime Self: type) type {{\n", .{class.name});
-    _ = try out.write("    return struct{\n");
+    try out.print("fn $LMethods(comptime Self: type) type ${\n", .{class.name});
+    try out.print("return struct${\n", .{});
     for (class.methods) |method| {
-        try translateMethod(allocator, method, " " ** 8, ctx, out);
+        try translateMethod(allocator, method, ctx, out);
     }
     for (class.signals) |signal| {
-        try translateSignal(allocator, signal, " " ** 8, ctx, out);
+        try translateSignal(allocator, signal, ctx, out);
     }
-    try out.print("        pub usingnamespace {s}.Parent.Methods(Self);\n", .{class.name});
+    try out.print("pub usingnamespace $I.Parent.Methods(Self);\n", .{class.name});
     for (class.implements) |implements| {
-        _ = try out.write("        pub usingnamespace ");
-        try translateNameNs(allocator, implements.name.ns, out);
-        try out.print("{s}.Methods(Self);\n", .{implements.name.local});
+        try out.print("pub usingnamespace ", .{});
+        try translateName(allocator, implements.name, out);
+        try out.print(".Methods(Self);\n", .{});
     }
-    try out.print("        pub usingnamespace if (@hasDecl(extras, \"{0s}Methods\")) extras.{0s}Methods(Self) else struct {{}};\n", .{class.name});
-    _ = try out.write("    };\n");
-    _ = try out.write("}\n\n");
+    try out.print("pub usingnamespace if (@hasDecl(extras, \"$LMethods\")) extras.$LMethods(Self) else struct {};\n", .{ class.name, class.name });
+    try out.print("$};\n", .{});
+    try out.print("$}\n\n", .{});
 
     // virtual methods mixin
     if (class.type_struct) |type_struct| {
-        try out.print("fn {s}VirtualMethods(comptime Self: type, comptime Instance: type) type {{\n", .{class.name});
-        _ = try out.write("    return struct{\n");
+        try out.print("fn $LVirtualMethods(comptime Self: type, comptime Instance: type) type {\n", .{class.name});
+        try out.print("return struct${\n", .{});
         for (class.virtual_methods) |virtual_method| {
-            try translateVirtualMethod(allocator, virtual_method, type_struct, class.name, " " ** 8, ctx, out);
+            try translateVirtualMethod(allocator, virtual_method, type_struct, class.name, ctx, out);
         }
         if (class.parent != null) {
-            try out.print("        pub usingnamespace {s}.Parent.Class.VirtualMethods(Self, Instance);\n", .{class.name});
+            try out.print("pub usingnamespace $I.Parent.Class.VirtualMethods(Self, Instance);\n", .{class.name});
         }
-        try out.print("        pub usingnamespace if (@hasDecl(extras, \"{0s}VirtualMethods\")) extras.{0s}VirtualMethods(Self, Instance) else struct {{}};\n", .{class.name});
-        _ = try out.write("    };\n");
-        _ = try out.write("}\n\n");
+        try out.print("pub usingnamespace if (@hasDecl(extras, \"$LVirtualMethods\")) extras.$LVirtualMethods(Self, Instance) else struct {};\n", .{ class.name, class.name });
+        try out.print("$};\n", .{});
+        try out.print("$}\n\n", .{});
     }
 }
 
 fn translateInterface(allocator: Allocator, interface: gir.Interface, ctx: TranslationContext, out: anytype) !void {
     // interface type
-    try translateDocumentation(interface.documentation, "", out);
-    try out.print("pub const {s} = opaque {{\n", .{interface.name});
+    try translateDocumentation(interface.documentation, out);
+    try out.print("pub const $I = opaque ${\n", .{interface.name});
 
-    _ = try out.write("    pub const Prerequisites = [_]type{");
+    try out.print("pub const Prerequisites = [_]type{", .{});
     // This doesn't seem to be correct (since it seems to be possible to create
     // an interface with actually no prerequisites), but it seems to be assumed
     // by GIR documentation generation tools
     if (interface.prerequisites.len == 0) {
-        _ = try out.write("gobject.Object");
+        try out.print("gobject.Object", .{});
     }
     for (interface.prerequisites, 0..) |prerequisite, i| {
-        try translateNameNs(allocator, prerequisite.name.ns, out);
-        _ = try out.write(prerequisite.name.local);
+        try translateName(allocator, prerequisite.name, out);
         if (i < interface.prerequisites.len - 1) {
-            _ = try out.write(", ");
+            try out.print(", ", .{});
         }
     }
-    _ = try out.write("};\n");
+    try out.print("};\n", .{});
 
     if (interface.type_struct) |type_struct| {
-        try out.print("    pub const Iface = {s};\n", .{type_struct});
+        try out.print("pub const Iface = $I;\n", .{type_struct});
     }
-    try out.print("    const Self = {s};\n", .{interface.name});
-    _ = try out.write("\n");
+    try out.print("const Self = $I;\n\n", .{interface.name});
 
     const get_type_function = interface.getTypeFunction();
     if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
-        try translateFunction(allocator, get_type_function, " " ** 4, ctx, out);
+        try translateFunction(allocator, get_type_function, ctx, out);
     }
     for (interface.functions) |function| {
-        try translateFunction(allocator, function, " " ** 4, ctx, out);
+        try translateFunction(allocator, function, ctx, out);
     }
     if (interface.functions.len > 0) {
-        _ = try out.write("\n");
+        try out.print("\n", .{});
     }
     for (interface.constructors) |constructor| {
-        try translateConstructor(allocator, constructor, " " ** 4, ctx, out);
+        try translateConstructor(allocator, constructor, ctx, out);
     }
     if (interface.constructors.len > 0) {
-        _ = try out.write("\n");
+        try out.print("\n", .{});
     }
     for (interface.constants) |constant| {
-        try translateConstant(allocator, constant, " " ** 4, ctx, out);
+        try translateConstant(allocator, constant, ctx, out);
     }
     if (interface.constants.len > 0) {
-        _ = try out.write("\n");
+        try out.print("\n", .{});
     }
-    try out.print("    pub const Methods = {s}Methods;\n", .{interface.name});
-    _ = try out.write("    pub usingnamespace Methods(Self);\n");
-    try out.print("    pub usingnamespace if (@hasDecl(extras, \"{0s}\")) extras.{0s}(Self) else struct {{}};\n", .{interface.name});
-    _ = try out.write("};\n\n");
+    try out.print("pub const Methods = $LMethods;\n", .{interface.name});
+    try out.print("pub usingnamespace Methods(Self);\n", .{});
+    try out.print("pub usingnamespace if (@hasDecl(extras, $S)) extras.$I(Self) else struct {};\n", .{ interface.name, interface.name });
+    try out.print("$};\n\n", .{});
 
     // methods mixin
-    try out.print("fn {s}Methods(comptime Self: type) type {{\n", .{interface.name});
-    _ = try out.write("    return struct{\n");
+    try out.print("fn $LMethods(comptime Self: type) type ${\n", .{interface.name});
+    try out.print("return struct${\n", .{});
     for (interface.methods) |method| {
-        try translateMethod(allocator, method, " " ** 8, ctx, out);
+        try translateMethod(allocator, method, ctx, out);
     }
     for (interface.signals) |signal| {
-        try translateSignal(allocator, signal, " " ** 8, ctx, out);
+        try translateSignal(allocator, signal, ctx, out);
     }
     // See the note above on this implicit prerequisite
     if (interface.prerequisites.len == 0) {
-        _ = try out.write("        pub usingnamespace gobject.Object.Methods(Self);\n");
+        try out.print("pub usingnamespace gobject.Object.Methods(Self);\n", .{});
     }
     for (interface.prerequisites) |prerequisite| {
-        _ = try out.write("        pub usingnamespace ");
-        try translateNameNs(allocator, prerequisite.name.ns, out);
-        try out.print("{s}.Methods(Self);\n", .{prerequisite.name.local});
+        try out.print("pub usingnamespace ", .{});
+        try translateName(allocator, prerequisite.name, out);
+        try out.print(".Methods(Self);\n", .{});
     }
-    try out.print("        pub usingnamespace if (@hasDecl(extras, \"{0s}Methods\")) extras.{0s}Methods(Self) else struct {{}};\n", .{interface.name});
-    _ = try out.write("    };\n");
-    _ = try out.write("}\n\n");
+    try out.print("pub usingnamespace if (@hasDecl(extras, \"$LMethods\")) extras.$LMethods(Self) else struct {};\n", .{ interface.name, interface.name });
+    try out.print("$};\n", .{});
+    try out.print("$}\n\n", .{});
 
     // virtual methods mixin
     if (interface.type_struct) |type_struct| {
-        try out.print("fn {s}VirtualMethods(comptime Self: type, comptime Instance: type) type {{\n", .{interface.name});
-        _ = try out.write("    return struct{\n");
+        try out.print("fn $LVirtualMethods(comptime Self: type, comptime Instance: type) type ${\n", .{interface.name});
+        try out.print("return struct${\n", .{});
         for (interface.virtual_methods) |virtual_method| {
-            try translateVirtualMethod(allocator, virtual_method, type_struct, interface.name, " " ** 8, ctx, out);
+            try translateVirtualMethod(allocator, virtual_method, type_struct, interface.name, ctx, out);
         }
-        try out.print("        pub usingnamespace if (@hasDecl(extras, \"{0s}VirtualMethods\")) extras.{0s}VirtualMethods(Self, Instance) else struct {{}};\n", .{interface.name});
-        _ = try out.write("    };\n");
-        _ = try out.write("}\n\n");
+        try out.print("pub usingnamespace if (@hasDecl(extras, \"$LVirtualMethods\")) extras.$LVirtualMethods(Self, Instance) else struct {};\n", .{ interface.name, interface.name });
+        try out.print("$};\n", .{});
+        try out.print("$}\n\n", .{});
     }
 }
 
 fn translateRecord(allocator: Allocator, record: gir.Record, ctx: TranslationContext, out: anytype) !void {
     // record type
-    try translateDocumentation(record.documentation, "", out);
-    try out.print("pub const {s} = extern struct {{\n", .{record.name});
+    try translateDocumentation(record.documentation, out);
+    try out.print("pub const $I = extern struct ${\n", .{record.name});
 
     if (record.is_gtype_struct_for) |is_gtype_struct_for| {
-        try out.print("    pub const Instance = {s};\n", .{is_gtype_struct_for});
+        try out.print("pub const Instance = $I;\n", .{is_gtype_struct_for});
     }
-    try out.print("    const Self = {s};\n", .{record.name});
-    _ = try out.write("\n");
+    try out.print("const Self = $I;\n\n", .{record.name});
     for (record.fields) |field| {
         try translateField(allocator, field, ctx, out);
     }
     if (record.fields.len > 0) {
-        _ = try out.write("\n");
+        try out.print("\n", .{});
     }
 
     if (record.getTypeFunction()) |get_type_function| {
         if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
-            try translateFunction(allocator, get_type_function, " " ** 4, ctx, out);
+            try translateFunction(allocator, get_type_function, ctx, out);
         }
     }
     for (record.functions) |function| {
-        try translateFunction(allocator, function, " " ** 4, ctx, out);
+        try translateFunction(allocator, function, ctx, out);
     }
     if (record.functions.len > 0) {
-        _ = try out.write("\n");
+        try out.print("\n", .{});
     }
     for (record.constructors) |constructor| {
-        try translateConstructor(allocator, constructor, " " ** 4, ctx, out);
+        try translateConstructor(allocator, constructor, ctx, out);
     }
     if (record.constructors.len > 0) {
-        _ = try out.write("\n");
+        try out.print("\n", .{});
     }
-    try out.print("    pub const Methods = {s}Methods;\n", .{record.name});
-    _ = try out.write("    pub usingnamespace Methods(Self);\n");
+    try out.print("pub const Methods = $LMethods;\n", .{record.name});
+    try out.print("pub usingnamespace Methods(Self);\n", .{});
     if (record.is_gtype_struct_for) |is_gtype_struct_for| {
-        try out.print("    pub const VirtualMethods = {s}VirtualMethods;\n", .{is_gtype_struct_for});
-        _ = try out.write("    pub usingnamespace VirtualMethods(Self, Instance);\n");
+        try out.print("pub const VirtualMethods = $LVirtualMethods;\n", .{is_gtype_struct_for});
+        try out.print("pub usingnamespace VirtualMethods(Self, Instance);\n", .{});
     }
-    try out.print("    pub usingnamespace if (@hasDecl(extras, \"{0s}\")) extras.{0s}(Self) else struct {{}};\n", .{record.name});
-    _ = try out.write("};\n\n");
+    try out.print("pub usingnamespace if (@hasDecl(extras, $S)) extras.$I(Self) else struct {};\n", .{ record.name, record.name });
+    try out.print("$};\n\n", .{});
 
     // methods mixin
-    try out.print("fn {s}Methods(comptime Self: type) type {{\n", .{record.name});
-    _ = try out.write("    return struct{\n");
+    try out.print("fn $LMethods(comptime Self: type) type ${\n", .{record.name});
+    try out.print("return struct${\n", .{});
     for (record.methods) |method| {
-        try translateMethod(allocator, method, " " ** 8, ctx, out);
+        try translateMethod(allocator, method, ctx, out);
     }
     if (record.is_gtype_struct_for) |is_gtype_struct_for| {
         try out.print(
-            \\        pub usingnamespace if (@hasDecl({0s}, "Parent") and @hasDecl({0s}.Parent, "Class"))
-            \\            {0s}.Parent.Class.Methods(Self)
-            \\        else if (@hasDecl({0s}, "Parent"))
-            \\            gobject.TypeClass.Methods(Self)
-            \\        else
-            \\            struct{{}}
-            \\        ;
+            \\pub usingnamespace if (@hasDecl($I, "Parent") and @hasDecl($I.Parent, "Class"))
+            \\    $I.Parent.Class.Methods(Self)
+            \\else if (@hasDecl($I, "Parent"))
+            \\    gobject.TypeClass.Methods(Self)
+            \\else
+            \\    struct{}
+            \\;
             \\
-        , .{is_gtype_struct_for});
+        , .{ is_gtype_struct_for, is_gtype_struct_for, is_gtype_struct_for, is_gtype_struct_for });
     }
-    try out.print("        pub usingnamespace if (@hasDecl(extras, \"{0s}Methods\")) extras.{0s}Methods(Self) else struct {{}};\n", .{record.name});
-    _ = try out.write("    };\n");
-    _ = try out.write("}\n\n");
+    try out.print("pub usingnamespace if (@hasDecl(extras, \"$LMethods\")) extras.$LMethods(Self) else struct {};\n", .{ record.name, record.name });
+    try out.print("$};\n", .{});
+    try out.print("$}\n\n", .{});
 }
 
 fn translateUnion(allocator: Allocator, @"union": gir.Union, ctx: TranslationContext, out: anytype) !void {
-    try translateDocumentation(@"union".documentation, "", out);
-    try out.print("pub const {s} = extern union {{\n", .{@"union".name});
-    try out.print("    const Self = {s};\n\n", .{@"union".name});
+    try translateDocumentation(@"union".documentation, out);
+    try out.print("pub const $I = extern union ${\n", .{@"union".name});
+    try out.print("const Self = $I;\n\n", .{@"union".name});
     for (@"union".fields) |field| {
         try translateField(allocator, field, ctx, out);
     }
     if (@"union".fields.len > 0) {
-        _ = try out.write("\n");
+        try out.print("\n", .{});
     }
     if (@"union".getTypeFunction()) |get_type_function| {
         if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
-            try translateFunction(allocator, get_type_function, " " ** 4, ctx, out);
+            try translateFunction(allocator, get_type_function, ctx, out);
         }
     }
     for (@"union".functions) |function| {
-        try translateFunction(allocator, function, " " ** 4, ctx, out);
+        try translateFunction(allocator, function, ctx, out);
     }
     if (@"union".functions.len > 0) {
-        _ = try out.write("\n");
+        try out.print("\n", .{});
     }
     for (@"union".constructors) |constructor| {
-        try translateConstructor(allocator, constructor, " " ** 4, ctx, out);
+        try translateConstructor(allocator, constructor, ctx, out);
     }
     if (@"union".constructors.len > 0) {
-        _ = try out.write("\n");
+        try out.print("\n", .{});
     }
     for (@"union".methods) |method| {
-        try translateMethod(allocator, method, " " ** 4, ctx, out);
+        try translateMethod(allocator, method, ctx, out);
     }
-    _ = try out.write("};\n\n");
+    try out.print("$};\n\n", .{});
 }
 
 fn translateField(allocator: Allocator, field: gir.Field, ctx: TranslationContext, out: anytype) !void {
-    try translateDocumentation(field.documentation, " " ** 4, out);
-    try out.print("    {}: ", .{zig.fmtId(field.name)});
+    try translateDocumentation(field.documentation, out);
+    try out.print("$I: ", .{field.name});
     try translateFieldType(allocator, field.type, ctx, out);
-    _ = try out.write(",\n");
+    try out.print(",\n", .{});
 }
 
 fn translateFieldType(allocator: Allocator, @"type": gir.FieldType, ctx: TranslationContext, out: anytype) !void {
@@ -582,82 +577,82 @@ fn translateFieldType(allocator: Allocator, @"type": gir.FieldType, ctx: Transla
 }
 
 fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: TranslationContext, out: anytype) !void {
-    try translateDocumentation(bit_field.documentation, "", out);
+    try translateDocumentation(bit_field.documentation, out);
     var paddingNeeded: usize = @bitSizeOf(c_uint);
-    try out.print("pub const {s} = packed struct(c_uint) {{\n", .{bit_field.name});
+    try out.print("pub const $I = packed struct(c_uint) ${\n", .{bit_field.name});
     for (bit_field.members) |member| {
         if (member.value > 0) {
-            try out.print("    {s}: bool = false,\n", .{zig.fmtId(member.name)});
+            try out.print("$I: bool = false,\n", .{member.name});
             paddingNeeded -= 1;
         }
     }
     if (paddingNeeded > 0) {
-        try out.print("    _padding: u{} = 0,\n", .{paddingNeeded});
+        try out.print("_padding: u$L = 0,\n", .{paddingNeeded});
     }
 
-    try out.print("\n    const Self = {s};\n\n", .{bit_field.name});
+    try out.print("\nconst Self = $I;\n\n", .{bit_field.name});
 
     if (bit_field.getTypeFunction()) |get_type_function| {
         if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
-            try translateFunction(allocator, get_type_function, " " ** 4, ctx, out);
+            try translateFunction(allocator, get_type_function, ctx, out);
         }
     }
     for (bit_field.functions) |function| {
-        try translateFunction(allocator, function, " " ** 4, ctx, out);
+        try translateFunction(allocator, function, ctx, out);
     }
 
-    _ = try out.write("};\n\n");
+    try out.print("$};\n\n", .{});
 }
 
 fn translateEnum(allocator: Allocator, @"enum": gir.Enum, ctx: TranslationContext, out: anytype) !void {
-    try translateDocumentation(@"enum".documentation, "", out);
-    try out.print("pub const {s} = enum(c_int) {{\n", .{@"enum".name});
+    try translateDocumentation(@"enum".documentation, out);
+    try out.print("pub const $I = enum(c_int) ${\n", .{@"enum".name});
     for (@"enum".members) |member| {
-        try out.print("    {s} = {},\n", .{ zig.fmtId(member.name), member.value });
+        try out.print("$I = $L,\n", .{ member.name, member.value });
     }
 
-    try out.print("\n    const Self = {s};\n\n", .{@"enum".name});
+    try out.print("\nconst Self = $I;\n\n", .{@"enum".name});
 
     if (@"enum".getTypeFunction()) |get_type_function| {
         if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
-            try translateFunction(allocator, get_type_function, " " ** 4, ctx, out);
+            try translateFunction(allocator, get_type_function, ctx, out);
         }
     }
     for (@"enum".functions) |function| {
-        try translateFunction(allocator, function, " " ** 4, ctx, out);
+        try translateFunction(allocator, function, ctx, out);
     }
 
-    _ = try out.write("};\n\n");
+    try out.print("$};\n\n", .{});
 }
 
 fn isFunctionTranslatable(function: gir.Function) bool {
     return function.moved_to == null;
 }
 
-fn translateFunction(allocator: Allocator, function: gir.Function, indent: []const u8, ctx: TranslationContext, out: anytype) !void {
+fn translateFunction(allocator: Allocator, function: gir.Function, ctx: TranslationContext, out: anytype) !void {
     if (!isFunctionTranslatable(function)) {
         return;
     }
 
     // extern declaration
-    try out.print("{s}extern fn {}(", .{ indent, zig.fmtId(function.c_identifier) });
+    try out.print("extern fn $I(", .{function.c_identifier});
     try translateParameters(allocator, function.parameters, .{ .throws = function.throws }, ctx, out);
-    _ = try out.write(") ");
+    try out.print(") ", .{});
     try translateReturnValue(allocator, function.return_value, .{ .nullable = function.throws }, ctx, out);
-    _ = try out.write(";\n");
+    try out.print(";\n", .{});
 
     // function rename
-    try translateDocumentation(function.documentation, indent, out);
+    try translateDocumentation(function.documentation, out);
     var fnName = try toCamelCase(allocator, function.name, "_");
     defer allocator.free(fnName);
-    try out.print("{s}pub const {} = {};\n\n", .{ indent, zig.fmtId(fnName), zig.fmtId(function.c_identifier) });
+    try out.print("pub const $I = $I;\n\n", .{ fnName, function.c_identifier });
 }
 
 fn isConstructorTranslatable(constructor: gir.Constructor) bool {
     return constructor.moved_to == null;
 }
 
-fn translateConstructor(allocator: Allocator, constructor: gir.Constructor, indent: []const u8, ctx: TranslationContext, out: anytype) !void {
+fn translateConstructor(allocator: Allocator, constructor: gir.Constructor, ctx: TranslationContext, out: anytype) !void {
     try translateFunction(allocator, .{
         .name = constructor.name,
         .c_identifier = constructor.c_identifier,
@@ -674,7 +669,7 @@ fn translateConstructor(allocator: Allocator, constructor: gir.Constructor, inde
         } } },
         .throws = constructor.throws,
         .documentation = constructor.documentation,
-    }, indent, ctx, out);
+    }, ctx, out);
 }
 
 fn isMethodTranslatable(method: gir.Method) bool {
@@ -691,7 +686,7 @@ fn countTranslatableMethods(methods: []const gir.Method) usize {
     return n;
 }
 
-fn translateMethod(allocator: Allocator, method: gir.Method, indent: []const u8, ctx: TranslationContext, out: anytype) !void {
+fn translateMethod(allocator: Allocator, method: gir.Method, ctx: TranslationContext, out: anytype) !void {
     try translateFunction(allocator, .{
         .name = method.name,
         .c_identifier = method.c_identifier,
@@ -700,10 +695,10 @@ fn translateMethod(allocator: Allocator, method: gir.Method, indent: []const u8,
         .return_value = method.return_value,
         .throws = method.throws,
         .documentation = method.documentation,
-    }, indent, ctx, out);
+    }, ctx, out);
 }
 
-fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMethod, container_type: []const u8, instance_type: []const u8, indent: []const u8, ctx: TranslationContext, out: anytype) !void {
+fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMethod, container_type: []const u8, instance_type: []const u8, ctx: TranslationContext, out: anytype) !void {
     var upper_method_name = try toCamelCase(allocator, virtual_method.name, "_");
     defer allocator.free(upper_method_name);
     if (upper_method_name.len > 0) {
@@ -711,41 +706,41 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
     }
 
     // implementation
-    try translateDocumentation(virtual_method.documentation, indent, out);
-    try out.print("{s}pub fn implement{s}(p_class: *Self, p_implementation: ", .{ indent, upper_method_name });
+    try translateDocumentation(virtual_method.documentation, out);
+    try out.print("pub fn implement$L(p_class: *Self, p_implementation: ", .{upper_method_name});
     try translateVirtualMethodImplementationType(allocator, virtual_method, "Instance", ctx, out);
-    _ = try out.write(") void {\n");
-    try out.print("{s}    @ptrCast(*{s}, p_class).{} = @ptrCast(", .{ indent, container_type, zig.fmtId(virtual_method.name) });
+    try out.print(") void ${\n", .{});
+    try out.print("@ptrCast(*$I, p_class).$I = @ptrCast(", .{ container_type, virtual_method.name });
     try translateVirtualMethodImplementationType(allocator, virtual_method, instance_type, ctx, out);
-    _ = try out.write(", p_implementation);\n");
-    try out.print("{s}}}\n\n", .{indent});
+    try out.print(", p_implementation);\n", .{});
+    try out.print("$}\n\n", .{});
 
     // call
-    try out.print("{s}pub fn call{s}(p_class: *Self, ", .{ indent, upper_method_name });
+    try out.print("pub fn call$L(p_class: *Self, ", .{upper_method_name});
     try translateParameters(allocator, virtual_method.parameters, .{
         .self_type = instance_type,
         .throws = virtual_method.throws,
     }, ctx, out);
-    _ = try out.write(") ");
+    try out.print(") ", .{});
     try translateReturnValue(allocator, virtual_method.return_value, .{ .nullable = virtual_method.throws }, ctx, out);
-    _ = try out.write(" {\n");
-    try out.print("{s}    return @ptrCast(*{s}, p_class).{}.?(", .{ indent, container_type, zig.fmtId(virtual_method.name) });
+    try out.print(" ${\n", .{});
+    try out.print("return @ptrCast(*$I, p_class).$I.?(", .{ container_type, virtual_method.name });
     try translateParameterNames(allocator, virtual_method.parameters, .{ .throws = virtual_method.throws }, out);
-    _ = try out.write(");\n");
-    try out.print("{s}}}\n\n", .{indent});
+    try out.print(");\n", .{});
+    try out.print("$}\n\n", .{});
 }
 
 fn translateVirtualMethodImplementationType(allocator: Allocator, virtual_method: gir.VirtualMethod, instance_type: []const u8, ctx: TranslationContext, out: anytype) !void {
-    _ = try out.write("*const fn (");
+    try out.print("*const fn (", .{});
     try translateParameters(allocator, virtual_method.parameters, .{
         .self_type = instance_type,
         .throws = virtual_method.throws,
     }, ctx, out);
-    _ = try out.write(") callconv(.C) ");
+    try out.print(") callconv(.C) ", .{});
     try translateReturnValue(allocator, virtual_method.return_value, .{ .nullable = virtual_method.throws }, ctx, out);
 }
 
-fn translateSignal(allocator: Allocator, signal: gir.Signal, indent: []const u8, ctx: TranslationContext, out: anytype) !void {
+fn translateSignal(allocator: Allocator, signal: gir.Signal, ctx: TranslationContext, out: anytype) !void {
     var upper_signal_name = try toCamelCase(allocator, signal.name, "-");
     defer allocator.free(upper_signal_name);
     if (upper_signal_name.len > 0) {
@@ -753,42 +748,42 @@ fn translateSignal(allocator: Allocator, signal: gir.Signal, indent: []const u8,
     }
 
     // normal connection
-    try translateDocumentation(signal.documentation, indent, out);
-    try out.print("{s}pub fn connect{s}(p_self: *Self, comptime T: type, p_callback: ", .{ indent, upper_signal_name });
+    try translateDocumentation(signal.documentation, out);
+    try out.print("pub fn connect$L(p_self: *Self, comptime T: type, p_callback: ", .{upper_signal_name});
     // TODO: verify that T is a pointer type or compatible
     try translateSignalCallbackType(allocator, signal, ctx, out);
-    _ = try out.write(", p_data: T, p_options: struct { after: bool = false }) c_ulong {\n");
+    try out.print(", p_data: T, p_options: struct { after: bool = false }) c_ulong ${\n", .{});
 
-    try out.print("{s}    return ", .{indent});
+    try out.print("return ", .{});
     try translateNameNs(allocator, "gobject", out);
-    try out.print("signalConnectData(p_self, \"{}\", @ptrCast(", .{zig.fmtEscapes(signal.name)});
+    try out.print("signalConnectData(p_self, $S, @ptrCast(", .{signal.name});
     try translateNameNs(allocator, "gobject", out);
-    _ = try out.write("Callback, p_callback), p_data, null, .{ .after = p_options.after });\n");
+    try out.print("Callback, p_callback), p_data, null, .{ .after = p_options.after });\n", .{});
 
-    try out.print("{s}}}\n\n", .{indent});
+    try out.print("$}\n\n", .{});
 }
 
 fn translateSignalCallbackType(allocator: Allocator, signal: gir.Signal, ctx: TranslationContext, out: anytype) !void {
-    _ = try out.write("*const fn (*Self");
+    try out.print("*const fn (*Self", .{});
     if (signal.parameters.len > 0) {
-        _ = try out.write(", ");
+        try out.print(", ", .{});
     }
     try translateParameters(allocator, signal.parameters, .{ .gobject_context = true }, ctx, out);
-    _ = try out.write(", T) callconv(.C) ");
+    try out.print(", T) callconv(.C) ", .{});
     try translateReturnValue(allocator, signal.return_value, .{ .gobject_context = true }, ctx, out);
 }
 
-fn translateConstant(allocator: Allocator, constant: gir.Constant, indent: []const u8, ctx: TranslationContext, out: anytype) !void {
-    try translateDocumentation(constant.documentation, indent, out);
-    try out.print("{s}pub const {s}: ", .{ indent, zig.fmtId(constant.name) });
+fn translateConstant(allocator: Allocator, constant: gir.Constant, ctx: TranslationContext, out: anytype) !void {
+    try translateDocumentation(constant.documentation, out);
+    try out.print("pub const $I: ", .{constant.name});
     try translateAnyType(allocator, constant.type, .{}, ctx, out);
-    _ = try out.write(" = ");
+    try out.print(" = ", .{});
     if (constant.type == .simple and constant.type.simple.name != null and mem.eql(u8, constant.type.simple.name.?.local, "utf8")) {
-        try out.print("\"{}\"", .{zig.fmtEscapes(constant.value)});
+        try out.print("$S", .{constant.value});
     } else {
-        _ = try out.write(constant.value);
+        try out.print("$L", .{constant.value});
     }
-    _ = try out.write(";\n\n");
+    try out.print(";\n\n", .{});
 }
 
 const builtins = std.ComptimeStringMap([]const u8, .{
@@ -879,16 +874,16 @@ fn translateAnyType(allocator: Allocator, @"type": gir.AnyType, options: Transla
 
 fn translateType(allocator: Allocator, @"type": gir.Type, options: TranslateTypeOptions, ctx: TranslationContext, out: anytype) TranslateError!void {
     const name = @"type".name orelse {
-        _ = try out.write("@compileError(\"unnamed type not understood\")");
+        try out.print("@compileError(\"unnamed type not understood\")", .{});
         return;
     };
     var c_type = @"type".c_type orelse {
         // We should check for builtins first; utf8 is a common type to end up with here
         if (builtins.get(name.local)) |builtin| {
             if (options.nullable and (std.mem.startsWith(u8, builtin, "*") or std.mem.startsWith(u8, builtin, "[*"))) {
-                _ = try out.write("?");
+                try out.print("?", .{});
             }
-            _ = try out.write(builtin);
+            try out.print("$L", .{builtin});
             return;
         }
 
@@ -900,12 +895,11 @@ fn translateType(allocator: Allocator, @"type": gir.Type, options: TranslateType
         // or not.
         if (options.gobject_context and ctx.isPointerType(name)) {
             if (options.nullable) {
-                _ = try out.write("?");
+                try out.print("?", .{});
             }
-            _ = try out.write("*");
+            try out.print("*", .{});
         }
-        try translateNameNs(allocator, name.ns, out);
-        _ = try out.write(name.local);
+        try translateName(allocator, name, out);
         return;
     };
 
@@ -914,24 +908,24 @@ fn translateType(allocator: Allocator, @"type": gir.Type, options: TranslateType
     // a pointer
     if (builtins.get(c_type)) |builtin| {
         if (options.nullable and (std.mem.startsWith(u8, builtin, "*") or std.mem.startsWith(u8, builtin, "[*"))) {
-            _ = try out.write("?");
+            try out.print("?", .{});
         }
-        _ = try out.write(builtin);
+        try out.print("$L", .{builtin});
         return;
     }
 
     if (parseCPointerType(c_type)) |pointer| {
         if (options.nullable) {
-            _ = try out.write("?");
+            try out.print("?", .{});
         }
         // Special case: utf8 and filename should be treated as C strings
         if (name.ns == null and (std.mem.eql(u8, name.local, "utf8") or std.mem.eql(u8, name.local, "filename")) and parseCPointerType(pointer.element) == null) {
-            _ = try out.write("[*:0]");
+            try out.print("[*:0]", .{});
         } else {
-            _ = try out.write("*");
+            try out.print("*", .{});
         }
         if (pointer.@"const") {
-            _ = try out.write("const ");
+            try out.print("const ", .{});
         }
         // Nullability does not apply recursively.
         // TODO: how does GIR expect to represent nullability more than one level deep?
@@ -949,16 +943,15 @@ fn translateType(allocator: Allocator, @"type": gir.Type, options: TranslateType
     if (name.ns == null) {
         if (builtins.get(name.local)) |builtin| {
             if (options.nullable and std.mem.startsWith(u8, builtin, "*")) {
-                _ = try out.write("?");
+                try out.print("?", .{});
             }
-            _ = try out.write(builtin);
+            try out.print("$L", .{builtin});
             return;
         }
     }
 
     // If we've gotten this far, we must have a plain type
-    try translateNameNs(allocator, name.ns, out);
-    _ = try out.write(name.local);
+    try translateName(allocator, name, out);
 }
 
 test "translateType" {
@@ -1088,8 +1081,8 @@ fn testTranslateType(expected: []const u8, @"type": gir.Type, options: Translate
     defer ctx.deinit();
     var buf = ArrayList(u8).init(testing.allocator);
     defer buf.deinit();
-    const out = buf.writer();
-    try translateType(testing.allocator, @"type", options, ctx, out);
+    var out = zigWriter(buf.writer());
+    try translateType(testing.allocator, @"type", options, ctx, &out);
     try testing.expectEqualStrings(expected, buf.items);
 }
 
@@ -1123,29 +1116,29 @@ fn translateArrayType(allocator: Allocator, @"type": gir.ArrayType, options: Tra
         // we're looking at a pointer to a fixed-size array. GIR is rather
         // confusing in this respect.
         if (pointer_type == null) {
-            try out.print("[{}]", .{fixed_size});
+            try out.print("[$L]", .{fixed_size});
         } else {
             // This is a pointer to a fixed-length array; the array details will
             // be written below.
-            _ = try out.write("*");
+            try out.print("*", .{});
         }
     } else {
-        _ = try out.write("[*");
+        try out.print("[*", .{});
         if (@"type".zero_terminated) {
-            _ = try out.write(":0");
+            try out.print(":0", .{});
         }
-        _ = try out.write("]");
+        try out.print("]", .{});
     }
 
     var element_c_type: ?[]const u8 = null;
     if (pointer_type) |pointer| {
         if (pointer.@"const") {
-            _ = try out.write("const ");
+            try out.print("const ", .{});
         }
         if (@"type".fixed_size) |fixed_size| {
             // This is the other half of the comment above: we're looking at a
             // pointer to a fixed-size array here
-            try out.print("[{}]", .{fixed_size});
+            try out.print("[$L]", .{fixed_size});
         }
         element_c_type = pointer.element;
     }
@@ -1247,8 +1240,8 @@ fn testTranslateArrayType(expected: []const u8, @"type": gir.ArrayType, options:
     defer ctx.deinit();
     var buf = ArrayList(u8).init(testing.allocator);
     defer buf.deinit();
-    const out = buf.writer();
-    try translateArrayType(testing.allocator, @"type", options, ctx, out);
+    var out = zigWriter(buf.writer());
+    try translateArrayType(testing.allocator, @"type", options, ctx, &out);
     try testing.expectEqualStrings(expected, buf.items);
 }
 
@@ -1281,18 +1274,18 @@ fn parseCPointerType(c_type: []const u8) ?CPointerType {
 fn translateCallback(allocator: Allocator, callback: gir.Callback, named: bool, ctx: TranslationContext, out: anytype) !void {
     // TODO: workaround specific to ClosureNotify until https://github.com/ziglang/zig/issues/12325 is fixed
     if (named and mem.eql(u8, callback.name, "ClosureNotify")) {
-        _ = try out.write("pub const ClosureNotify = ?*const fn (p_data: ?*anyopaque, p_closure: *anyopaque) callconv(.C) void;\n\n");
+        try out.print("pub const ClosureNotify = ?*const fn (p_data: ?*anyopaque, p_closure: *anyopaque) callconv(.C) void;\n\n", .{});
         return;
     }
 
     if (named) {
-        try translateDocumentation(callback.documentation, "", out);
-        try out.print("pub const {s} = ", .{callback.name});
+        try translateDocumentation(callback.documentation, out);
+        try out.print("pub const $I = ", .{callback.name});
     }
 
-    _ = try out.write("?*const fn (");
+    try out.print("?*const fn (", .{});
     try translateParameters(allocator, callback.parameters, .{ .throws = callback.throws }, ctx, out);
-    _ = try out.write(") callconv(.C) ");
+    try out.print(") callconv(.C) ", .{});
     const type_options = TranslateTypeOptions{ .nullable = callback.return_value.nullable };
     switch (callback.return_value.type) {
         .simple => |simple_type| try translateType(allocator, simple_type, type_options, ctx, out),
@@ -1300,7 +1293,7 @@ fn translateCallback(allocator: Allocator, callback: gir.Callback, named: bool, 
     }
 
     if (named) {
-        _ = try out.write(";\n\n");
+        try out.print(";\n\n", .{});
     }
 }
 
@@ -1317,13 +1310,13 @@ fn translateParameters(allocator: Allocator, parameters: []const gir.Parameter, 
             .gobject_context = options.gobject_context,
         }, ctx, out);
         if (options.throws or i < parameters.len - 1) {
-            _ = try out.write(", ");
+            try out.print(", ", .{});
         }
     }
     // Why does GIR encode the presence of a parameter in an attribute outside
     // the parameters element?
     if (options.throws) {
-        _ = try out.write("p_error: ?*?*glib.Error");
+        try out.print("p_error: ?*?*glib.Error", .{});
     }
 }
 
@@ -1334,18 +1327,18 @@ const TranslateParameterOptions = struct {
 
 fn translateParameter(allocator: Allocator, parameter: gir.Parameter, options: TranslateParameterOptions, ctx: TranslationContext, out: anytype) !void {
     if (parameter.type == .varargs) {
-        _ = try out.write("...");
+        try out.print("...", .{});
         return;
     }
 
     try translateParameterName(allocator, parameter.name, out);
-    _ = try out.write(": ");
+    try out.print(": ", .{});
     if (parameter.instance) {
         // TODO: what if the instance parameter isn't a pointer?
         if (mem.startsWith(u8, parameter.type.simple.c_type.?, "const ")) {
-            try out.print("*const {s}", .{options.self_type});
+            try out.print("*const $I", .{options.self_type});
         } else {
-            try out.print("*{s}", .{options.self_type});
+            try out.print("*$I", .{options.self_type});
         }
     } else {
         const type_options = TranslateTypeOptions{
@@ -1368,18 +1361,18 @@ fn translateParameterNames(allocator: Allocator, parameters: []const gir.Paramet
     for (parameters, 0..) |parameter, i| {
         try translateParameterName(allocator, parameter.name, out);
         if (options.throws or i < parameters.len - 1) {
-            _ = try out.write(", ");
+            try out.print(", ", .{});
         }
     }
     if (options.throws) {
-        _ = try out.write("p_error");
+        try out.print("p_error", .{});
     }
 }
 
 fn translateParameterName(allocator: Allocator, parameter_name: []const u8, out: anytype) !void {
     var translated_name = try fmt.allocPrint(allocator, "p_{s}", .{parameter_name});
     defer allocator.free(translated_name);
-    try out.print("{s}", .{zig.fmtId(translated_name)});
+    try out.print("$I", .{translated_name});
 }
 
 const TranslateReturnValueOptions = struct {
@@ -1398,20 +1391,25 @@ fn translateReturnValue(allocator: Allocator, return_value: gir.ReturnValue, opt
     }, ctx, out);
 }
 
-fn translateDocumentation(documentation: ?gir.Documentation, indent: []const u8, out: anytype) !void {
+fn translateDocumentation(documentation: ?gir.Documentation, out: anytype) !void {
     if (documentation) |doc| {
         var lines = mem.split(u8, doc.text, "\n");
         while (lines.next()) |line| {
-            try out.print("{s}/// {s}\n", .{ indent, line });
+            try out.print("/// $L\n", .{line});
         }
     }
+}
+
+fn translateName(allocator: Allocator, name: gir.Name, out: anytype) !void {
+    try translateNameNs(allocator, name.ns, out);
+    try out.print("$I", .{name.local});
 }
 
 fn translateNameNs(allocator: Allocator, nameNs: ?[]const u8, out: anytype) !void {
     if (nameNs != null) {
         const type_ns = try ascii.allocLowerString(allocator, nameNs.?);
         defer allocator.free(type_ns);
-        try out.print("{s}.", .{type_ns});
+        try out.print("$I.", .{type_ns});
     }
 }
 
@@ -1449,23 +1447,23 @@ pub fn createBuildFile(repositories: *Repositories, out_dir: fs.Dir) !void {
     const file = try out_dir.createFile("build.zig", .{});
     defer file.close();
     var bw = io.bufferedWriter(file.writer());
-    const out = bw.writer();
+    var out = zigWriter(bw.writer());
 
-    _ = try out.write(
+    try out.print(
         \\const std = @import("std");
         \\
-        \\pub fn build(b: *std.Build) !void {
+        \\pub fn build(b: *std.Build) !void ${
         \\
-    );
+    , .{});
 
     // Declare all modules (without dependencies, so order won't matter)
     for (repositories.repositories) |repo| {
         const module_name = try moduleNameAlloc(allocator, repo.namespace.name, repo.namespace.version);
         defer allocator.free(module_name);
-        try out.print("    const {} = b.addModule(\"{}\", .{{ .source_file = .{{ .path = try b.build_root.join(b.allocator, &.{{\"src\", \"{}.zig\"}}) }} }});\n", .{ zig.fmtId(module_name), zig.fmtEscapes(module_name), zig.fmtEscapes(module_name) });
-        try out.print("    {}.linkLibC();\n", .{zig.fmtId(module_name)});
+        try out.print("const $I = b.addModule($S, .{ .source_file = .{ .path = try b.build_root.join(b.allocator, &.{\"src\", \"$L.zig\"}) } });\n", .{ module_name, module_name, module_name });
+        try out.print("$I.linkLibC();\n", .{module_name});
         for (repo.packages) |package| {
-            try out.print("    {}.linkSystemLibrary(\"{}\");\n", .{ zig.fmtId(module_name), zig.fmtEscapes(package.name) });
+            try out.print("$I.linkSystemLibrary($S);\n", .{ module_name, package.name });
         }
     }
 
@@ -1485,17 +1483,17 @@ pub fn createBuildFile(repositories: *Repositories, out_dir: fs.Dir) !void {
                 defer allocator.free(dep_module_name);
                 const alias = try ascii.allocLowerString(allocator, needed_dep.name);
                 defer allocator.free(alias);
-                try out.print("    try {}.dependencies.put(\"{}\", {});\n", .{ zig.fmtId(module_name), zig.fmtEscapes(dep_module_name), zig.fmtId(dep_module_name) });
+                try out.print("try $I.dependencies.put($S, $I);\n", .{ module_name, dep_module_name, dep_module_name });
 
                 try seen.put(needed_dep, {});
                 try needed_deps.appendSlice(deps.get(needed_dep) orelse &.{});
             }
         }
         // The self-dependency is useful for extras files to be able to import their own module by name
-        try out.print("    try {0}.dependencies.put(\"{1}\", {0});\n", .{ zig.fmtId(module_name), zig.fmtEscapes(module_name) });
+        try out.print("try $I.dependencies.put($S, $I);\n", .{ module_name, module_name, module_name });
     }
 
-    _ = try out.write("}\n");
+    try out.print("$}\n", .{});
 
     try bw.flush();
     try file.sync();
