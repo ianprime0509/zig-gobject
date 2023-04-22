@@ -834,7 +834,7 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
     try out.print("pub fn implement$L(p_class: *$I, p_implementation: ", .{ upper_method_name, container_name });
     try translateVirtualMethodImplementationType(allocator, virtual_method, "Instance", ctx, out);
     try out.print(") void ${\n", .{});
-    try out.print("@ptrCast(*$I, p_class).$I = @ptrCast(", .{ container_type, virtual_method.name });
+    try out.print("@ptrCast(*$I, @alignCast(@alignOf(*$I), p_class)).$I = @ptrCast(", .{ container_type, container_type, virtual_method.name });
     try translateVirtualMethodImplementationType(allocator, virtual_method, instance_type, ctx, out);
     try out.print(", p_implementation);\n", .{});
     try out.print("$}\n\n", .{});
@@ -848,7 +848,7 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
     try out.print(") ", .{});
     try translateReturnValue(allocator, virtual_method.return_value, .{ .nullable = virtual_method.throws }, ctx, out);
     try out.print(" ${\n", .{});
-    try out.print("return @ptrCast(*$I, p_class).$I.?(", .{ container_type, virtual_method.name });
+    try out.print("return @ptrCast(*$I, @alignCast(@alignOf(*$I), p_class)).$I.?(", .{ container_type, container_type, virtual_method.name });
     try translateParameterNames(allocator, virtual_method.parameters, .{ .throws = virtual_method.throws }, out);
     try out.print(");\n", .{});
     try out.print("$}\n\n", .{});
@@ -877,13 +877,7 @@ fn translateSignal(allocator: Allocator, signal: gir.Signal, ctx: TranslationCon
     // TODO: verify that T is a pointer type or compatible
     try translateSignalCallbackType(allocator, signal, ctx, out);
     try out.print(", p_data: T, p_options: struct { after: bool = false }) c_ulong ${\n", .{});
-
-    try out.print("return ", .{});
-    try translateNameNs(allocator, "gobject", out);
-    try out.print("signalConnectData(p_self, $S, @ptrCast(", .{signal.name});
-    try translateNameNs(allocator, "gobject", out);
-    try out.print("Callback, p_callback), p_data, null, .{ .after = p_options.after });\n", .{});
-
+    try out.print("return gobject.signalConnectData(p_self, $S, @ptrCast(gobject.Callback, p_callback), p_data, null, .{ .after = p_options.after });\n", .{signal.name});
     try out.print("$}\n\n", .{});
 }
 
