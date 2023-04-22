@@ -706,7 +706,7 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: Transla
         }
     }
     if (paddingNeeded > 0) {
-        try out.print("_padding: u$L = 0,\n", .{paddingNeeded});
+        try out.print("_: u$L = 0,\n", .{paddingNeeded});
     }
 
     try out.print("\nconst Self = $I;\n\n", .{bit_field.name});
