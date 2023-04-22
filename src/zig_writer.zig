@@ -102,7 +102,12 @@ pub fn ZigWriter(comptime Writer: type) type {
                             self.needs_indent = false;
                         }
                         const arg = @field(args, arg_fields[current_arg].name);
-                        try self.out.print("{}", .{zig.fmtId(arg)});
+                        // zig.fmtId does not escape primitive type names
+                        if (zig.isValidId(arg) and zig.primitives.names.get(arg) == null) {
+                            try self.out.print("{s}", .{arg});
+                        } else {
+                            try self.out.print("@\"{}\"", .{zig.fmtEscapes(arg)});
+                        }
                         current_arg += 1;
                     },
                     '{' => {

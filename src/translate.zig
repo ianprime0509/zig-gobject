@@ -401,7 +401,7 @@ fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContex
         try out.print("return struct${\n", .{});
         try out.print("pub usingnamespace $LOwnVirtualMethods(Class, Instance);\n", .{class.name});
         if (class.parent != null) {
-            try out.print("pub usingnamespace $I.Parent.VirtualMethods(Class, Instance);\n", .{class.name});
+            try out.print("pub usingnamespace if (@hasDecl($I.Parent, \"VirtualMethods\")) $I.Parent.VirtualMethods(Class, Instance) else struct {};\n", .{ class.name, class.name });
         }
         try out.print("pub usingnamespace $LExtraVirtualMethods(Class, Instance);\n", .{class.name});
         try out.print("$};\n", .{});
@@ -1067,7 +1067,15 @@ fn translateType(allocator: Allocator, @"type": gir.Type, options: TranslateType
         }
     }
 
-    // If we've gotten this far, we must have a plain type
+    // If we've gotten this far, we must have a plain type. The same caveats as
+    // explained in the no c_type case apply here, with respect to "GObject
+    // context".
+    if (options.gobject_context and ctx.isPointerType(name)) {
+        if (options.nullable) {
+            try out.print("?", .{});
+        }
+        try out.print("*", .{});
+    }
     try translateName(allocator, name, out);
 }
 
@@ -1126,7 +1134,8 @@ test "translateType" {
     try testTranslateType("gdk.Event", .{ .name = .{ .ns = "Gdk", .local = "Event" }, .c_type = "GdkEvent" }, .{});
     try testTranslateType("gdk.Event", .{ .name = .{ .ns = "Gdk", .local = "Event" } }, .{});
     try testTranslateType("gdk.Event", .{ .name = .{ .ns = "Gdk", .local = "Event" } }, .{ .gobject_context = true });
-    try testTranslateType("gdk.Event", .{ .name = .{ .ns = "Gdk", .local = "Event" } }, .{ .gobject_context = true, .nullable = true });
+    try testTranslateType("*gdk.Event", .{ .name = .{ .ns = "Gdk", .local = "Event" } }, .{ .gobject_context = true, .pointer_types = &.{"Gdk.Event"} });
+    try testTranslateType("?*gdk.Event", .{ .name = .{ .ns = "Gdk", .local = "Event" } }, .{ .gobject_context = true, .nullable = true, .pointer_types = &.{"Gdk.Event"} });
     try testTranslateType("*anyopaque", .{ .name = .{ .ns = null, .local = "gpointer" }, .c_type = "gpointer" }, .{});
     try testTranslateType("?*anyopaque", .{ .name = .{ .ns = null, .local = "gpointer" }, .c_type = "gpointer" }, .{ .nullable = true });
     try testTranslateType("*const anyopaque", .{ .name = .{ .ns = null, .local = "gpointer" }, .c_type = "gconstpointer" }, .{});
@@ -1193,13 +1202,43 @@ test "translateType" {
     try testTranslateType("?*glib.HashTable", .{ .name = .{ .ns = "GLib", .local = "HashTable" }, .c_type = "GHashTable*" }, .{ .nullable = true });
 }
 
-fn testTranslateType(expected: []const u8, @"type": gir.Type, options: TranslateTypeOptions) !void {
-    var ctx = try TranslationContext.init(testing.allocator, &.{});
+const TestTranslateTypeOptions = struct {
+    nullable: bool = false,
+    gobject_context: bool = false,
+    pointer_types: []const []const u8 = &.{},
+
+    fn initTranslationContext(self: TestTranslateTypeOptions, base_allocator: Allocator) !TranslationContext {
+        var arena = ArenaAllocator.init(base_allocator);
+        const allocator = arena.allocator();
+        var namespaces = StringHashMap(TranslationContext.Namespace).init(allocator);
+        for (self.pointer_types) |pointer_type| {
+            const ns_sep = mem.indexOfScalar(u8, pointer_type, '.').?;
+            const ns_name = pointer_type[0..ns_sep];
+            const local_name = pointer_type[ns_sep + 1 ..];
+            const ns_map = try namespaces.getOrPut(ns_name);
+            if (!ns_map.found_existing) {
+                ns_map.value_ptr.* = .{ .pointer_types = StringHashMap(void).init(allocator) };
+            }
+            try ns_map.value_ptr.pointer_types.put(local_name, {});
+        }
+        return .{ .arena = arena, .namespaces = namespaces };
+    }
+
+    fn options(self: TestTranslateTypeOptions) TranslateTypeOptions {
+        return .{
+            .nullable = self.nullable,
+            .gobject_context = self.gobject_context,
+        };
+    }
+};
+
+fn testTranslateType(expected: []const u8, @"type": gir.Type, options: TestTranslateTypeOptions) !void {
+    var ctx = try options.initTranslationContext(testing.allocator);
     defer ctx.deinit();
     var buf = ArrayList(u8).init(testing.allocator);
     defer buf.deinit();
     var out = zigWriter(buf.writer());
-    try translateType(testing.allocator, @"type", options, ctx, &out);
+    try translateType(testing.allocator, @"type", options.options(), ctx, &out);
     try testing.expectEqualStrings(expected, buf.items);
 }
 
@@ -1242,7 +1281,19 @@ fn translateArrayType(allocator: Allocator, @"type": gir.ArrayType, options: Tra
     } else {
         try out.print("[*", .{});
         if (@"type".zero_terminated) {
-            try out.print(":0", .{});
+            const element_is_pointer = blk: {
+                if (pointer_type) |pointer| {
+                    if (parseCPointerType(pointer.element) != null) {
+                        break :blk true;
+                    }
+                }
+                break :blk false;
+            };
+            if (element_is_pointer) {
+                try out.print(":null", .{});
+            } else {
+                try out.print(":0", .{});
+            }
         }
         try out.print("]", .{});
     }
@@ -1264,12 +1315,18 @@ fn translateArrayType(allocator: Allocator, @"type": gir.ArrayType, options: Tra
         .simple => |element| {
             var modified_element = element;
             modified_element.c_type = element_c_type orelse element.c_type;
-            try translateType(allocator, modified_element, .{ .gobject_context = options.gobject_context }, ctx, out);
+            try translateType(allocator, modified_element, .{
+                .gobject_context = options.gobject_context,
+                .nullable = @"type".zero_terminated,
+            }, ctx, out);
         },
         .array => |element| {
             var modified_element = element;
             modified_element.c_type = element_c_type orelse element.c_type;
-            try translateArrayType(allocator, modified_element, .{ .gobject_context = options.gobject_context }, ctx, out);
+            try translateArrayType(allocator, modified_element, .{
+                .gobject_context = options.gobject_context,
+                .nullable = @"type".zero_terminated,
+            }, ctx, out);
         },
     }
 }
@@ -1337,6 +1394,13 @@ test "translateArrayType" {
             .simple = .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = null },
         },
     }, .{});
+    try testTranslateArrayType("[*:null]?[*:0]u8", .{
+        .c_type = "gchar**",
+        .zero_terminated = true,
+        .element = &.{
+            .simple = .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = null },
+        },
+    }, .{});
     try testTranslateArrayType("*const [4]gdk.RGBA", .{
         .c_type = "const GdkRGBA*",
         .fixed_size = 4,
@@ -1350,15 +1414,21 @@ test "translateArrayType" {
             .simple = .{ .name = .{ .ns = "GObject", .local = "_Value__data__union" }, .c_type = null },
         },
     }, .{});
+    try testTranslateArrayType("[*]*gio.File", .{
+        .c_type = "gpointer",
+        .element = &.{
+            .simple = .{ .name = .{ .ns = "Gio", .local = "File" }, .c_type = null },
+        },
+    }, .{ .gobject_context = true, .pointer_types = &.{"Gio.File"} });
 }
 
-fn testTranslateArrayType(expected: []const u8, @"type": gir.ArrayType, options: TranslateTypeOptions) !void {
-    var ctx = try TranslationContext.init(testing.allocator, &.{});
+fn testTranslateArrayType(expected: []const u8, @"type": gir.ArrayType, options: TestTranslateTypeOptions) !void {
+    var ctx = try options.initTranslationContext(testing.allocator);
     defer ctx.deinit();
     var buf = ArrayList(u8).init(testing.allocator);
     defer buf.deinit();
     var out = zigWriter(buf.writer());
-    try translateArrayType(testing.allocator, @"type", options, ctx, &out);
+    try translateArrayType(testing.allocator, @"type", options.options(), ctx, &out);
     try testing.expectEqualStrings(expected, buf.items);
 }
 
@@ -1403,7 +1473,7 @@ fn translateCallback(allocator: Allocator, callback: gir.Callback, named: bool, 
     try out.print("?*const fn (", .{});
     try translateParameters(allocator, callback.parameters, .{ .throws = callback.throws }, ctx, out);
     try out.print(") callconv(.C) ", .{});
-    const type_options = TranslateTypeOptions{ .nullable = callback.return_value.nullable };
+    const type_options = TranslateTypeOptions{ .nullable = callback.return_value.nullable or callback.throws };
     switch (callback.return_value.type) {
         .simple => |simple_type| try translateType(allocator, simple_type, type_options, ctx, out),
         .array => |array_type| try translateArrayType(allocator, array_type, type_options, ctx, out),
@@ -1452,6 +1522,9 @@ fn translateParameter(allocator: Allocator, parameter: gir.Parameter, options: T
     try out.print(": ", .{});
     if (parameter.instance) {
         // TODO: what if the instance parameter isn't a pointer?
+        if (parameter.nullable or parameter.optional) {
+            try out.print("?", .{});
+        }
         if (mem.startsWith(u8, parameter.type.simple.c_type.?, "const ")) {
             try out.print("*const $I", .{options.self_type});
         } else {
