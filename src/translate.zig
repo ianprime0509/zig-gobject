@@ -335,8 +335,10 @@ fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContex
     if (class.type_struct != null) {
         try out.print("pub const OwnVirtualMethods = $LOwnVirtualMethods;\n", .{class.name});
         try out.print("pub const VirtualMethods = $LVirtualMethods;\n", .{class.name});
+        try out.print("pub const ExtraVirtualMethods = $LExtraVirtualMethods;\n", .{class.name});
     }
-    try out.print("pub const Extras = if (@hasDecl(extras, $S)) extras.$I else struct {};\n\n", .{ class.name, class.name });
+    try out.print("pub const Extras = if (@hasDecl(extras, $S)) extras.$I else struct {};\n", .{ class.name, class.name });
+    try out.print("pub const ExtraMethods = $LExtraMethods;\n\n", .{class.name});
 
     try out.print("pub usingnamespace Own;\n", .{});
     try out.print("pub usingnamespace Methods(Self);\n", .{});
@@ -363,7 +365,6 @@ fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContex
 
     try out.print("fn $LMethods(comptime Self: type) type ${\n", .{class.name});
     try out.print("return struct${\n", .{});
-    try out.print("pub const Extras = if (@hasDecl(extras, \"$LMethods\")) extras.$LMethods(Self) else struct {};\n\n", .{ class.name, class.name });
     try out.print("pub usingnamespace $LOwnMethods(Self);\n", .{class.name});
     try out.print("pub usingnamespace $I.Parent.Methods(Self);\n", .{class.name});
     for (class.implements) |implements| {
@@ -371,8 +372,12 @@ fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContex
         try translateName(allocator, implements.name, out);
         try out.print(".Methods(Self);\n", .{});
     }
-    try out.print("pub usingnamespace Extras;\n", .{});
+    try out.print("pub usingnamespace $LExtraMethods(Self);\n", .{class.name});
     try out.print("$};\n", .{});
+    try out.print("$}\n\n", .{});
+
+    try out.print("fn $LExtraMethods(comptime Self: type) type ${\n", .{class.name});
+    try out.print("return if (@hasDecl(extras, \"$LMethods\")) extras.$LMethods(Self) else struct {};\n", .{ class.name, class.name });
     try out.print("$}\n\n", .{});
 
     // virtual methods mixins
@@ -397,10 +402,13 @@ fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContex
 
         try out.print("fn $LVirtualMethods(comptime Class: type, comptime Instance: type) type ${\n", .{class.name});
         try out.print("return struct${\n", .{});
-        try out.print("pub const Extras = if (@hasDecl(extras, \"$LVirtualMethods\")) extras.$LVirtualMethods(Class, Instance) else struct {};\n\n", .{ class.name, class.name });
         try out.print("pub usingnamespace $LOwnVirtualMethods(Class, Instance);\n", .{class.name});
-        try out.print("pub usingnamespace Extras;\n", .{});
+        try out.print("pub usingnamespace $LExtraVirtualMethods(Class, Instance);\n", .{class.name});
         try out.print("$};\n", .{});
+        try out.print("$}\n\n", .{});
+
+        try out.print("fn $LExtraVirtualMethods(comptime Class: type, comptime Instance: type) type ${\n", .{class.name});
+        try out.print("return if (@hasDecl(extras, \"$LVirtualMethods\")) extras.$LVirtualMethods(Class, Instance) else struct {};\n", .{ class.name, class.name });
         try out.print("$}\n\n", .{});
     }
 }
@@ -450,8 +458,10 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, ctx: Trans
     try out.print("pub const Methods = $LMethods;\n", .{interface.name});
     if (interface.type_struct != null) {
         try out.print("pub const VirtualMethods = $LVirtualMethods;\n", .{interface.name});
+        try out.print("pub const ExtraVirtualMethods = $LExtraVirtualMethods;\n", .{interface.name});
     }
-    try out.print("pub const Extras = if (@hasDecl(extras, $S)) extras.$I else struct {};\n\n", .{ interface.name, interface.name });
+    try out.print("pub const Extras = if (@hasDecl(extras, $S)) extras.$I else struct {};\n", .{ interface.name, interface.name });
+    try out.print("pub const ExtraMethods = $LExtraMethods;\n\n", .{interface.name});
 
     try out.print("pub usingnamespace Own;\n", .{});
     try out.print("pub usingnamespace Methods(Self);\n", .{});
@@ -478,7 +488,6 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, ctx: Trans
 
     try out.print("fn $LMethods(comptime Self: type) type ${\n", .{interface.name});
     try out.print("return struct ${\n", .{});
-    try out.print("pub const Extras = if (@hasDecl(extras, \"$LMethods\")) extras.$LMethods(Self) else struct {};\n\n", .{ interface.name, interface.name });
     try out.print("pub usingnamespace $LOwnMethods(Self);\n", .{interface.name});
     // See the note above on this implicit prerequisite
     if (interface.prerequisites.len == 0) {
@@ -489,11 +498,15 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, ctx: Trans
         try translateName(allocator, prerequisite.name, out);
         try out.print(".Methods(Self);\n", .{});
     }
-    try out.print("pub usingnamespace Extras;\n", .{});
+    try out.print("pub usingnamespace $LExtraMethods(Self);\n", .{interface.name});
     try out.print("$};\n", .{});
     try out.print("$}\n\n", .{});
 
-    // virtual methods mixin
+    try out.print("fn $LExtraMethods(comptime Self: type) type ${\n", .{interface.name});
+    try out.print("return if (@hasDecl(extras, \"$LMethods\")) extras.$LMethods(Self) else struct {};\n", .{ interface.name, interface.name });
+    try out.print("$}\n\n", .{});
+
+    // virtual methods mixins
     if (interface.type_struct) |type_struct| {
         try out.print("fn $LOwnVirtualMethods(comptime Iface: type, comptime Instance: type) type ${\n", .{interface.name});
         try out.print(
@@ -512,10 +525,13 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, ctx: Trans
 
         try out.print("fn $LVirtualMethods(comptime Iface: type, comptime Instance: type) type ${\n", .{interface.name});
         try out.print("return struct${\n", .{});
-        try out.print("pub const Extras = if (@hasDecl(extras, \"$LVirtualMethods\")) extras.$LVirtualMethods(Iface, Instance) else struct {};\n\n", .{ interface.name, interface.name });
         try out.print("pub usingnamespace $LOwnVirtualMethods(Iface, Instance);\n", .{interface.name});
-        try out.print("pub usingnamespace Extras;\n", .{});
+        try out.print("pub usingnamespace $LExtraVirtualMethods(Iface, Instance);\n", .{interface.name});
         try out.print("$};\n", .{});
+        try out.print("$}\n\n", .{});
+
+        try out.print("fn $LExtraVirtualMethods(comptime Iface: type, comptime Instance: type) type ${\n", .{interface.name});
+        try out.print("return if (@hasDecl(extras, \"$LVirtualMethods\")) extras.$LVirtualMethods(Iface, Instance) else struct {};\n", .{ interface.name, interface.name });
         try out.print("$}\n\n", .{});
     }
 }
@@ -552,7 +568,8 @@ fn translateRecord(allocator: Allocator, record: gir.Record, ctx: TranslationCon
 
     try out.print("pub const OwnMethods = $LOwnMethods;\n", .{record.name});
     try out.print("pub const Methods = $LMethods;\n", .{record.name});
-    try out.print("pub const Extras = if (@hasDecl(extras, $S)) extras.$I else struct {};\n\n", .{ record.name, record.name });
+    try out.print("pub const Extras = if (@hasDecl(extras, $S)) extras.$I else struct {};\n", .{ record.name, record.name });
+    try out.print("pub const ExtraMethods = $LExtraMethods;\n\n", .{record.name});
 
     try out.print("pub usingnamespace Own;\n", .{});
     try out.print("pub usingnamespace Methods(Self);\n", .{});
@@ -579,7 +596,6 @@ fn translateRecord(allocator: Allocator, record: gir.Record, ctx: TranslationCon
 
     try out.print("fn $LMethods(comptime Self: type) type ${\n", .{record.name});
     try out.print("return struct${\n", .{});
-    try out.print("pub const Extras = if (@hasDecl(extras, \"$LMethods\")) extras.$LMethods(Self) else struct {};\n\n", .{ record.name, record.name });
     try out.print("pub usingnamespace $LOwnMethods(Self);\n", .{record.name});
     if (record.is_gtype_struct_for) |is_gtype_struct_for| {
         try out.print(
@@ -593,8 +609,12 @@ fn translateRecord(allocator: Allocator, record: gir.Record, ctx: TranslationCon
             \\
         , .{ is_gtype_struct_for, is_gtype_struct_for, is_gtype_struct_for, is_gtype_struct_for });
     }
-    try out.print("pub usingnamespace Extras;\n", .{});
+    try out.print("pub usingnamespace $LExtraMethods(Self);\n", .{record.name});
     try out.print("$};\n", .{});
+    try out.print("$}\n\n", .{});
+
+    try out.print("fn $LExtraMethods(comptime Self: type) type ${\n", .{record.name});
+    try out.print("return if (@hasDecl(extras, \"$LMethods\")) extras.$LMethods(Self) else struct {};\n", .{ record.name, record.name });
     try out.print("$}\n\n", .{});
 }
 
@@ -625,7 +645,8 @@ fn translateUnion(allocator: Allocator, @"union": gir.Union, ctx: TranslationCon
 
     try out.print("pub const OwnMethods = $LOwnMethods;\n", .{@"union".name});
     try out.print("pub const Methods = $LMethods;\n", .{@"union".name});
-    try out.print("pub const Extras = if (@hasDecl(extras, $S)) extras.$I else struct {};\n\n", .{ @"union".name, @"union".name });
+    try out.print("pub const Extras = if (@hasDecl(extras, $S)) extras.$I else struct {};\n", .{ @"union".name, @"union".name });
+    try out.print("pub const ExtraMethods = $LExtraMethods;\n\n", .{@"union".name});
 
     try out.print("pub usingnamespace Own;\n", .{});
     try out.print("pub usingnamespace Methods(Self);\n", .{});
@@ -649,10 +670,13 @@ fn translateUnion(allocator: Allocator, @"union": gir.Union, ctx: TranslationCon
 
     try out.print("fn $LMethods(comptime Self: type) type ${\n", .{@"union".name});
     try out.print("return struct${\n", .{});
-    try out.print("pub const Extras = if (@hasDecl(extras, \"$LMethods\")) extras.$LMethods(Self) else struct {};\n\n", .{ @"union".name, @"union".name });
     try out.print("pub usingnamespace $LOwnMethods(Self);\n", .{@"union".name});
-    try out.print("pub usingnamespace Extras;\n", .{});
+    try out.print("pub usingnamespace $LExtraMethods(Self);\n", .{@"union".name});
     try out.print("$};\n", .{});
+    try out.print("$}\n\n", .{});
+
+    try out.print("fn $LExtraMethods(comptime Self: type) type ${\n", .{@"union".name});
+    try out.print("return if (@hasDecl(extras, \"$LMethods\")) extras.$LMethods(Self) else struct {};\n", .{ @"union".name, @"union".name });
     try out.print("$}\n\n", .{});
 }
 
