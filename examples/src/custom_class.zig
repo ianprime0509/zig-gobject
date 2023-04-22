@@ -36,7 +36,7 @@ const ExampleApplication = extern struct {
         }
 
         pub usingnamespace Parent.Class.Methods(Class);
-        pub usingnamespace Parent.Class.VirtualMethods(Class, Self);
+        pub usingnamespace Parent.VirtualMethods(Class, Self);
     };
 };
 
@@ -94,7 +94,7 @@ const ExampleApplicationWindow = extern struct {
         }
 
         pub usingnamespace Parent.Class.Methods(Class);
-        pub usingnamespace Parent.Class.VirtualMethods(Class, Self);
+        pub usingnamespace Parent.VirtualMethods(Class, Self);
     };
 };
 

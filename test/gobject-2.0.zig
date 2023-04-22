@@ -77,7 +77,7 @@ test "Object subclass" {
             pub const Instance = Self;
 
             pub usingnamespace Parent.Class.Methods(Class);
-            pub usingnamespace Parent.Class.VirtualMethods(Class, Self);
+            pub usingnamespace Parent.VirtualMethods(Class, Self);
         };
     };
 

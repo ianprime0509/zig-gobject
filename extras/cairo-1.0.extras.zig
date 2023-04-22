@@ -2,12 +2,12 @@ const cairo = @import("cairo-1.0");
 
 // TODO: there should be some way to generate most of this
 
-pub fn Context(comptime Self: type) type {
-    return struct {
-        extern fn cairo_create(target: *cairo.Surface) *Self;
-        pub const create = cairo_create;
-    };
-}
+pub const Context = struct {
+    const Self = cairo.Context;
+
+    extern fn cairo_create(target: *cairo.Surface) *Self;
+    pub const create = cairo_create;
+};
 
 pub fn ContextMethods(comptime Self: type) type {
     return struct {

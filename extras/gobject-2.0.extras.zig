@@ -326,87 +326,87 @@ pub fn ObjectClassMethods(comptime Self: type) type {
     };
 }
 
-pub fn Value(comptime Self: type) type {
-    return struct {
-        /// Returns a new `Value` intended to hold data of the given type.
-        pub fn new(comptime T: type) Self {
-            var value = std.mem.zeroes(Self);
-            _ = value.init(gobject.typeFor(T));
-            return value;
-        }
+pub const Value = struct {
+    const Self = gobject.Value;
 
-        /// Returns a new `Value` with the given contents.
-        ///
-        /// This does not take ownership of the value (if applicable).
-        pub fn newFrom(contents: anytype) Self {
-            comptime var T = @TypeOf(contents);
-            const typeInfo = @typeInfo(T);
-            var value: Self = undefined;
-            if (typeInfo == .Pointer and comptime isRegisteredType(typeInfo.Pointer.child)) {
-                value = new(T);
-                if (typeInfo.Pointer.child.getType() == gobject.Boxed) {
-                    value.setBoxed(contents);
-                } else {
-                    value.setObject(@ptrCast(*gobject.Object, contents));
-                }
-            } else if (T == i8) {
-                value = new(T);
-                value.setSchar(contents);
-            } else if (T == u8) {
-                value = new(T);
-                value.setUchar(contents);
-            } else if (T == bool) {
-                value = new(T);
-                value.setBoolean(contents);
-            } else if (T == c_int) {
-                value = new(T);
-                value.setInt(contents);
-            } else if (T == c_uint) {
-                value = new(T);
-                value.setUint(contents);
-            } else if (T == c_long) {
-                value = new(T);
-                value.setLong(contents);
-            } else if (T == c_ulong) {
-                value = new(T);
-                value.setUlong(contents);
-            } else if (T == i64) {
-                value = new(T);
-                value.setInt64(contents);
-            } else if (T == u64) {
-                value = new(T);
-                value.setUint64(contents);
-            } else if (T == f32) {
-                value = new(T);
-                value.setFloat(contents);
-            } else if (T == f64) {
-                value = new(T);
-                value.setDouble(contents);
-            } else if (comptime isCString(T)) {
-                value = new(T);
-                value.setString(contents);
-            } else if (T == *gobject.ParamSpec) {
-                value = new(T);
-                value.setParam(contents);
-            } else if (T == *glib.Variant) {
-                value = new(T);
-                value.setVariant(contents);
-            } else if (typeInfo == .Pointer or (typeInfo == .Optional and @typeInfo(typeInfo.Optional.child) == .Pointer)) {
-                value = new(T);
-                value.setPointer(contents);
-            } else if (typeInfo == .Enum and typeInfo.Enum.tag_type == c_int) {
-                value = new(T);
-                value.setEnum(@enumToInt(contents));
-            } else if (typeInfo == .Struct and typeInfo.Struct.backing_integer == c_uint) {
-                value = new(T);
-                value.setFlags(@bitCast(c_uint, contents));
+    /// Returns a new `Value` intended to hold data of the given type.
+    pub fn new(comptime T: type) Self {
+        var value = std.mem.zeroes(Self);
+        _ = value.init(gobject.typeFor(T));
+        return value;
+    }
+
+    /// Returns a new `Value` with the given contents.
+    ///
+    /// This does not take ownership of the value (if applicable).
+    pub fn newFrom(contents: anytype) Self {
+        comptime var T = @TypeOf(contents);
+        const typeInfo = @typeInfo(T);
+        var value: Self = undefined;
+        if (typeInfo == .Pointer and comptime isRegisteredType(typeInfo.Pointer.child)) {
+            value = new(T);
+            if (typeInfo.Pointer.child.getType() == gobject.Boxed) {
+                value.setBoxed(contents);
             } else {
-                @compileError("cannot construct Value from " ++ @typeName(T));
+                value.setObject(@ptrCast(*gobject.Object, contents));
             }
-            return value;
+        } else if (T == i8) {
+            value = new(T);
+            value.setSchar(contents);
+        } else if (T == u8) {
+            value = new(T);
+            value.setUchar(contents);
+        } else if (T == bool) {
+            value = new(T);
+            value.setBoolean(contents);
+        } else if (T == c_int) {
+            value = new(T);
+            value.setInt(contents);
+        } else if (T == c_uint) {
+            value = new(T);
+            value.setUint(contents);
+        } else if (T == c_long) {
+            value = new(T);
+            value.setLong(contents);
+        } else if (T == c_ulong) {
+            value = new(T);
+            value.setUlong(contents);
+        } else if (T == i64) {
+            value = new(T);
+            value.setInt64(contents);
+        } else if (T == u64) {
+            value = new(T);
+            value.setUint64(contents);
+        } else if (T == f32) {
+            value = new(T);
+            value.setFloat(contents);
+        } else if (T == f64) {
+            value = new(T);
+            value.setDouble(contents);
+        } else if (comptime isCString(T)) {
+            value = new(T);
+            value.setString(contents);
+        } else if (T == *gobject.ParamSpec) {
+            value = new(T);
+            value.setParam(contents);
+        } else if (T == *glib.Variant) {
+            value = new(T);
+            value.setVariant(contents);
+        } else if (typeInfo == .Pointer or (typeInfo == .Optional and @typeInfo(typeInfo.Optional.child) == .Pointer)) {
+            value = new(T);
+            value.setPointer(contents);
+        } else if (typeInfo == .Enum and typeInfo.Enum.tag_type == c_int) {
+            value = new(T);
+            value.setEnum(@enumToInt(contents));
+        } else if (typeInfo == .Struct and typeInfo.Struct.backing_integer == c_uint) {
+            value = new(T);
+            value.setFlags(@bitCast(c_uint, contents));
+        } else {
+            @compileError("cannot construct Value from " ++ @typeName(T));
         }
-    };
-}
+        return value;
+    }
+};
 
 fn assertTypesEqual(comptime name: []const u8, comptime Expected: type, comptime Actual: type) void {
     if (Expected != Actual) {
