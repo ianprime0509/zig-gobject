@@ -893,15 +893,14 @@ fn translateSignalCallbackType(allocator: Allocator, signal: gir.Signal, ctx: Tr
 
 fn translateConstant(allocator: Allocator, constant: gir.Constant, ctx: TranslationContext, out: anytype) !void {
     try translateDocumentation(constant.documentation, out);
-    try out.print("pub const $I: ", .{constant.name});
-    try translateAnyType(allocator, constant.type, .{}, ctx, out);
-    try out.print(" = ", .{});
     if (constant.type == .simple and constant.type.simple.name != null and mem.eql(u8, constant.type.simple.name.?.local, "utf8")) {
-        try out.print("$S", .{constant.value});
+        try out.print("pub const $I: [:0]const u8 = $S;\n\n", .{ constant.name, constant.value });
     } else {
-        try out.print("$L", .{constant.value});
+        try out.print("pub const $I: ", .{constant.name});
+        try translateAnyType(allocator, constant.type, .{}, ctx, out);
+        try out.print(" = ", .{});
+        try out.print("$L;\n\n", .{constant.value});
     }
-    try out.print(";\n\n", .{});
 }
 
 const builtins = std.ComptimeStringMap([]const u8, .{
