@@ -608,6 +608,8 @@ fn translateUnion(allocator: Allocator, @"union": gir.Union, ctx: TranslationCon
     if (@"union".fields.len > 0) {
         try out.print("\n", .{});
     }
+
+    try out.print("pub const Own = struct${\n", .{});
     if (@"union".getTypeFunction()) |get_type_function| {
         if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
             try translateFunction(allocator, get_type_function, ctx, out);
@@ -616,19 +618,42 @@ fn translateUnion(allocator: Allocator, @"union": gir.Union, ctx: TranslationCon
     for (@"union".functions) |function| {
         try translateFunction(allocator, function, ctx, out);
     }
-    if (@"union".functions.len > 0) {
-        try out.print("\n", .{});
-    }
     for (@"union".constructors) |constructor| {
         try translateConstructor(allocator, constructor, ctx, out);
     }
-    if (@"union".constructors.len > 0) {
-        try out.print("\n", .{});
-    }
+    try out.print("$};\n\n", .{});
+
+    try out.print("pub const OwnMethods = $LOwnMethods;\n", .{@"union".name});
+    try out.print("pub const Methods = $LMethods;\n", .{@"union".name});
+    try out.print("pub const Extras = if (@hasDecl(extras, $S)) extras.$I else struct {};\n\n", .{ @"union".name, @"union".name });
+
+    try out.print("pub usingnamespace Own;\n", .{});
+    try out.print("pub usingnamespace Methods(Self);\n", .{});
+    try out.print("pub usingnamespace Extras;\n", .{});
+
+    try out.print("$};\n\n", .{});
+
+    // methods mixins
+    try out.print("fn $LOwnMethods(comptime Self: type) type ${\n", .{@"union".name});
+    try out.print(
+        \\const _i_dont_care_if_Self_is_unused = Self;
+        \\_ = _i_dont_care_if_Self_is_unused;
+        \\
+    , .{});
+    try out.print("return struct${\n", .{});
     for (@"union".methods) |method| {
         try translateMethod(allocator, method, ctx, out);
     }
-    try out.print("$};\n\n", .{});
+    try out.print("$};\n", .{});
+    try out.print("$}\n\n", .{});
+
+    try out.print("fn $LMethods(comptime Self: type) type ${\n", .{@"union".name});
+    try out.print("return struct${\n", .{});
+    try out.print("pub const Extras = if (@hasDecl(extras, \"$LMethods\")) extras.$LMethods(Self) else struct {};\n\n", .{ @"union".name, @"union".name });
+    try out.print("pub usingnamespace $LOwnMethods(Self);\n", .{@"union".name});
+    try out.print("pub usingnamespace Extras;\n", .{});
+    try out.print("$};\n", .{});
+    try out.print("$}\n\n", .{});
 }
 
 fn translateField(allocator: Allocator, field: gir.Field, ctx: TranslationContext, out: anytype) !void {
@@ -662,6 +687,7 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: Transla
 
     try out.print("\nconst Self = $I;\n\n", .{bit_field.name});
 
+    try out.print("pub const Own = struct${\n", .{});
     if (bit_field.getTypeFunction()) |get_type_function| {
         if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
             try translateFunction(allocator, get_type_function, ctx, out);
@@ -670,6 +696,12 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: Transla
     for (bit_field.functions) |function| {
         try translateFunction(allocator, function, ctx, out);
     }
+    try out.print("$};\n\n", .{});
+
+    try out.print("pub const Extras = if (@hasDecl(extras, $S)) extras.$I else struct {};\n\n", .{ bit_field.name, bit_field.name });
+
+    try out.print("pub usingnamespace Own;\n", .{});
+    try out.print("pub usingnamespace Extras;\n", .{});
 
     try out.print("$};\n\n", .{});
 }
@@ -683,6 +715,7 @@ fn translateEnum(allocator: Allocator, @"enum": gir.Enum, ctx: TranslationContex
 
     try out.print("\nconst Self = $I;\n\n", .{@"enum".name});
 
+    try out.print("pub const Own = struct${\n", .{});
     if (@"enum".getTypeFunction()) |get_type_function| {
         if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
             try translateFunction(allocator, get_type_function, ctx, out);
@@ -691,6 +724,12 @@ fn translateEnum(allocator: Allocator, @"enum": gir.Enum, ctx: TranslationContex
     for (@"enum".functions) |function| {
         try translateFunction(allocator, function, ctx, out);
     }
+    try out.print("$};\n\n", .{});
+
+    try out.print("pub const Extras = if (@hasDecl(extras, $S)) extras.$I else struct {};\n\n", .{ @"enum".name, @"enum".name });
+
+    try out.print("pub usingnamespace Own;\n", .{});
+    try out.print("pub usingnamespace Extras;\n", .{});
 
     try out.print("$};\n\n", .{});
 }
