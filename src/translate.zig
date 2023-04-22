@@ -394,15 +394,15 @@ fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContex
         for (class.virtual_methods) |virtual_method| {
             try translateVirtualMethod(allocator, virtual_method, "Class", type_struct, class.name, ctx, out);
         }
-        if (class.parent != null) {
-            try out.print("pub usingnamespace $I.Parent.VirtualMethods(Class, Instance);\n", .{class.name});
-        }
         try out.print("$};\n", .{});
         try out.print("$}\n\n", .{});
 
         try out.print("fn $LVirtualMethods(comptime Class: type, comptime Instance: type) type ${\n", .{class.name});
         try out.print("return struct${\n", .{});
         try out.print("pub usingnamespace $LOwnVirtualMethods(Class, Instance);\n", .{class.name});
+        if (class.parent != null) {
+            try out.print("pub usingnamespace $I.Parent.VirtualMethods(Class, Instance);\n", .{class.name});
+        }
         try out.print("pub usingnamespace $LExtraVirtualMethods(Class, Instance);\n", .{class.name});
         try out.print("$};\n", .{});
         try out.print("$}\n\n", .{});
@@ -457,6 +457,7 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, ctx: Trans
     try out.print("pub const OwnMethods = $LOwnMethods;\n", .{interface.name});
     try out.print("pub const Methods = $LMethods;\n", .{interface.name});
     if (interface.type_struct != null) {
+        try out.print("pub const OwnVirtualMethods = $LOwnVirtualMethods;\n", .{interface.name});
         try out.print("pub const VirtualMethods = $LVirtualMethods;\n", .{interface.name});
         try out.print("pub const ExtraVirtualMethods = $LExtraVirtualMethods;\n", .{interface.name});
     }
