@@ -785,16 +785,6 @@ fn isMethodTranslatable(method: gir.Method) bool {
     return method.moved_to == null;
 }
 
-fn countTranslatableMethods(methods: []const gir.Method) usize {
-    var n: usize = 0;
-    for (methods) |method| {
-        if (isMethodTranslatable(method)) {
-            n += 1;
-        }
-    }
-    return n;
-}
-
 fn translateMethod(allocator: Allocator, method: gir.Method, ctx: TranslationContext, out: anytype) !void {
     try translateFunction(allocator, .{
         .name = method.name,
