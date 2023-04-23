@@ -787,7 +787,19 @@ fn translateFunction(allocator: Allocator, function: gir.Function, ctx: Translat
         return;
     }
 
+    var fnName = try toCamelCase(allocator, function.name, "_");
+    defer allocator.free(fnName);
+    // There is a function named `dummy` declared in libxml2-2.0.gir which has
+    // the same name and c_identifier. I don't know why it's there, or even if
+    // it's a real function that exists in the library. But it's in the GIR, so
+    // this translator has to account for it.
+    const needs_rename = !std.mem.eql(u8, fnName, function.c_identifier);
+
     // extern declaration
+    if (!needs_rename) {
+        try translateDocumentation(function.documentation, out);
+        try out.print("pub ", .{});
+    }
     try out.print("extern fn $I(", .{function.c_identifier});
     try translateParameters(allocator, function.parameters, .{ .throws = function.throws }, ctx, out);
     try out.print(") ", .{});
@@ -795,10 +807,10 @@ fn translateFunction(allocator: Allocator, function: gir.Function, ctx: Translat
     try out.print(";\n", .{});
 
     // function rename
-    try translateDocumentation(function.documentation, out);
-    var fnName = try toCamelCase(allocator, function.name, "_");
-    defer allocator.free(fnName);
-    try out.print("pub const $I = $I;\n\n", .{ fnName, function.c_identifier });
+    if (needs_rename) {
+        try translateDocumentation(function.documentation, out);
+        try out.print("pub const $I = $I;\n\n", .{ fnName, function.c_identifier });
+    }
 }
 
 fn isConstructorTranslatable(constructor: gir.Constructor) bool {
