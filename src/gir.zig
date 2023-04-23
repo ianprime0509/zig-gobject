@@ -1271,6 +1271,8 @@ const builtin_names = ComptimeStringMap(void, .{
     .{ "gulong", {} },
     .{ "gsize", {} },
     .{ "gssize", {} },
+    .{ "gintptr", {} },
+    .{ "guintptr", {} },
     .{ "gunichar2", {} },
     .{ "gunichar", {} },
     .{ "gfloat", {} },

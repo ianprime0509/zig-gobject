@@ -1003,6 +1003,8 @@ const builtins = ComptimeStringMap([]const u8, .{
     .{ "gsize", "usize" },
     .{ "ssize_t", "isize" },
     .{ "gssize", "isize" },
+    .{ "gintptr", "isize" },
+    .{ "guintptr", "usize" },
     .{ "gunichar2", "u16" },
     .{ "gunichar", "u32" },
     .{ "float", "f32" },
