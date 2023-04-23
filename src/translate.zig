@@ -563,7 +563,15 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, ctx: Trans
 fn translateRecord(allocator: Allocator, record: gir.Record, ctx: TranslationContext, out: anytype) !void {
     // record type
     try translateDocumentation(record.documentation, out);
-    try out.print("pub const $I = extern struct ${\n", .{record.name});
+    try out.print("pub const $I = ", .{record.name});
+    if (record.isPointer()) {
+        try out.print("*", .{});
+    }
+    if (record.isOpaque()) {
+        try out.print("opaque ${\n", .{});
+    } else {
+        try out.print("extern struct ${\n", .{});
+    }
 
     if (record.is_gtype_struct_for) |is_gtype_struct_for| {
         try out.print("pub const Instance = $I;\n", .{is_gtype_struct_for});

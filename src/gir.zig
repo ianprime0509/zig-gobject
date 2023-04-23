@@ -412,12 +412,25 @@ pub const Record = struct {
     constructors: []const Constructor = &.{},
     methods: []const Method = &.{},
     get_type: ?[]const u8 = null,
+    disguised: bool = false,
+    @"opaque": bool = false,
+    pointer: bool = false,
     is_gtype_struct_for: ?[]const u8 = null,
     symbol_prefix: ?[]const u8 = null,
     documentation: ?Documentation = null,
 
     pub fn getTypeFunction(self: Record) ?Function {
         return Function.forGetType(self, self.symbol_prefix, false);
+    }
+
+    pub fn isPointer(self: Record) bool {
+        // The check on is_gtype_struct_for is a heuristic to avoid
+        // mistranslations for class types (which are not typedefed pointers)
+        return self.pointer or (self.disguised and !self.@"opaque" and self.is_gtype_struct_for == null);
+    }
+
+    pub fn isOpaque(self: Record) bool {
+        return self.@"opaque" or (self.disguised and !self.pointer);
     }
 
     fn parse(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode, current_ns: []const u8) !Record {
@@ -427,6 +440,9 @@ pub const Record = struct {
         var constructors = ArrayList(Constructor).init(allocator);
         var methods = ArrayList(Method).init(allocator);
         var get_type: ?[]const u8 = null;
+        var disguised = false;
+        var @"opaque" = false;
+        var pointer = false;
         var is_gtype_struct_for: ?[]const u8 = null;
         var symbol_prefix: ?[]const u8 = null;
         var documentation: ?Documentation = null;
@@ -437,6 +453,12 @@ pub const Record = struct {
                 name = try xml.attrContent(allocator, doc, attr);
             } else if (xml.attrIs(attr, ns.glib, "get-type")) {
                 get_type = try xml.attrContent(allocator, doc, attr);
+            } else if (xml.attrIs(attr, null, "disguised")) {
+                disguised = mem.eql(u8, try xml.attrContent(allocator, doc, attr), "1");
+            } else if (xml.attrIs(attr, null, "opaque")) {
+                @"opaque" = mem.eql(u8, try xml.attrContent(allocator, doc, attr), "1");
+            } else if (xml.attrIs(attr, null, "pointer")) {
+                pointer = mem.eql(u8, try xml.attrContent(allocator, doc, attr), "1");
             } else if (xml.attrIs(attr, ns.glib, "is-gtype-struct-for")) {
                 is_gtype_struct_for = try xml.attrContent(allocator, doc, attr);
             } else if (xml.attrIs(attr, ns.c, "symbol-prefix")) {
@@ -466,6 +488,9 @@ pub const Record = struct {
             .constructors = constructors.items,
             .methods = methods.items,
             .get_type = get_type,
+            .disguised = disguised,
+            .@"opaque" = @"opaque",
+            .pointer = pointer,
             .is_gtype_struct_for = is_gtype_struct_for,
             .symbol_prefix = symbol_prefix,
             .documentation = documentation,
