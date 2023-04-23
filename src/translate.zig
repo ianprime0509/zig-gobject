@@ -1043,7 +1043,23 @@ fn translateAnyType(allocator: Allocator, @"type": gir.AnyType, options: Transla
 
 fn translateType(allocator: Allocator, @"type": gir.Type, options: TranslateTypeOptions, ctx: TranslationContext, out: anytype) TranslateError!void {
     const name = @"type".name orelse {
-        try out.print("@compileError(\"unnamed type not understood\")", .{});
+        const c_type = @"type".c_type orelse {
+            try out.print("@compileError(\"no type information available\")", .{});
+            return;
+        };
+        // Last-ditch attempt to salvage some code generation by translating pointers as opaque
+        if (parseCPointerType(c_type)) |pointer| {
+            if (options.nullable) {
+                try out.print("?", .{});
+            }
+            if (pointer.@"const") {
+                try out.print("*const anyopaque", .{});
+            } else {
+                try out.print("*anyopaque", .{});
+            }
+            return;
+        }
+        try out.print("@compileError(\"not enough type information available\")", .{});
         return;
     };
     var c_type = @"type".c_type orelse {
@@ -1252,6 +1268,11 @@ test "translateType" {
     // currently parsing, and probably never will
     try testTranslateType("*glib.HashTable", .{ .name = .{ .ns = "GLib", .local = "HashTable" }, .c_type = "GHashTable*" }, .{});
     try testTranslateType("?*glib.HashTable", .{ .name = .{ .ns = "GLib", .local = "HashTable" }, .c_type = "GHashTable*" }, .{ .nullable = true });
+    // Not ideal, but also not possible to do any better
+    try testTranslateType("*anyopaque", .{ .c_type = "_GtkMountOperationHandler*" }, .{});
+    try testTranslateType("*const anyopaque", .{ .c_type = "const _GtkMountOperationHandler*" }, .{});
+    try testTranslateType("?*anyopaque", .{ .c_type = "_GtkMountOperationHandler*" }, .{ .nullable = true });
+    try testTranslateType("?*const anyopaque", .{ .c_type = "const _GtkMountOperationHandler*" }, .{ .nullable = true });
 }
 
 const TestTranslateTypeOptions = struct {
