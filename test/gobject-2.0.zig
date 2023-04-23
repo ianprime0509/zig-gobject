@@ -29,7 +29,7 @@ test "Value.new([*:0]const u8)" {
     var value = Value.new([*:0]const u8);
     defer value.unset();
     value.setString("Hello, world!");
-    try expectEqualStrings("Hello, world!", std.mem.sliceTo(value.getString(), 0));
+    try expectEqualStrings("Hello, world!", std.mem.sliceTo(value.getString().?, 0));
 }
 
 test "Value.new(*anyopaque)" {

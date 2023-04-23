@@ -103,7 +103,7 @@ pub fn ZigWriter(comptime Writer: type) type {
                         }
                         const arg = @field(args, arg_fields[current_arg].name);
                         // zig.fmtId does not escape primitive type names
-                        if (zig.isValidId(arg) and zig.primitives.names.get(arg) == null) {
+                        if (zig.isValidId(arg) and !zig.primitives.isPrimitive(arg)) {
                             try self.out.print("{s}", .{arg});
                         } else {
                             try self.out.print("@\"{}\"", .{zig.fmtEscapes(arg)});
