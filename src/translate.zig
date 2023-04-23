@@ -10,7 +10,9 @@ const testing = std.testing;
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
 const ArenaAllocator = heap.ArenaAllocator;
+const AutoHashMap = std.AutoHashMap;
 const HashMap = std.HashMap;
+const StringArrayHashMap = std.StringArrayHashMap;
 const StringHashMap = std.StringHashMap;
 
 const gir = @import("gir.zig");
@@ -734,11 +736,28 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: Transla
 fn translateEnum(allocator: Allocator, @"enum": gir.Enum, ctx: TranslationContext, out: anytype) !void {
     try translateDocumentation(@"enum".documentation, out);
     try out.print("pub const $I = enum(c_int) ${\n", .{@"enum".name});
+
+    // Zig does not allow enums to have multiple fields with the same value, so
+    // we must translate any duplicate values as constants referencing the
+    // "base" value
+    var seen_values = AutoHashMap(i64, gir.Member).init(allocator);
+    defer seen_values.deinit();
+    var duplicate_members = ArrayList(gir.Member).init(allocator);
+    defer duplicate_members.deinit();
     for (@"enum".members) |member| {
-        try out.print("$I = $L,\n", .{ member.name, member.value });
+        if (seen_values.get(member.value) == null) {
+            try out.print("$I = $L,\n", .{ member.name, member.value });
+            try seen_values.put(member.value, member);
+        } else {
+            try duplicate_members.append(member);
+        }
     }
 
     try out.print("\nconst Self = $I;\n\n", .{@"enum".name});
+
+    for (duplicate_members.items) |member| {
+        try out.print("pub const $I = Self.$I;\n", .{ member.name, seen_values.get(member.value).?.name });
+    }
 
     try out.print("pub const Own = struct${\n", .{});
     if (@"enum".getTypeFunction()) |get_type_function| {
