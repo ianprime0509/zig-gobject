@@ -14,6 +14,7 @@ const AutoHashMap = std.AutoHashMap;
 const HashMap = std.HashMap;
 const StringArrayHashMap = std.StringArrayHashMap;
 const StringHashMap = std.StringHashMap;
+const StringHashMapUnmanaged = std.StringHashMapUnmanaged;
 
 const gir = @import("gir.zig");
 
@@ -74,7 +75,7 @@ pub const TranslateError = Allocator.Error || fs.File.OpenError || fs.File.Write
     NotSupported,
 };
 
-const NamespaceDependencies = HashMap(gir.Include, []const gir.Include, IncludeContext, std.hash_map.default_max_load_percentage);
+const RepositoryMap = HashMap(gir.Include, gir.Repository, IncludeContext, std.hash_map.default_max_load_percentage);
 const IncludeContext = struct {
     pub fn hash(_: IncludeContext, value: gir.Include) u64 {
         var hasher = std.hash.Wyhash.init(0);
@@ -88,36 +89,52 @@ const IncludeContext = struct {
 };
 
 const TranslationContext = struct {
-    namespaces: StringHashMap(Namespace),
+    namespaces: StringHashMapUnmanaged(Namespace),
     arena: ArenaAllocator,
 
-    fn init(a: Allocator, repositories: []const gir.Repository) !TranslationContext {
-        var arena = ArenaAllocator.init(a);
-        const allocator = arena.allocator();
-
-        var namespaces = StringHashMap(Namespace).init(allocator);
-        for (repositories) |repository| {
-            var pointer_types = StringHashMap(void).init(allocator);
-            for (repository.namespace.classes) |class| {
-                try pointer_types.put(class.name, {});
-            }
-            for (repository.namespace.interfaces) |interface| {
-                try pointer_types.put(interface.name, {});
-            }
-            for (repository.namespace.records) |record| {
-                try pointer_types.put(record.name, {});
-            }
-            try namespaces.put(repository.namespace.name, .{ .pointer_types = pointer_types });
-        }
-
+    fn init(allocator: Allocator) TranslationContext {
+        var arena = ArenaAllocator.init(allocator);
         return .{
-            .namespaces = namespaces,
+            .namespaces = StringHashMapUnmanaged(Namespace){},
             .arena = arena,
         };
     }
 
     fn deinit(self: TranslationContext) void {
         self.arena.deinit();
+    }
+
+    fn addRepositoryAndDependencies(self: *TranslationContext, repository: gir.Repository, repository_map: RepositoryMap) !void {
+        const allocator = self.arena.allocator();
+        var seen = HashMap(gir.Include, void, IncludeContext, std.hash_map.default_max_load_percentage).init(allocator);
+        defer seen.deinit();
+        var needed_deps = ArrayList(gir.Include).init(allocator);
+        defer needed_deps.deinit();
+        try needed_deps.append(.{ .name = repository.namespace.name, .version = repository.namespace.version });
+        while (needed_deps.popOrNull()) |needed_dep| {
+            if (!seen.contains(needed_dep)) {
+                try seen.put(needed_dep, {});
+                if (repository_map.get(needed_dep)) |dep_repo| {
+                    try self.addRepository(dep_repo);
+                    try needed_deps.appendSlice(dep_repo.includes);
+                }
+            }
+        }
+    }
+
+    fn addRepository(self: *TranslationContext, repository: gir.Repository) !void {
+        const allocator = self.arena.allocator();
+        var pointer_types = StringHashMapUnmanaged(void){};
+        for (repository.namespace.classes) |class| {
+            try pointer_types.put(allocator, class.name, {});
+        }
+        for (repository.namespace.interfaces) |interface| {
+            try pointer_types.put(allocator, interface.name, {});
+        }
+        for (repository.namespace.records) |record| {
+            try pointer_types.put(allocator, record.name, {});
+        }
+        try self.namespaces.put(allocator, repository.namespace.name, .{ .pointer_types = pointer_types });
     }
 
     fn isPointerType(self: TranslationContext, name: gir.Name) bool {
@@ -129,28 +146,28 @@ const TranslationContext = struct {
     }
 
     const Namespace = struct {
-        pointer_types: StringHashMap(void),
+        pointer_types: StringHashMapUnmanaged(void),
     };
 };
 
 pub fn translate(repositories: *Repositories, extras_dir: fs.Dir, out_dir: fs.Dir) TranslateError!void {
     const allocator = repositories.arena.allocator();
 
-    var deps = NamespaceDependencies.init(allocator);
-    defer deps.deinit();
+    var repository_map = RepositoryMap.init(allocator);
+    defer repository_map.deinit();
     for (repositories.repositories) |repo| {
-        try deps.put(.{ .name = repo.namespace.name, .version = repo.namespace.version }, repo.includes);
+        try repository_map.put(.{ .name = repo.namespace.name, .version = repo.namespace.version }, repo);
     }
-
-    var ctx = try TranslationContext.init(allocator, repositories.repositories);
-    defer ctx.deinit();
 
     for (repositories.repositories) |repo| {
         const source_name = try fmt.allocPrint(allocator, "{s}-{s}", .{ repo.namespace.name, repo.namespace.version });
         defer allocator.free(source_name);
         const extras_file = try copyExtrasFile(allocator, repo.namespace.name, repo.namespace.version, extras_dir, out_dir);
         defer if (extras_file) |path| allocator.free(path);
-        try translateRepository(allocator, repo, extras_file, deps, ctx, out_dir);
+        var ctx = TranslationContext.init(allocator);
+        defer ctx.deinit();
+        try ctx.addRepositoryAndDependencies(repo, repository_map);
+        try translateRepository(allocator, repo, extras_file, repository_map, ctx, out_dir);
     }
 }
 
@@ -176,7 +193,7 @@ fn realpathAllocZ(allocator: Allocator, dir: fs.Dir, name: []const u8) ![:0]u8 {
     return try allocator.dupeZ(u8, path);
 }
 
-fn translateRepository(allocator: Allocator, repo: gir.Repository, maybe_extras_path: ?[]const u8, deps: NamespaceDependencies, ctx: TranslationContext, out_dir: fs.Dir) !void {
+fn translateRepository(allocator: Allocator, repo: gir.Repository, maybe_extras_path: ?[]const u8, repository_map: RepositoryMap, ctx: TranslationContext, out_dir: fs.Dir) !void {
     const ns = repo.namespace;
     const file_name = try fileNameAlloc(allocator, ns.name, ns.version);
     defer allocator.free(file_name);
@@ -191,14 +208,14 @@ fn translateRepository(allocator: Allocator, repo: gir.Repository, maybe_extras_
         try out.print("const extras = struct {};\n", .{});
     }
 
-    try translateIncludes(allocator, ns, deps, &out);
+    try translateIncludes(allocator, ns, repository_map, &out);
     try translateNamespace(allocator, ns, ctx, &out);
 
     try bw.flush();
     try file.sync();
 }
 
-fn translateIncludes(allocator: Allocator, ns: gir.Namespace, deps: NamespaceDependencies, out: anytype) !void {
+fn translateIncludes(allocator: Allocator, ns: gir.Namespace, repository_map: RepositoryMap, out: anytype) !void {
     // Having the current namespace in scope using the same name makes type
     // translation logic simpler (no need to know what namespace we're in)
     const ns_lower = try ascii.allocLowerString(allocator, ns.name);
@@ -212,7 +229,9 @@ fn translateIncludes(allocator: Allocator, ns: gir.Namespace, deps: NamespaceDep
     defer seen.deinit();
     var needed_deps = ArrayList(gir.Include).init(allocator);
     defer needed_deps.deinit();
-    try needed_deps.appendSlice(deps.get(.{ .name = ns.name, .version = ns.version }) orelse &.{});
+    if (repository_map.get(.{ .name = ns.name, .version = ns.version })) |dep_repo| {
+        try needed_deps.appendSlice(dep_repo.includes);
+    }
     while (needed_deps.popOrNull()) |needed_dep| {
         if (!seen.contains(needed_dep)) {
             const module_name = try moduleNameAlloc(allocator, needed_dep.name, needed_dep.version);
@@ -222,7 +241,9 @@ fn translateIncludes(allocator: Allocator, ns: gir.Namespace, deps: NamespaceDep
             try out.print("const $I = @import($S);\n", .{ alias, module_name });
 
             try seen.put(needed_dep, {});
-            try needed_deps.appendSlice(deps.get(needed_dep) orelse &.{});
+            if (repository_map.get(needed_dep)) |dep_repo| {
+                try needed_deps.appendSlice(dep_repo.includes);
+            }
         }
     }
 }
@@ -1239,20 +1260,19 @@ const TestTranslateTypeOptions = struct {
     pointer_types: []const []const u8 = &.{},
 
     fn initTranslationContext(self: TestTranslateTypeOptions, base_allocator: Allocator) !TranslationContext {
-        var arena = ArenaAllocator.init(base_allocator);
-        const allocator = arena.allocator();
-        var namespaces = StringHashMap(TranslationContext.Namespace).init(allocator);
+        var ctx = TranslationContext.init(base_allocator);
+        const allocator = ctx.arena.allocator();
         for (self.pointer_types) |pointer_type| {
             const ns_sep = mem.indexOfScalar(u8, pointer_type, '.').?;
             const ns_name = pointer_type[0..ns_sep];
             const local_name = pointer_type[ns_sep + 1 ..];
-            const ns_map = try namespaces.getOrPut(ns_name);
+            const ns_map = try ctx.namespaces.getOrPut(allocator, ns_name);
             if (!ns_map.found_existing) {
-                ns_map.value_ptr.* = .{ .pointer_types = StringHashMap(void).init(allocator) };
+                ns_map.value_ptr.* = .{ .pointer_types = StringHashMapUnmanaged(void){} };
             }
-            try ns_map.value_ptr.pointer_types.put(local_name, {});
+            try ns_map.value_ptr.pointer_types.put(allocator, local_name, {});
         }
-        return .{ .arena = arena, .namespaces = namespaces };
+        return ctx;
     }
 
     fn options(self: TestTranslateTypeOptions) TranslateTypeOptions {
@@ -1659,10 +1679,10 @@ pub const CreateBuildFileError = Allocator.Error || fs.File.OpenError || fs.File
 pub fn createBuildFile(repositories: *Repositories, out_dir: fs.Dir) !void {
     const allocator = repositories.arena.allocator();
 
-    var deps = NamespaceDependencies.init(allocator);
-    defer deps.deinit();
+    var repository_map = RepositoryMap.init(allocator);
+    defer repository_map.deinit();
     for (repositories.repositories) |repo| {
-        try deps.put(.{ .name = repo.namespace.name, .version = repo.namespace.version }, repo.includes);
+        try repository_map.put(.{ .name = repo.namespace.name, .version = repo.namespace.version }, repo);
     }
 
     const file = try out_dir.createFile("build.zig", .{});
@@ -1697,7 +1717,9 @@ pub fn createBuildFile(repositories: *Repositories, out_dir: fs.Dir) !void {
         defer seen.deinit();
         var needed_deps = ArrayList(gir.Include).init(allocator);
         defer needed_deps.deinit();
-        try needed_deps.appendSlice(deps.get(.{ .name = repo.namespace.name, .version = repo.namespace.version }) orelse &.{});
+        if (repository_map.get(.{ .name = repo.namespace.name, .version = repo.namespace.version })) |dep_repo| {
+            try needed_deps.appendSlice(dep_repo.includes);
+        }
         while (needed_deps.popOrNull()) |needed_dep| {
             if (!seen.contains(needed_dep)) {
                 const dep_module_name = try moduleNameAlloc(allocator, needed_dep.name, needed_dep.version);
@@ -1707,7 +1729,9 @@ pub fn createBuildFile(repositories: *Repositories, out_dir: fs.Dir) !void {
                 try out.print("try $I.dependencies.put($S, $I);\n", .{ module_name, dep_module_name, dep_module_name });
 
                 try seen.put(needed_dep, {});
-                try needed_deps.appendSlice(deps.get(needed_dep) orelse &.{});
+                if (repository_map.get(needed_dep)) |dep_repo| {
+                    try needed_deps.appendSlice(dep_repo.includes);
+                }
             }
         }
         // The self-dependency is useful for extras files to be able to import their own module by name
