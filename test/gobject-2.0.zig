@@ -1,10 +1,15 @@
 const gobject = @import("gobject");
 
 const std = @import("std");
+const bindings = @import("bindings.zig");
 const testing = std.testing;
 const expectEqual = testing.expectEqual;
 const expectEqualStrings = testing.expectEqualStrings;
 const Value = gobject.Value;
+
+test "bindings" {
+    bindings.refAllBindings(gobject);
+}
 
 test "Value.new" {
     try testValueNew(i8, -123, Value.getSchar, Value.setSchar);
