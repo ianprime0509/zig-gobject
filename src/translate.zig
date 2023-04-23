@@ -290,7 +290,7 @@ fn translateNamespace(allocator: Allocator, ns: gir.Namespace, ctx: TranslationC
         try translateCallback(allocator, callback, true, ctx, out);
     }
     for (ns.constants) |constant| {
-        try translateConstant(allocator, constant, ctx, out);
+        try translateConstant(constant, out);
     }
     try out.print("pub usingnamespace if (@hasDecl(extras, \"namespace\")) extras.namespace else struct {};\n", .{});
 }
@@ -350,7 +350,7 @@ fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContex
         try translateConstructor(allocator, constructor, ctx, out);
     }
     for (class.constants) |constant| {
-        try translateConstant(allocator, constant, ctx, out);
+        try translateConstant(constant, out);
     }
     try out.print("$};\n\n", .{});
 
@@ -474,7 +474,7 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, ctx: Trans
         try translateConstructor(allocator, constructor, ctx, out);
     }
     for (interface.constants) |constant| {
-        try translateConstant(allocator, constant, ctx, out);
+        try translateConstant(constant, out);
     }
     try out.print("$};\n\n", .{});
 
@@ -952,14 +952,12 @@ fn translateSignalCallbackType(allocator: Allocator, signal: gir.Signal, ctx: Tr
     try translateReturnValue(allocator, signal.return_value, .{ .gobject_context = true }, ctx, out);
 }
 
-fn translateConstant(allocator: Allocator, constant: gir.Constant, ctx: TranslationContext, out: anytype) !void {
+fn translateConstant(constant: gir.Constant, out: anytype) !void {
     try translateDocumentation(constant.documentation, out);
     if (constant.type == .simple and constant.type.simple.name != null and mem.eql(u8, constant.type.simple.name.?.local, "utf8")) {
-        try out.print("pub const $I: [:0]const u8 = $S;\n\n", .{ constant.name, constant.value });
+        try out.print("pub const $I = $S;\n", .{ constant.name, constant.value });
     } else {
-        try out.print("pub const $I: ", .{constant.name});
-        try translateAnyType(allocator, constant.type, .{}, ctx, out);
-        try out.print(" = $L;\n", .{constant.value});
+        try out.print("pub const $I = $L;\n", .{ constant.name, constant.value });
     }
 }
 
