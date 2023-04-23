@@ -735,7 +735,8 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: Transla
     for (bit_field.members) |member| {
         if (member.value > 0) {
             try out.print("$I: bool = false,\n", .{member.name});
-            paddingNeeded -= 1;
+            // TODO: handle bit fields larger than c_uint
+            paddingNeeded -|= 1;
         }
     }
     if (paddingNeeded > 0) {
