@@ -11,6 +11,7 @@ const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
 const ArenaAllocator = heap.ArenaAllocator;
 const AutoHashMap = std.AutoHashMap;
+const ComptimeStringMap = std.ComptimeStringMap;
 const HashMap = std.HashMap;
 const StringArrayHashMap = std.StringArrayHashMap;
 const StringHashMap = std.StringHashMap;
@@ -958,12 +959,14 @@ fn translateConstant(allocator: Allocator, constant: gir.Constant, ctx: Translat
     } else {
         try out.print("pub const $I: ", .{constant.name});
         try translateAnyType(allocator, constant.type, .{}, ctx, out);
-        try out.print(" = ", .{});
-        try out.print("$L;\n\n", .{constant.value});
+        try out.print(" = $L;\n", .{constant.value});
     }
 }
 
-const builtins = std.ComptimeStringMap([]const u8, .{
+// See also the set of built-in type names in gir.zig. This map contains more
+// entries because it also handles mappings from C types, not just GIR type
+// names.
+const builtins = ComptimeStringMap([]const u8, .{
     .{ "gboolean", "bool" },
     .{ "char", "u8" },
     .{ "gchar", "u8" },

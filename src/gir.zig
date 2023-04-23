@@ -7,6 +7,7 @@ const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayList = std.ArrayList;
+const ComptimeStringMap = std.ComptimeStringMap;
 
 const ns = struct {
     pub const core = "http://www.gtk.org/introspection/core/1.0";
@@ -1246,6 +1247,42 @@ pub const Documentation = struct {
     }
 };
 
+// All the known built-in type names in GIR, which will be associated to the
+// null namespace rather than the current namespace being translated. See also
+// the map of builtin translations in translate.zig. This map contains fewer
+// entries because it is only a set of GIR type names, not C type names.
+const builtin_names = ComptimeStringMap(void, .{
+    .{ "gboolean", {} },
+    .{ "gchar", {} },
+    .{ "guchar", {} },
+    .{ "gint8", {} },
+    .{ "guint8", {} },
+    .{ "gint16", {} },
+    .{ "guint16", {} },
+    .{ "gint32", {} },
+    .{ "guint32", {} },
+    .{ "gint64", {} },
+    .{ "guint64", {} },
+    .{ "gshort", {} },
+    .{ "gushort", {} },
+    .{ "gint", {} },
+    .{ "guint", {} },
+    .{ "glong", {} },
+    .{ "gulong", {} },
+    .{ "gsize", {} },
+    .{ "gssize", {} },
+    .{ "gunichar2", {} },
+    .{ "gunichar", {} },
+    .{ "gfloat", {} },
+    .{ "gdouble", {} },
+    .{ "va_list", {} },
+    .{ "none", {} },
+    .{ "gpointer", {} },
+    .{ "gconstpointer", {} },
+    .{ "utf8", {} },
+    .{ "filename", {} },
+});
+
 pub const Name = struct {
     ns: ?[]const u8,
     local: []const u8,
@@ -1258,11 +1295,8 @@ pub const Name = struct {
                 .local = raw[pos + 1 .. raw.len],
             };
         } else {
-            // There isn't really any way to distinguish between a name in the same
-            // namespace and a non-namespaced name: based on convention, though, we can
-            // use the heuristic of looking for an uppercase starting letter
             return .{
-                .ns = if (raw.len > 0 and std.ascii.isUpper(raw[0])) current_ns else null,
+                .ns = if (builtin_names.has(raw)) null else current_ns,
                 .local = raw,
             };
         }
