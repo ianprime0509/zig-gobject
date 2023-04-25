@@ -1644,10 +1644,15 @@ fn parseCPointerType(c_type: []const u8) ?CPointerType {
 }
 
 fn translateCallback(allocator: Allocator, callback: gir.Callback, named: bool, ctx: TranslationContext, out: anytype) !void {
-    // TODO: workaround specific to ClosureNotify until https://github.com/ziglang/zig/issues/12325 is fixed
-    if (named and mem.eql(u8, callback.name, "ClosureNotify")) {
-        try out.print("pub const ClosureNotify = ?*const fn (p_data: ?*anyopaque, p_closure: *anyopaque) callconv(.C) void;\n\n", .{});
-        return;
+    // TODO: hard-coded workarounds until https://github.com/ziglang/zig/issues/12325 is fixed
+    if (named) {
+        if (mem.eql(u8, callback.name, "ClosureNotify")) {
+            try out.print("pub const ClosureNotify = ?*const fn (p_data: ?*anyopaque, p_closure: *anyopaque) callconv(.C) void;\n\n", .{});
+            return;
+        } else if (mem.eql(u8, callback.name, "MemoryCopyFunction")) {
+            try out.print("pub const MemoryCopyFunction = ?*const fn (p_mem: ?*anyopaque, p_offset: isize, p_size: isize) callconv(.C) *anyopaque;\n\n", .{});
+            return;
+        }
     }
 
     if (named) {

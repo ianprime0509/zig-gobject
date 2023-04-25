@@ -39,65 +39,49 @@ const modules = [_][]const u8{
     "gobject-2.0",
     "graphene-1.0",
     "gsk-4.0",
-    // TODO: "dependency loop" in MemoryCopyFunction (really a Zig bug)
-    // TODO: bit fields exceeding c_uint
-    // "gst-1.0",
-    // TODO: can't translate until gst-1.0 is fixed
-    // "gstallocators-1.0",
-    // TODO: can't translate until gst-1.0 is fixed
-    // "gstapp-1.0",
-    // TODO: can't translate until gst-1.0 is fixed
-    // "gstaudio-1.0",
-    // TODO: can't translate until gst-1.0 is fixed
-    // "gstbadaudio-1.0",
-    // TODO: can't translate until gst-1.0 is fixed
-    // "gstbase-1.0",
-    // TODO: can't translate until gst-1.0 is fixed
-    // "gstcheck-1.0",
+    "gst-1.0",
+    "gstallocators-1.0",
+    "gstapp-1.0",
+    "gstaudio-1.0",
+    "gstbadaudio-1.0",
+    "gstbase-1.0",
+    "gstcheck-1.0",
     // TODO: "not enough type information available"
+    // TODO: can't translate until gstvideo-1.0 is fixed
     // "gstcodecs-1.0",
-    // TODO: can't translate until gst-1.0 is fixed
-    // "gstcontroller-1.0",
-    // TODO: can't translate until gst-1.0 is fixed
+    "gstcontroller-1.0",
+    // TODO: can't translate until gstvideo-1.0 is fixed
     // "gstgl-1.0",
-    // TODO: can't translate until gst-1.0 is fixed
+    // TODO: can't translate until gstvideo-1.0 is fixed
     // "gstglegl-1.0",
-    // TODO: can't translate until gst-1.0 is fixed
+    // TODO: can't translate until gstvideo-1.0 is fixed
     // "gstglwayland-1.0",
-    // TODO: can't translate until gst-1.0 is fixed
+    // TODO: can't translate until gstvideo-1.0 is fixed
     // "gstglx11-1.0",
-    // TODO: can't translate until gst-1.0 is fixed
-    // "gstinsertbin-1.0",
-    // TODO: can't translate until gst-1.0 is fixed
-    // "gstmpegts-1.0",
-    // TODO: can't translate until gst-1.0 is fixed
-    // "gstnet-1.0",
-    // TODO: can't translate until gst-1.0 is fixed
+    "gstinsertbin-1.0",
+    "gstmpegts-1.0",
+    "gstnet-1.0",
+    // TODO: can't translate until gstvideo-1.0 is fixed
     // "gstpbutils-1.0",
-    // TODO: can't translate until gst-1.0 is fixed
+    // TODO: can't translate until gstvideo-1.0 is fixed
     // "gstplay-1.0",
-    // TODO: can't translate until gst-1.0 is fixed
+    // TODO: can't translate until gstvideo-1.0 is fixed
     // "gstplayer-1.0",
-    // TODO: can't translate until gst-1.0 is fixed
-    // "gstrtp-1.0",
-    // TODO: can't translate until gst-1.0 is fixed
-    // "gstrtsp-1.0",
-    // TODO: can't translate until gst-1.0 is fixed
-    // "gstsdp-1.0",
-    // TODO: can't translate until gst-1.0 is fixed
-    // "gsttag-1.0",
-    // TODO: can't translate until gst-1.0 is fixed
+    "gstrtp-1.0",
+    "gstrtsp-1.0",
+    "gstsdp-1.0",
+    "gsttag-1.0",
+    // TODO: can't translate until gstvideo-1.0 is fixed
     // "gsttranscoder-1.0",
     // TODO: duplicate bit field
     // "gstvideo-1.0",
-    // TODO: can't translate until gst-1.0 is fixed
+    // TODO: can't translate until gstvideo-1.0 is fixed
     // "gstvulkan-1.0",
-    // TODO: can't translate until gst-1.0 is fixed
+    // TODO: can't translate until gstvideo-1.0 is fixed
     // "gstvulkanwayland-1.0",
-    // TODO: can't translate until gst-1.0 is fixed
+    // TODO: can't translate until gstvideo-1.0 is fixed
     // "gstvulkanxcb-1.0",
-    // TODO: can't translate until gst-1.0 is fixed
-    // "gstwebrtc-1.0",
+    "gstwebrtc-1.0",
     "gtk-3.0",
     "gtk-4.0",
     "gtksource-4",
