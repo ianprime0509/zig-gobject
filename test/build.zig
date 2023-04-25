@@ -26,7 +26,9 @@ const modules = [_][]const u8{
     "gdkwayland-4.0",
     "gdkx11-3.0",
     "gdkx11-4.0",
-    // TODO: instance parameters being translated outside any container context
+    // TODO: the GIR has many issues, including referencing completely undefined
+    // types (HazardPointerNode) and types with the wrong name (FutureMapFunc).
+    // It seems to be generated from Vala rather than C, so maybe that's why.
     // "gee-0.8",
     "geoclue-2.0",
     "gio-2.0",
