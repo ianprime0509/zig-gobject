@@ -5,6 +5,7 @@ const fmt = std.fmt;
 const fs = std.fs;
 const heap = std.heap;
 const io = std.io;
+const math = std.math;
 const mem = std.mem;
 const testing = std.testing;
 const Allocator = mem.Allocator;
@@ -729,23 +730,49 @@ fn translateFieldType(allocator: Allocator, @"type": gir.FieldType, ctx: Transla
 }
 
 fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: TranslationContext, out: anytype) !void {
-    try translateDocumentation(bit_field.documentation, out);
-    var paddingNeeded: usize = @bitSizeOf(c_uint);
-    try out.print("pub const $I = packed struct(c_uint) ${\n", .{bit_field.name});
+    var members = [1]?gir.Member{null} ** 64;
+    var needs_u64 = false;
     for (bit_field.members) |member| {
         if (member.value > 0) {
-            try out.print("$I: bool = false,\n", .{member.name});
-            // TODO: handle bit fields larger than c_uint
-            paddingNeeded -|= 1;
+            if (member.value > math.maxInt(u32)) {
+                needs_u64 = true;
+            }
+            const as_u64 = @intCast(u64, member.value);
+            const pos = math.log2_int(u64, as_u64);
+            // There are several bit fields who have members declared that are
+            // not powers of 2. Those (and all other members) will be translated
+            // as constants.
+            if (math.pow(u64, 2, pos) == as_u64) {
+                // For duplicate field names, only the first name is used
+                if (members[pos] == null) {
+                    members[pos] = member;
+                }
+            }
         }
     }
-    if (paddingNeeded > 0) {
-        try out.print("_: u$L = 0,\n", .{paddingNeeded});
+    const backing_int = if (needs_u64) "u64" else "c_uint";
+
+    try translateDocumentation(bit_field.documentation, out);
+    try out.print("pub const $I = packed struct($L) ${\n", .{ bit_field.name, backing_int });
+    for (members, 0..) |maybe_member, i| {
+        if (maybe_member) |member| {
+            try out.print("$I: bool = false,\n", .{member.name});
+        } else if (needs_u64 or i < 32) {
+            try out.print("_padding$L: bool = false,\n", .{i});
+        }
     }
 
-    try out.print("\nconst Self = $I;\n\n", .{bit_field.name});
+    try out.print("\nconst Self = $I;\n", .{bit_field.name});
+    // Adding all values as constants makes sure we don't miss anything that was
+    // 0, not a power of 2, etc. It may be somewhat confusing to have the
+    // members we just translated as fields also included here, but this is
+    // actually useful for some weird bit field types which are not entirely bit
+    // fields anyways. As an example of this, see DebugColorFlags in Gst-1.0.
+    for (bit_field.members) |member| {
+        try out.print("const $I = @bitCast(Self, @as($L, $L));\n", .{ member.name, backing_int, member.value });
+    }
 
-    try out.print("pub const Own = struct${\n", .{});
+    try out.print("\npub const Own = struct${\n", .{});
     if (bit_field.getTypeFunction()) |get_type_function| {
         if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
             try translateFunction(allocator, get_type_function, ctx, out);
@@ -771,7 +798,7 @@ fn translateEnum(allocator: Allocator, @"enum": gir.Enum, ctx: TranslationContex
     // Zig does not allow enums to have multiple fields with the same value, so
     // we must translate any duplicate values as constants referencing the
     // "base" value
-    var seen_values = AutoHashMap(i64, gir.Member).init(allocator);
+    var seen_values = AutoHashMap(i65, gir.Member).init(allocator);
     defer seen_values.deinit();
     var duplicate_members = ArrayList(gir.Member).init(allocator);
     defer duplicate_members.deinit();

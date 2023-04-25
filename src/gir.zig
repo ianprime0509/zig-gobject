@@ -704,12 +704,12 @@ pub const Enum = struct {
 
 pub const Member = struct {
     name: []const u8,
-    value: i64,
+    value: i65, // big enough to hold an i32 or u64
     documentation: ?Documentation = null,
 
     fn parse(allocator: Allocator, doc: *c.xmlDoc, node: *const c.xmlNode) !Member {
         var name: ?[]const u8 = null;
-        var value: ?i64 = null;
+        var value: ?i65 = null;
         var documentation: ?Documentation = null;
 
         var maybe_attr: ?*c.xmlAttr = node.properties;
@@ -717,7 +717,7 @@ pub const Member = struct {
             if (xml.attrIs(attr, null, "name")) {
                 name = try xml.attrContent(allocator, doc, attr);
             } else if (xml.attrIs(attr, null, "value")) {
-                value = fmt.parseInt(i64, try xml.attrContent(allocator, doc, attr), 10) catch return error.InvalidGir;
+                value = fmt.parseInt(i65, try xml.attrContent(allocator, doc, attr), 10) catch return error.InvalidGir;
             }
         }
 

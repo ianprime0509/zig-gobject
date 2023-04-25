@@ -2,8 +2,7 @@ const std = @import("std");
 
 const modules = [_][]const u8{
     "adw-1",
-    // TODO: bit fields exceeding c_uint
-    // "appstreamglib-1.0",
+    "appstreamglib-1.0",
     "atk-1.0",
     "atspi-2.0",
     "cairo-1.0",
