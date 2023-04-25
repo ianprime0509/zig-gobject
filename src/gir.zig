@@ -1283,6 +1283,16 @@ const builtin_names = ComptimeStringMap(void, .{
     .{ "gconstpointer", {} },
     .{ "utf8", {} },
     .{ "filename", {} },
+    // Only int32 has been observed in the wild so far (in freetype-2.0); the
+    // others are extrapolated
+    .{ "int8", {} },
+    .{ "uint8", {} },
+    .{ "int16", {} },
+    .{ "uint16", {} },
+    .{ "int32", {} },
+    .{ "uint32", {} },
+    .{ "int64", {} },
+    .{ "uint64", {} },
 });
 
 pub const Name = struct {

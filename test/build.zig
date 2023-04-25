@@ -9,8 +9,7 @@ const modules = [_][]const u8{
     "dbus-1.0",
     "dbusglib-1.0",
     "fontconfig-2.0",
-    // TODO: bad int32 alias
-    // "freetype2-2.0",
+    "freetype2-2.0",
     "gcab-1.0",
     // TODO: "not enough type information available"
     // "gck-1",

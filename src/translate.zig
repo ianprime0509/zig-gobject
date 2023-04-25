@@ -999,20 +999,28 @@ const builtins = ComptimeStringMap([]const u8, .{
     .{ "unsigned char", "u8" },
     .{ "guchar", "u8" },
     .{ "int8_t", "i8" },
+    .{ "int8", "i8" },
     .{ "gint8", "i8" },
     .{ "uint8_t", "u8" },
+    .{ "uint8", "u8" },
     .{ "guint8", "u8" },
     .{ "int16_t", "i16" },
+    .{ "int16", "i16" },
     .{ "gint16", "i16" },
     .{ "uint16_t", "u16" },
+    .{ "uint16", "u16" },
     .{ "guint16", "u16" },
     .{ "int32_t", "i32" },
+    .{ "int32", "i32" },
     .{ "gint32", "i32" },
     .{ "uint32_t", "u32" },
+    .{ "uint32", "u32" },
     .{ "guint32", "u32" },
     .{ "int64_t", "i64" },
+    .{ "int64", "i64" },
     .{ "gint64", "i64" },
     .{ "uint64_t", "u64" },
+    .{ "uint64", "u64" },
     .{ "guint64", "u64" },
     .{ "short", "c_short" },
     .{ "gshort", "c_short" },
@@ -1198,6 +1206,7 @@ test "translateType" {
     try testTranslateType("i8", .{ .name = .{ .ns = null, .local = "gint8" }, .c_type = "int8_t" }, .{});
     try testTranslateType("u8", .{ .name = .{ .ns = null, .local = "guint8" }, .c_type = "guint8" }, .{});
     try testTranslateType("u8", .{ .name = .{ .ns = null, .local = "guint8" }, .c_type = "uint8_t" }, .{});
+    try testTranslateType("i32", .{ .name = .{ .ns = null, .local = "int32" }, .c_type = null }, .{});
     try testTranslateType("i16", .{ .name = .{ .ns = null, .local = "gint16" }, .c_type = "gint16" }, .{});
     try testTranslateType("i16", .{ .name = .{ .ns = null, .local = "gint16" }, .c_type = "int16_t" }, .{});
     try testTranslateType("u16", .{ .name = .{ .ns = null, .local = "guint16" }, .c_type = "guint16" }, .{});
