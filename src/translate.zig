@@ -767,9 +767,17 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: Transla
     // 0, not a power of 2, etc. It may be somewhat confusing to have the
     // members we just translated as fields also included here, but this is
     // actually useful for some weird bit field types which are not entirely bit
-    // fields anyways. As an example of this, see DebugColorFlags in Gst-1.0.
+    // fields anyways. As an example of this, see DebugColorFlags in Gst-1.0. We
+    // also need to keep track of duplicate members, since GstVideo-1.0 has
+    // multiple members with the same name :thinking:
+    // https://gitlab.gnome.org/GNOME/gobject-introspection/-/issues/264
+    var seen = StringHashMap(void).init(allocator);
+    defer seen.deinit();
     for (bit_field.members) |member| {
-        try out.print("const $I = @bitCast(Self, @as($L, $L));\n", .{ member.name, backing_int, member.value });
+        if (!seen.contains(member.name)) {
+            try out.print("const $I = @bitCast(Self, @as($L, $L));\n", .{ member.name, backing_int, member.value });
+        }
+        try seen.put(member.name, {});
     }
 
     try out.print("\npub const Own = struct${\n", .{});

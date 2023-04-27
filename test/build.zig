@@ -47,39 +47,27 @@ const modules = [_][]const u8{
     "gstbase-1.0",
     "gstcheck-1.0",
     // TODO: "not enough type information available"
-    // TODO: can't translate until gstvideo-1.0 is fixed
     // "gstcodecs-1.0",
     "gstcontroller-1.0",
-    // TODO: can't translate until gstvideo-1.0 is fixed
-    // "gstgl-1.0",
-    // TODO: can't translate until gstvideo-1.0 is fixed
-    // "gstglegl-1.0",
-    // TODO: can't translate until gstvideo-1.0 is fixed
-    // "gstglwayland-1.0",
-    // TODO: can't translate until gstvideo-1.0 is fixed
-    // "gstglx11-1.0",
+    "gstgl-1.0",
+    "gstglegl-1.0",
+    "gstglwayland-1.0",
+    "gstglx11-1.0",
     "gstinsertbin-1.0",
     "gstmpegts-1.0",
     "gstnet-1.0",
-    // TODO: can't translate until gstvideo-1.0 is fixed
-    // "gstpbutils-1.0",
-    // TODO: can't translate until gstvideo-1.0 is fixed
-    // "gstplay-1.0",
-    // TODO: can't translate until gstvideo-1.0 is fixed
-    // "gstplayer-1.0",
+    "gstpbutils-1.0",
+    "gstplay-1.0",
+    "gstplayer-1.0",
     "gstrtp-1.0",
     "gstrtsp-1.0",
     "gstsdp-1.0",
     "gsttag-1.0",
-    // TODO: can't translate until gstvideo-1.0 is fixed
-    // "gsttranscoder-1.0",
-    // TODO: duplicate bit field
-    // "gstvideo-1.0",
-    // TODO: can't translate until gstvideo-1.0 is fixed
-    // "gstvulkan-1.0",
-    // TODO: can't translate until gstvideo-1.0 is fixed
-    // "gstvulkanwayland-1.0",
-    // TODO: can't translate until gstvideo-1.0 is fixed
+    "gsttranscoder-1.0",
+    "gstvideo-1.0",
+    "gstvulkan-1.0",
+    "gstvulkanwayland-1.0",
+    // TODO: can't find the package to install to link this
     // "gstvulkanxcb-1.0",
     "gstwebrtc-1.0",
     "gtk-3.0",
