@@ -982,7 +982,7 @@ fn translateSignal(allocator: Allocator, signal: gir.Signal, ctx: TranslationCon
     // TODO: verify that T is a pointer type or compatible
     try translateSignalCallbackType(allocator, signal, ctx, out);
     try out.print(", p_data: T, p_options: struct { after: bool = false }) c_ulong ${\n", .{});
-    try out.print("return gobject.signalConnectData(p_self, $S, @ptrCast(gobject.Callback, p_callback), p_data, null, .{ .after = p_options.after });\n", .{signal.name});
+    try out.print("return gobject.signalConnectData(p_self.as(gobject.Object), $S, @ptrCast(gobject.Callback, p_callback), p_data, null, .{ .after = p_options.after });\n", .{signal.name});
     try out.print("$}\n\n", .{});
 }
 
