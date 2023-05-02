@@ -332,9 +332,7 @@ fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContex
     }
     try out.print("const Self = $I;\n\n", .{class.name});
 
-    for (class.fields) |field| {
-        try translateField(allocator, field, ctx, out);
-    }
+    try translateLinearFields(allocator, class.fields, ctx, out);
     if (class.fields.len > 0) {
         try out.print("\n", .{});
     }
@@ -579,9 +577,8 @@ fn translateRecord(allocator: Allocator, record: gir.Record, ctx: TranslationCon
         try out.print("pub const Instance = $I;\n", .{is_gtype_struct_for});
     }
     try out.print("const Self = $I;\n\n", .{record.name});
-    for (record.fields) |field| {
-        try translateField(allocator, field, ctx, out);
-    }
+
+    try translateLinearFields(allocator, record.fields, ctx, out);
     if (record.fields.len > 0) {
         try out.print("\n", .{});
     }
@@ -656,9 +653,8 @@ fn translateUnion(allocator: Allocator, @"union": gir.Union, ctx: TranslationCon
     try translateDocumentation(@"union".documentation, out);
     try out.print("pub const $I = extern union ${\n", .{@"union".name});
     try out.print("const Self = $I;\n\n", .{@"union".name});
-    for (@"union".fields) |field| {
-        try translateField(allocator, field, ctx, out);
-    }
+
+    try translateUnionFields(allocator, @"union".fields, ctx, out);
     if (@"union".fields.len > 0) {
         try out.print("\n", .{});
     }
@@ -714,11 +710,61 @@ fn translateUnion(allocator: Allocator, @"union": gir.Union, ctx: TranslationCon
     try out.print("$}\n\n", .{});
 }
 
-fn translateField(allocator: Allocator, field: gir.Field, ctx: TranslationContext, out: anytype) !void {
-    try translateDocumentation(field.documentation, out);
-    try out.print("$I: ", .{field.name});
-    try translateFieldType(allocator, field.type, ctx, out);
-    try out.print(",\n", .{});
+fn translateLinearFields(allocator: Allocator, fields: []const gir.Field, ctx: TranslationContext, out: anytype) !void {
+    // The handling of bit fields aligns with what a "normal" C compiler should
+    // do: pack adjacent bit fields next to each other, padding out to the next
+    // byte after the last bit field in a sequence. This is not guaranteed by
+    // the standard, but GObject stuff seems to assume it.
+    var in_bit_fields = false;
+    var bit_fields_bits: u16 = 0;
+    var n_bit_fields: usize = 0;
+    for (fields) |field| {
+        if (field.bits) |bits| {
+            if (!in_bit_fields) {
+                try out.print("bitfields$L: packed struct ${\n", .{n_bit_fields});
+                in_bit_fields = true;
+            }
+            try out.print("$I: u$L,\n", .{ field.name, bits });
+            bit_fields_bits += bits;
+        } else {
+            if (in_bit_fields) {
+                const total_bits = @max(math.ceilPowerOfTwoPromote(u16, bit_fields_bits), 8);
+                const padding_bits = total_bits - bit_fields_bits;
+                if (padding_bits > 0) {
+                    try out.print("padding: u$L,\n", .{padding_bits});
+                }
+                try out.print("$},\n", .{});
+                in_bit_fields = false;
+                bit_fields_bits = 0;
+                n_bit_fields += 1;
+            }
+            try out.print("$I: ", .{field.name});
+            try translateFieldType(allocator, field.type, ctx, out);
+            try out.print(",\n", .{});
+        }
+    }
+    // Handle trailing bit fields
+    if (in_bit_fields) {
+        const total_bits = @max(math.ceilPowerOfTwoPromote(u16, bit_fields_bits), 8);
+        const padding_bits = total_bits - bit_fields_bits;
+        if (padding_bits > 0) {
+            try out.print("padding: u$L,\n", .{padding_bits});
+        }
+        try out.print("$},\n", .{});
+    }
+}
+
+fn translateUnionFields(allocator: Allocator, fields: []const gir.Field, ctx: TranslationContext, out: anytype) !void {
+    for (fields) |field| {
+        try translateDocumentation(field.documentation, out);
+        try out.print("$I: ", .{field.name});
+        if (field.bits != null) {
+            try out.print("@compileError(\"can't use bit fields in a union\")", .{});
+        } else {
+            try translateFieldType(allocator, field.type, ctx, out);
+        }
+        try out.print(",\n", .{});
+    }
 }
 
 fn translateFieldType(allocator: Allocator, @"type": gir.FieldType, ctx: TranslationContext, out: anytype) !void {

@@ -569,17 +569,24 @@ pub const Union = struct {
 pub const Field = struct {
     name: []const u8,
     type: FieldType,
+    // I haven't seen GIR go above 32 bits, but Zig supports up to u65535 😎
+    bits: ?u16,
     documentation: ?Documentation = null,
 
     fn parse(allocator: Allocator, node: *const c.xmlNode, current_ns: []const u8) !Field {
         var name: ?[]const u8 = null;
         var @"type": ?FieldType = null;
+        var bits: ?u16 = null;
         var documentation: ?Documentation = null;
 
         var maybe_attr: ?*c.xmlAttr = node.properties;
         while (maybe_attr) |attr| : (maybe_attr = attr.next) {
             if (xml.attrIs(attr, null, "name")) {
                 name = try xml.attrContent(allocator, attr);
+            } else if (xml.attrIs(attr, null, "bits")) {
+                const raw = try xml.attrContent(allocator, attr);
+                defer allocator.free(raw);
+                bits = fmt.parseInt(u16, raw, 10) catch return error.InvalidGir;
             }
         }
 
@@ -599,6 +606,7 @@ pub const Field = struct {
         return .{
             .name = name orelse return error.InvalidGir,
             .type = @"type" orelse return error.InvalidGir,
+            .bits = bits,
             .documentation = documentation,
         };
     }
