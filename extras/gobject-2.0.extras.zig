@@ -211,6 +211,134 @@ pub const namespace = struct {
             }
         }.getType;
     }
+
+    pub fn SignalHandler(comptime Itype: type, comptime param_types: []const type, comptime DataType: type, comptime ReturnType: type) type {
+        return *const @Type(.{ .Fn = .{
+            .calling_convention = .C,
+            .alignment = 0,
+            .is_generic = false,
+            .is_var_args = false,
+            .return_type = ReturnType,
+            .params = params: {
+                var params: [param_types.len + 2]std.builtin.Type.Fn.Param = undefined;
+                params[0] = .{ .is_generic = false, .is_noalias = false, .type = Itype };
+                for (param_types, params[1 .. params.len - 1]) |ParamType, *type_param| {
+                    type_param.* = .{ .is_generic = false, .is_noalias = false, .type = ParamType };
+                }
+                params[params.len - 1] = .{ .is_generic = false, .is_noalias = false, .type = DataType };
+                break :params &params;
+            },
+        } });
+    }
+
+    pub const RegisterSignalOptions = struct {
+        flags: gobject.SignalFlags = .{},
+        class_closure: ?*gobject.Closure = null,
+        accumulator: gobject.SignalAccumulator = null,
+        accu_data: ?*anyopaque = null,
+        c_marshaller: gobject.SignalCMarshaller = null,
+    };
+
+    /// Sets up a signal definition.
+    ///
+    /// Returns a type containing the following members:
+    /// - `id` - a c_uint which is initially 0 but will be set to the signal
+    ///   ID when the signal is registered
+    /// - `register` - a function with a `RegisterSignalOptions` parameter
+    ///   which is used to register the signal in the GObject type system.
+    ///   This function should generally be called in Itype's class
+    ///   initializer.
+    /// - `emit` - a function which emits the signal on an object. The `emit`
+    ///   function takes the following parameters:
+    ///   - `target: Itype` - the target object
+    ///   - `detail: ?[:0]const u8` - the signal detail argument
+    ///   - `params: EmitParams` - signal parameters. `EmitParams` is a tuple
+    ///     with field types matching `param_types`.
+    ///   - `return_value: ?*ReturnValue` - optional pointer to where the
+    ///     return value of the signal should be stored
+    /// - `connect` - a function which connects the signal. The signature of
+    ///   this function is analogous to all other `connect*` functions in
+    ///   this library.
+    pub fn defineSignal(
+        comptime name: [:0]const u8,
+        comptime Itype: type,
+        comptime param_types: []const type,
+        comptime ReturnType: type,
+    ) type {
+        const EmitParams = @Type(.{ .Struct = .{
+            .layout = .Auto,
+            .fields = fields: {
+                var fields: [param_types.len]std.builtin.Type.StructField = undefined;
+                for (param_types, &fields, 0..) |ParamType, *field, i| {
+                    field.* = .{
+                        .name = std.fmt.comptimePrint("{}", .{i}),
+                        .type = ParamType,
+                        .default_value = null,
+                        .is_comptime = false,
+                        .alignment = @alignOf(ParamType),
+                    };
+                }
+                break :fields &fields;
+            },
+            .decls = &.{},
+            .is_tuple = true,
+        } });
+
+        return struct {
+            pub var id: c_uint = 0;
+
+            pub fn register(options: RegisterSignalOptions) void {
+                var param_gtypes: [param_types.len]gobject.Type = undefined;
+                inline for (param_types, &param_gtypes) |ParamType, *param_gtype| {
+                    param_gtype.* = typeFor(ParamType);
+                }
+                id = gobject.signalNewv(
+                    name,
+                    typeFor(Itype),
+                    options.flags,
+                    options.class_closure,
+                    options.accumulator,
+                    options.accu_data,
+                    options.c_marshaller,
+                    typeFor(ReturnType),
+                    param_gtypes.len,
+                    &param_gtypes,
+                );
+            }
+
+            pub fn emit(target: Itype, detail: ?[:0]const u8, params: EmitParams, return_value: ?*ReturnType) void {
+                var emit_params: [param_types.len + 1]gobject.Value = undefined;
+                emit_params[0] = gobject.Value.newFrom(target);
+                inline for (params, emit_params[1..]) |param, *emit_param| {
+                    emit_param.* = gobject.Value.newFrom(param);
+                }
+                defer for (&emit_params) |*emit_param| emit_param.unset();
+                const detail_quark = if (detail) |detail_str| glib.quarkFromString(detail_str) else 0;
+                var raw_return_value: gobject.Value = undefined;
+                gobject.signalEmitv(&emit_params, id, detail_quark, &raw_return_value);
+                if (return_value) |return_value_location| {
+                    return_value_location.* = raw_return_value.get(ReturnType);
+                }
+            }
+
+            pub fn connect(
+                target: Itype,
+                comptime T: type,
+                callback: SignalHandler(Itype, param_types, T, ReturnType),
+                data: T,
+                connect_options: struct { after: bool = false },
+            ) c_ulong {
+                return gobject.signalConnectData(
+                    target.as(gobject.Object),
+                    name,
+                    @ptrCast(gobject.Callback, callback),
+                    data,
+                    null,
+                    .{ .after = connect_options.after },
+                );
+            }
+        };
+    }
 };
 
 pub fn TypeInstanceMethods(comptime Self: type) type {
@@ -350,6 +478,8 @@ pub const Value = struct {
             } else {
                 value.setObject(@ptrCast(*gobject.Object, contents));
             }
+        } else if (T == void) {
+            value = new(T);
         } else if (T == i8) {
             value = new(T);
             value.setSchar(contents);
@@ -405,6 +535,59 @@ pub const Value = struct {
             @compileError("cannot construct Value from " ++ @typeName(T));
         }
         return value;
+    }
+
+    /// Extracts a value of the given type.
+    ///
+    /// This does not return an owned value (if applicable): the caller must
+    /// copy/ref/etc. the value if needed beyond the lifetime of the container.
+    pub fn get(self: *const Self, comptime T: type) T {
+        const typeInfo = @typeInfo(T);
+        if (typeInfo == .Pointer and comptime isRegisteredType(typeInfo.Pointer.child)) {
+            if (typeInfo.Pointer.child.getType() == gobject.Boxed) {
+                return @ptrCast(T, @alignCast(@alignOf(T), self.getBoxed()));
+            } else {
+                return @ptrCast(T, self.getObject());
+            }
+        } else if (T == void) {
+            return {};
+        } else if (T == i8) {
+            return self.getSchar();
+        } else if (T == u8) {
+            return self.getUchar();
+        } else if (T == bool) {
+            return self.getBoolean();
+        } else if (T == c_int) {
+            return self.getInt();
+        } else if (T == c_long) {
+            return self.getLong();
+        } else if (T == c_ulong) {
+            return self.getUlong();
+        } else if (T == i64) {
+            return self.getInt64();
+        } else if (T == u64) {
+            return self.getUint64();
+        } else if (T == f32) {
+            return self.getFloat();
+        } else if (T == f64) {
+            return self.getDouble();
+        } else if (T == [*:0]const u8) {
+            // We do not accept all the various string types we accept in the
+            // newFrom method here because we are not transferring ownership
+            return self.getString();
+        } else if (T == *gobject.ParamSpec) {
+            return self.getParam();
+        } else if (T == *glib.Variant) {
+            return self.getVariant();
+        } else if (typeInfo == .Pointer or (typeInfo == .Optional and @typeInfo(typeInfo.Optional.child) == .Pointer)) {
+            return @ptrCast(T, @alignCast(@alignOf(T), self.getPointer()));
+        } else if (typeInfo == .Enum and typeInfo.Enum.tag_type == c_int) {
+            return @intToEnum(T, self.getEnum());
+        } else if (typeInfo == .Struct and typeInfo.Struct.backing_integer == c_uint) {
+            return @bitCast(T, self.getFlags());
+        } else {
+            @compileError("cannot extract " ++ @typeName(T) ++ " from Value");
+        }
     }
 };
 
