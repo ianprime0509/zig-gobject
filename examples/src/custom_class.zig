@@ -10,7 +10,7 @@ const ExampleApplication = extern struct {
     pub const Parent = gtk.Application;
     const Self = @This();
 
-    pub const getType = gobject.registerType(Self, .{});
+    pub const getType = gobject.defineType(Self, .{});
 
     pub fn new() *Self {
         return Self.newWith(.{
@@ -85,7 +85,7 @@ const ExampleApplicationWindow = extern struct {
         pub var offset: c_int = 0;
     };
 
-    pub const getType = gobject.registerType(Self, .{});
+    pub const getType = gobject.defineType(Self, .{});
 
     pub fn new(app: *ExampleApplication) *Self {
         return Self.newWith(.{ .application = app });
@@ -133,7 +133,7 @@ const ExampleButton = extern struct {
         pub var offset: c_int = 0;
     };
 
-    pub const getType = gobject.registerType(Self, .{});
+    pub const getType = gobject.defineType(Self, .{});
 
     const counter_incremented = gobject.defineSignal("counter-incremented", *Self, &.{c_uint}, void);
     pub const connectCounterIncremented = counter_incremented.connect;

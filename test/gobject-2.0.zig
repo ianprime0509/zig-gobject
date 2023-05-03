@@ -60,7 +60,7 @@ test "Object subclass" {
             pub var offset: c_int = 0;
         };
 
-        pub const getType = gobject.registerType(Self, .{});
+        pub const getType = gobject.defineType(Self, .{});
 
         pub fn new() *Self {
             return Self.newWith(.{});

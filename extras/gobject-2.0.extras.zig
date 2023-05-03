@@ -72,7 +72,8 @@ pub const namespace = struct {
         flags: gobject.TypeFlags = .{},
     };
 
-    /// Registers a new class type in the GObject type system.
+    /// Sets up a class type in the GObject type system, returning the associated
+    /// `getType` function.
     ///
     /// The `Self` parameter is the instance struct for the type. There are several
     /// constraints on this type:
@@ -110,7 +111,7 @@ pub const namespace = struct {
     /// Self)`. This is not enforced by the type registration logic, and has no bearing
     /// on the validity of the type from a GObject perspective, but other helper methods
     /// may depend on base class methods being present.
-    pub fn registerType(comptime Self: type, comptime options: RegisterTypeOptions) fn () callconv(.C) gobject.Type {
+    pub fn defineType(comptime Self: type, comptime options: RegisterTypeOptions) fn () callconv(.C) gobject.Type {
         const self_info = @typeInfo(Self);
         if (self_info != .Struct or self_info.Struct.layout != .Extern) {
             @compileError("an instance type must be an extern struct");
@@ -239,9 +240,10 @@ pub const namespace = struct {
         c_marshaller: gobject.SignalCMarshaller = null,
     };
 
-    /// Sets up a signal definition.
+    /// Sets up a signal definition, returning a type with various helpers
+    /// related to the signal.
     ///
-    /// Returns a type containing the following members:
+    /// The returned type contains the following members:
     /// - `id` - a c_uint which is initially 0 but will be set to the signal
     ///   ID when the signal is registered
     /// - `register` - a function with a `RegisterSignalOptions` parameter
