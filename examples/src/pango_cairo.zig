@@ -44,8 +44,8 @@ fn activate(app: *gtk.Application, _: ?*anyopaque) callconv(.C) void {
     window.setDefaultSize(300, 300);
 
     const drawing_area = gtk.DrawingArea.new();
-    drawing_area.setHexpand(true);
-    drawing_area.setVexpand(true);
+    drawing_area.setHexpand(1);
+    drawing_area.setVexpand(1);
     _ = drawing_area.setDrawFunc(&draw, null, null);
     window.setChild(drawing_area.as(gtk.Widget));
 

@@ -14,7 +14,6 @@ test "bindings" {
 test "Value.new" {
     try testValueNew(i8, -123, Value.getSchar, Value.setSchar);
     try testValueNew(u8, 123, Value.getUchar, Value.setUchar);
-    try testValueNew(bool, true, Value.getBoolean, Value.setBoolean);
     try testValueNew(c_int, -123, Value.getInt, Value.setInt);
     try testValueNew(c_uint, 123, Value.getUint, Value.setUint);
     try testValueNew(c_long, -123, Value.getLong, Value.setLong);
@@ -23,6 +22,13 @@ test "Value.new" {
     try testValueNew(u64, 1 << 48, Value.getUint64, Value.setUint64);
     try testValueNew(f32, 3.14, Value.getFloat, Value.setFloat);
     try testValueNew(f64, 3.1415926, Value.getDouble, Value.setDouble);
+}
+
+test "Value.new(bool)" {
+    var value = Value.new(bool);
+    defer value.unset();
+    value.setBoolean(1);
+    try expectEqual(@as(c_int, 1), value.getBoolean());
 }
 
 test "Value.new([*:0]const u8)" {

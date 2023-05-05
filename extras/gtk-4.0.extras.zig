@@ -14,7 +14,7 @@ pub fn WidgetClassMethods(comptime Self: type) type {
         pub fn bindTemplateChild(class: *Self, comptime name: [:0]const u8, comptime options: BindTemplateChildOptions) void {
             const field = options.field orelse name;
             const offset = if (options.private) Self.Instance.offsetOfPrivate(field) else @offsetOf(Self.Instance, field);
-            class.bindTemplateChildFull(name, options.internal, offset);
+            class.bindTemplateChildFull(name, @boolToInt(options.internal), offset);
         }
 
         /// Sets the template for a widget from a byte slice.

@@ -168,7 +168,7 @@ pub const namespace = struct {
             var registered_type: gobject.Type = 0;
 
             pub fn getType() callconv(.C) gobject.Type {
-                if (glib.Once.initEnter(&registered_type)) {
+                if (glib.Once.initEnter(&registered_type) != 0) {
                     const classInitFunc = struct {
                         fn classInit(class: *Self.Class) callconv(.C) void {
                             if (@hasDecl(Self.Class, "parent")) {
@@ -490,7 +490,7 @@ pub const Value = struct {
             value.setUchar(contents);
         } else if (T == bool) {
             value = new(T);
-            value.setBoolean(contents);
+            value.setBoolean(@boolToInt(contents));
         } else if (T == c_int) {
             value = new(T);
             value.setInt(contents);
@@ -558,7 +558,7 @@ pub const Value = struct {
         } else if (T == u8) {
             return self.getUchar();
         } else if (T == bool) {
-            return self.getBoolean();
+            return self.getBoolean() != 0;
         } else if (T == c_int) {
             return self.getInt();
         } else if (T == c_long) {

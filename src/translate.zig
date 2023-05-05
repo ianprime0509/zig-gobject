@@ -1058,7 +1058,9 @@ fn translateConstant(constant: gir.Constant, out: anytype) !void {
 // entries because it also handles mappings from C types, not just GIR type
 // names.
 const builtins = ComptimeStringMap([]const u8, .{
-    .{ "gboolean", "bool" },
+    .{ "gboolean", "c_int" },
+    .{ "bool", "bool" },
+    .{ "_Bool", "bool" },
     .{ "char", "u8" },
     .{ "gchar", "u8" },
     .{ "unsigned char", "u8" },
@@ -1306,7 +1308,7 @@ fn translateType(allocator: Allocator, @"type": gir.Type, options: TranslateType
 }
 
 test "translateType" {
-    try testTranslateType("bool", .{ .name = .{ .ns = null, .local = "gboolean" }, .c_type = "gboolean" }, .{});
+    try testTranslateType("c_int", .{ .name = .{ .ns = null, .local = "gboolean" }, .c_type = "gboolean" }, .{});
     try testTranslateType("bool", .{ .name = .{ .ns = null, .local = "gboolean" }, .c_type = "bool" }, .{});
     try testTranslateType("bool", .{ .name = .{ .ns = null, .local = "gboolean" }, .c_type = "_Bool" }, .{});
     try testTranslateType("u8", .{ .name = .{ .ns = null, .local = "gchar" }, .c_type = "gchar" }, .{});
