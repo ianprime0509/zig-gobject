@@ -11,7 +11,7 @@ const testing = std.testing;
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
 const ArenaAllocator = heap.ArenaAllocator;
-const AutoHashMap = std.AutoHashMap;
+const AutoHashMapUnmanaged = std.AutoHashMapUnmanaged;
 const ComptimeStringMap = std.ComptimeStringMap;
 const HashMap = std.HashMap;
 const StringArrayHashMap = std.StringArrayHashMap;
@@ -126,17 +126,35 @@ const TranslationContext = struct {
 
     fn addRepository(self: *TranslationContext, repository: gir.Repository) !void {
         const allocator = self.arena.allocator();
+        var object_types = StringHashMapUnmanaged(void){};
         var pointer_types = StringHashMapUnmanaged(void){};
         for (repository.namespace.classes) |class| {
-            try pointer_types.put(allocator, class.name, {});
+            try object_types.put(allocator, class.name, {});
         }
         for (repository.namespace.interfaces) |interface| {
-            try pointer_types.put(allocator, interface.name, {});
+            try object_types.put(allocator, interface.name, {});
         }
         for (repository.namespace.records) |record| {
-            try pointer_types.put(allocator, record.name, {});
+            try object_types.put(allocator, record.name, {});
+            if (record.isPointer()) {
+                try pointer_types.put(allocator, record.name, {});
+            }
         }
-        try self.namespaces.put(allocator, repository.namespace.name, .{ .pointer_types = pointer_types });
+        for (repository.namespace.callbacks) |callback| {
+            try pointer_types.put(allocator, callback.name, {});
+        }
+        try self.namespaces.put(allocator, repository.namespace.name, .{
+            .object_types = object_types,
+            .pointer_types = pointer_types,
+        });
+    }
+
+    fn isObjectType(self: TranslationContext, name: gir.Name) bool {
+        if (name.ns) |ns| {
+            const namespace = self.namespaces.get(ns) orelse return false;
+            return namespace.object_types.get(name.local) != null;
+        }
+        return false;
     }
 
     fn isPointerType(self: TranslationContext, name: gir.Name) bool {
@@ -148,6 +166,7 @@ const TranslationContext = struct {
     }
 
     const Namespace = struct {
+        object_types: StringHashMapUnmanaged(void),
         pointer_types: StringHashMapUnmanaged(void),
     };
 };
@@ -288,7 +307,7 @@ fn translateNamespace(allocator: Allocator, ns: gir.Namespace, ctx: TranslationC
         try translateFunction(allocator, function, .{}, ctx, out);
     }
     for (ns.callbacks) |callback| {
-        try translateCallback(allocator, callback, true, ctx, out);
+        try translateCallback(allocator, callback, .{ .named = true }, ctx, out);
     }
     for (ns.constants) |constant| {
         try translateConstant(constant, out);
@@ -769,9 +788,15 @@ fn translateUnionFields(allocator: Allocator, fields: []const gir.Field, ctx: Tr
 
 fn translateFieldType(allocator: Allocator, @"type": gir.FieldType, ctx: TranslationContext, out: anytype) !void {
     switch (@"type") {
-        .simple => |simple_type| try translateType(allocator, simple_type, .{ .nullable = true }, ctx, out),
-        .array => |array_type| try translateArrayType(allocator, array_type, .{ .nullable = true }, ctx, out),
-        .callback => |callback| try translateCallback(allocator, callback, false, ctx, out),
+        .simple => |simple_type| try translateType(allocator, simple_type, .{
+            .nullable = typeIsPointer(simple_type, false, ctx),
+        }, ctx, out),
+        .array => |array_type| try translateArrayType(allocator, array_type, .{
+            .nullable = arrayTypeIsPointer(array_type, false, ctx),
+        }, ctx, out),
+        .callback => |callback| try translateCallback(allocator, callback, .{
+            .nullable = true,
+        }, ctx, out),
     }
 }
 
@@ -852,14 +877,14 @@ fn translateEnum(allocator: Allocator, @"enum": gir.Enum, ctx: TranslationContex
     // Zig does not allow enums to have multiple fields with the same value, so
     // we must translate any duplicate values as constants referencing the
     // "base" value
-    var seen_values = AutoHashMap(i65, gir.Member).init(allocator);
-    defer seen_values.deinit();
+    var seen_values = AutoHashMapUnmanaged(i65, gir.Member){};
+    defer seen_values.deinit(allocator);
     var duplicate_members = ArrayList(gir.Member).init(allocator);
     defer duplicate_members.deinit();
     for (@"enum".members) |member| {
         if (seen_values.get(member.value) == null) {
             try out.print("$I = $L,\n", .{ member.name, member.value });
-            try seen_values.put(member.value, member);
+            try seen_values.put(allocator, member.value, member);
         } else {
             try duplicate_members.append(member);
         }
@@ -922,7 +947,7 @@ fn translateFunction(allocator: Allocator, function: gir.Function, options: Tran
         .throws = function.throws,
     }, ctx, out);
     try out.print(") ", .{});
-    try translateReturnValue(allocator, function.return_value, .{ .nullable = function.throws }, ctx, out);
+    try translateReturnValue(allocator, function.return_value, .{ .force_nullable = function.throws }, ctx, out);
     try out.print(";\n", .{});
 
     // function rename
@@ -997,7 +1022,7 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
         .throws = virtual_method.throws,
     }, ctx, out);
     try out.print(") ", .{});
-    try translateReturnValue(allocator, virtual_method.return_value, .{ .nullable = virtual_method.throws }, ctx, out);
+    try translateReturnValue(allocator, virtual_method.return_value, .{ .force_nullable = virtual_method.throws }, ctx, out);
     try out.print(" ${\n", .{});
     try out.print("return @ptrCast(*$I, @alignCast(@alignOf(*$I), p_class)).$I.?(", .{ container_type, container_type, virtual_method.name });
     try translateParameterNames(allocator, virtual_method.parameters, .{ .throws = virtual_method.throws }, out);
@@ -1012,7 +1037,7 @@ fn translateVirtualMethodImplementationType(allocator: Allocator, virtual_method
         .throws = virtual_method.throws,
     }, ctx, out);
     try out.print(") callconv(.C) ", .{});
-    try translateReturnValue(allocator, virtual_method.return_value, .{ .nullable = virtual_method.throws }, ctx, out);
+    try translateReturnValue(allocator, virtual_method.return_value, .{ .force_nullable = virtual_method.throws }, ctx, out);
 }
 
 fn translateSignal(allocator: Allocator, signal: gir.Signal, ctx: TranslationContext, out: anytype) !void {
@@ -1146,14 +1171,36 @@ const TranslateTypeOptions = struct {
     gobject_context: bool = false,
 };
 
-fn translateAnyType(allocator: Allocator, @"type": gir.AnyType, options: TranslateTypeOptions, ctx: TranslationContext, out: anytype) !void {
-    switch (@"type") {
-        .simple => |simple| try translateType(allocator, simple, options, ctx, out),
-        .array => |array| try translateArrayType(allocator, array, options, ctx, out),
+fn typeIsPointer(@"type": gir.Type, gobject_context: bool, ctx: TranslationContext) bool {
+    const name = @"type".name orelse {
+        const c_type = @"type".c_type orelse return false;
+        return parseCPointerType(c_type) != null;
+    };
+    if (ctx.isPointerType(name)) {
+        return true;
     }
+    const c_type = @"type".c_type orelse {
+        if (builtins.get(name.local)) |builtin| {
+            return zigTypeIsPointer(builtin);
+        }
+        return gobject_context and ctx.isObjectType(name);
+    };
+    if (builtins.get(c_type)) |builtin| {
+        return zigTypeIsPointer(builtin);
+    }
+    if (parseCPointerType(c_type) != null) {
+        return true;
+    }
+    if (builtins.get(name.local)) |builtin| {
+        return zigTypeIsPointer(builtin);
+    }
+    return gobject_context and ctx.isObjectType(name);
 }
 
 fn translateType(allocator: Allocator, @"type": gir.Type, options: TranslateTypeOptions, ctx: TranslationContext, out: anytype) TranslateError!void {
+    if (options.nullable) {
+        try out.print("?", .{});
+    }
     const name = @"type".name orelse {
         const c_type = @"type".c_type orelse {
             try out.print("@compileError(\"no type information available\")", .{});
@@ -1161,9 +1208,6 @@ fn translateType(allocator: Allocator, @"type": gir.Type, options: TranslateType
         };
         // Last-ditch attempt to salvage some code generation by translating pointers as opaque
         if (parseCPointerType(c_type)) |pointer| {
-            if (options.nullable) {
-                try out.print("?", .{});
-            }
             if (pointer.@"const") {
                 try out.print("*const anyopaque", .{});
             } else {
@@ -1185,9 +1229,6 @@ fn translateType(allocator: Allocator, @"type": gir.Type, options: TranslateType
     var c_type = @"type".c_type orelse {
         // We should check for builtins first; utf8 is a common type to end up with here
         if (builtins.get(name.local)) |builtin| {
-            if (options.nullable and (std.mem.startsWith(u8, builtin, "*") or std.mem.startsWith(u8, builtin, "[*"))) {
-                try out.print("?", .{});
-            }
             try out.print("$L", .{builtin});
             return;
         }
@@ -1198,10 +1239,7 @@ fn translateType(allocator: Allocator, @"type": gir.Type, options: TranslateType
         // anything that doesn't have a direct C equivalent). The context is
         // needed here to correctly guess whether the type should be a pointer
         // or not.
-        if (options.gobject_context and ctx.isPointerType(name)) {
-            if (options.nullable) {
-                try out.print("?", .{});
-            }
+        if (options.gobject_context and ctx.isObjectType(name)) {
             try out.print("*", .{});
         }
         try translateName(allocator, name, out);
@@ -1213,21 +1251,13 @@ fn translateType(allocator: Allocator, @"type": gir.Type, options: TranslateType
         c_type = "void*";
         // Wow, a special case of a special case :O
         if (mem.eql(u8, name.local, "utf8") or mem.eql(u8, name.local, "filename")) {
-            if (options.nullable) {
-                try out.print("?[*:0]u8", .{});
-            } else {
-                try out.print("[*:0]u8", .{});
-            }
+            try out.print("[*:0]u8", .{});
             return;
         }
     } else if (mem.eql(u8, c_type, "gconstpointer")) {
         c_type = "const void*";
         if (mem.eql(u8, name.local, "utf8") or mem.eql(u8, name.local, "filename")) {
-            if (options.nullable) {
-                try out.print("?[*:0]const u8", .{});
-            } else {
-                try out.print("[*:0]const u8", .{});
-            }
+            try out.print("[*:0]const u8", .{});
             return;
         }
     }
@@ -1237,9 +1267,6 @@ fn translateType(allocator: Allocator, @"type": gir.Type, options: TranslateType
     // and const void* above will cause a confusing extra level of pointer in
     // the output.
     if (mem.eql(u8, name.local, "gpointer")) {
-        if (options.nullable) {
-            try out.print("?", .{});
-        }
         // GIR represents the gconstpointer type with a name of "gpointer" and a
         // c_type of "gconstpointer", because fuck you, I guess
         if (mem.eql(u8, c_type, "const void*")) {
@@ -1254,17 +1281,11 @@ fn translateType(allocator: Allocator, @"type": gir.Type, options: TranslateType
     // the name often does not include any information about whether the type is
     // a pointer
     if (builtins.get(c_type)) |builtin| {
-        if (options.nullable and (std.mem.startsWith(u8, builtin, "*") or std.mem.startsWith(u8, builtin, "[*"))) {
-            try out.print("?", .{});
-        }
         try out.print("$L", .{builtin});
         return;
     }
 
     if (parseCPointerType(c_type)) |pointer| {
-        if (options.nullable) {
-            try out.print("?", .{});
-        }
         // Special case: utf8 and filename should be treated as C strings
         if (name.ns == null and (std.mem.eql(u8, name.local, "utf8") or std.mem.eql(u8, name.local, "filename")) and parseCPointerType(pointer.element) == null) {
             try out.print("[*:0]", .{});
@@ -1288,9 +1309,6 @@ fn translateType(allocator: Allocator, @"type": gir.Type, options: TranslateType
     // At this point, we've exhausted explicit pointers and we can look at
     // built-in interpretations of the name
     if (builtins.get(name.local)) |builtin| {
-        if (options.nullable and std.mem.startsWith(u8, builtin, "*")) {
-            try out.print("?", .{});
-        }
         try out.print("$L", .{builtin});
         return;
     }
@@ -1298,10 +1316,7 @@ fn translateType(allocator: Allocator, @"type": gir.Type, options: TranslateType
     // If we've gotten this far, we must have a plain type. The same caveats as
     // explained in the no c_type case apply here, with respect to "GObject
     // context".
-    if (options.gobject_context and ctx.isPointerType(name)) {
-        if (options.nullable) {
-            try out.print("?", .{});
-        }
+    if (options.gobject_context and ctx.isObjectType(name)) {
         try out.print("*", .{});
     }
     try translateName(allocator, name, out);
@@ -1363,8 +1378,8 @@ test "translateType" {
     try testTranslateType("gdk.Event", .{ .name = .{ .ns = "Gdk", .local = "Event" }, .c_type = "GdkEvent" }, .{});
     try testTranslateType("gdk.Event", .{ .name = .{ .ns = "Gdk", .local = "Event" } }, .{});
     try testTranslateType("gdk.Event", .{ .name = .{ .ns = "Gdk", .local = "Event" } }, .{ .gobject_context = true });
-    try testTranslateType("*gdk.Event", .{ .name = .{ .ns = "Gdk", .local = "Event" } }, .{ .gobject_context = true, .pointer_types = &.{"Gdk.Event"} });
-    try testTranslateType("?*gdk.Event", .{ .name = .{ .ns = "Gdk", .local = "Event" } }, .{ .gobject_context = true, .nullable = true, .pointer_types = &.{"Gdk.Event"} });
+    try testTranslateType("*gdk.Event", .{ .name = .{ .ns = "Gdk", .local = "Event" } }, .{ .gobject_context = true, .object_types = &.{"Gdk.Event"} });
+    try testTranslateType("?*gdk.Event", .{ .name = .{ .ns = "Gdk", .local = "Event" } }, .{ .gobject_context = true, .nullable = true, .object_types = &.{"Gdk.Event"} });
     try testTranslateType("*anyopaque", .{ .name = .{ .ns = null, .local = "gpointer" }, .c_type = "gpointer" }, .{});
     try testTranslateType("?*anyopaque", .{ .name = .{ .ns = null, .local = "gpointer" }, .c_type = "gpointer" }, .{ .nullable = true });
     try testTranslateType("*const anyopaque", .{ .name = .{ .ns = null, .local = "gpointer" }, .c_type = "gconstpointer" }, .{});
@@ -1413,6 +1428,9 @@ test "translateType" {
     try testTranslateType("?[*:0]u8", .{ .name = .{ .ns = null, .local = "filename" }, .c_type = "gpointer" }, .{ .nullable = true });
     try testTranslateType("[*:0]const u8", .{ .name = .{ .ns = null, .local = "filename" }, .c_type = "gconstpointer" }, .{});
     try testTranslateType("?[*:0]const u8", .{ .name = .{ .ns = null, .local = "filename" }, .c_type = "gconstpointer" }, .{ .nullable = true });
+    // Callback types behave as disguised pointer types
+    try testTranslateType("gobject.InstanceInitFunc", .{ .name = .{ .ns = "GObject", .local = "InstanceInitFunc" }, .c_type = "GInstanceInitFunc" }, .{ .is_pointer = true, .pointer_types = &.{"GObject.InstanceInitFunc"} });
+    try testTranslateType("?gobject.InstanceInitFunc", .{ .name = .{ .ns = "GObject", .local = "InstanceInitFunc" }, .c_type = "GInstanceInitFunc" }, .{ .nullable = true, .is_pointer = true, .pointer_types = &.{"GObject.InstanceInitFunc"} });
     // TODO: why is this not an array type in GIR? This inhibits a good translation here.
     // See the invalidated_properties parameter in Gio and similar.
     try testTranslateType("*const [*:0]const u8", .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = "const gchar* const*" }, .{});
@@ -1447,18 +1465,36 @@ test "translateType" {
 const TestTranslateTypeOptions = struct {
     nullable: bool = false,
     gobject_context: bool = false,
+    is_pointer: ?bool = null,
+    object_types: []const []const u8 = &.{},
     pointer_types: []const []const u8 = &.{},
 
     fn initTranslationContext(self: TestTranslateTypeOptions, base_allocator: Allocator) !TranslationContext {
         var ctx = TranslationContext.init(base_allocator);
         const allocator = ctx.arena.allocator();
-        for (self.pointer_types) |pointer_type| {
-            const ns_sep = mem.indexOfScalar(u8, pointer_type, '.').?;
-            const ns_name = pointer_type[0..ns_sep];
-            const local_name = pointer_type[ns_sep + 1 ..];
+        for (self.object_types) |object_types| {
+            const ns_sep = mem.indexOfScalar(u8, object_types, '.').?;
+            const ns_name = object_types[0..ns_sep];
+            const local_name = object_types[ns_sep + 1 ..];
             const ns_map = try ctx.namespaces.getOrPut(allocator, ns_name);
             if (!ns_map.found_existing) {
-                ns_map.value_ptr.* = .{ .pointer_types = StringHashMapUnmanaged(void){} };
+                ns_map.value_ptr.* = .{
+                    .object_types = StringHashMapUnmanaged(void){},
+                    .pointer_types = StringHashMapUnmanaged(void){},
+                };
+            }
+            try ns_map.value_ptr.object_types.put(allocator, local_name, {});
+        }
+        for (self.pointer_types) |pointer_types| {
+            const ns_sep = mem.indexOfScalar(u8, pointer_types, '.').?;
+            const ns_name = pointer_types[0..ns_sep];
+            const local_name = pointer_types[ns_sep + 1 ..];
+            const ns_map = try ctx.namespaces.getOrPut(allocator, ns_name);
+            if (!ns_map.found_existing) {
+                ns_map.value_ptr.* = .{
+                    .object_types = StringHashMapUnmanaged(void){},
+                    .pointer_types = StringHashMapUnmanaged(void){},
+                };
             }
             try ns_map.value_ptr.pointer_types.put(allocator, local_name, {});
         }
@@ -1476,11 +1512,30 @@ const TestTranslateTypeOptions = struct {
 fn testTranslateType(expected: []const u8, @"type": gir.Type, options: TestTranslateTypeOptions) !void {
     var ctx = try options.initTranslationContext(testing.allocator);
     defer ctx.deinit();
+
     var buf = ArrayList(u8).init(testing.allocator);
     defer buf.deinit();
     var out = zigWriter(buf.writer());
     try translateType(testing.allocator, @"type", options.options(), ctx, &out);
     try testing.expectEqualStrings(expected, buf.items);
+
+    try testing.expectEqual(options.is_pointer orelse zigTypeIsPointer(expected), typeIsPointer(@"type", options.gobject_context, ctx));
+}
+
+fn arrayTypeIsPointer(@"type": gir.ArrayType, gobject_context: bool, ctx: TranslationContext) bool {
+    if (@"type".name != null and @"type".c_type != null) {
+        return typeIsPointer(.{ .name = @"type".name, .c_type = @"type".c_type }, gobject_context, ctx);
+    }
+    if (@"type".fixed_size == null) {
+        return true;
+    }
+    if (@"type".c_type) |c_type| {
+        return std.mem.eql(u8, c_type, "gpointer") or
+            std.mem.eql(u8, c_type, "gconstpointer") or
+            std.mem.eql(u8, c_type, "GStrv") or
+            parseCPointerType(c_type) != null;
+    }
+    return false;
 }
 
 fn translateArrayType(allocator: Allocator, @"type": gir.ArrayType, options: TranslateTypeOptions, ctx: TranslationContext, out: anytype) !void {
@@ -1558,7 +1613,7 @@ fn translateArrayType(allocator: Allocator, @"type": gir.ArrayType, options: Tra
             modified_element.c_type = element_c_type orelse element.c_type;
             try translateType(allocator, modified_element, .{
                 .gobject_context = options.gobject_context,
-                .nullable = @"type".zero_terminated,
+                .nullable = @"type".zero_terminated and typeIsPointer(element, options.gobject_context, ctx),
             }, ctx, out);
         },
         .array => |element| {
@@ -1566,7 +1621,7 @@ fn translateArrayType(allocator: Allocator, @"type": gir.ArrayType, options: Tra
             modified_element.c_type = element_c_type orelse element.c_type;
             try translateArrayType(allocator, modified_element, .{
                 .gobject_context = options.gobject_context,
-                .nullable = @"type".zero_terminated,
+                .nullable = @"type".zero_terminated and arrayTypeIsPointer(element, options.gobject_context, ctx),
             }, ctx, out);
         },
     }
@@ -1660,17 +1715,27 @@ test "translateArrayType" {
         .element = &.{
             .simple = .{ .name = .{ .ns = "Gio", .local = "File" }, .c_type = null },
         },
-    }, .{ .gobject_context = true, .pointer_types = &.{"Gio.File"} });
+    }, .{ .gobject_context = true, .object_types = &.{"Gio.File"} });
 }
 
 fn testTranslateArrayType(expected: []const u8, @"type": gir.ArrayType, options: TestTranslateTypeOptions) !void {
     var ctx = try options.initTranslationContext(testing.allocator);
     defer ctx.deinit();
+
     var buf = ArrayList(u8).init(testing.allocator);
     defer buf.deinit();
     var out = zigWriter(buf.writer());
     try translateArrayType(testing.allocator, @"type", options.options(), ctx, &out);
     try testing.expectEqualStrings(expected, buf.items);
+
+    try testing.expectEqual(options.is_pointer orelse zigTypeIsPointer(expected), arrayTypeIsPointer(@"type", options.gobject_context, ctx));
+}
+
+fn zigTypeIsPointer(expected: []const u8) bool {
+    return mem.startsWith(u8, expected, "*") or
+        mem.startsWith(u8, expected, "?*") or
+        mem.startsWith(u8, expected, "[*") or
+        mem.startsWith(u8, expected, "?[*");
 }
 
 const CPointerType = struct {
@@ -1699,33 +1764,44 @@ fn parseCPointerType(c_type: []const u8) ?CPointerType {
     return .{ .@"const" = false, .element = element };
 }
 
-fn translateCallback(allocator: Allocator, callback: gir.Callback, named: bool, ctx: TranslationContext, out: anytype) !void {
+const TranslateCallbackOptions = struct {
+    named: bool = false,
+    nullable: bool = false,
+};
+
+fn translateCallback(allocator: Allocator, callback: gir.Callback, options: TranslateCallbackOptions, ctx: TranslationContext, out: anytype) !void {
     // TODO: hard-coded workarounds until https://github.com/ziglang/zig/issues/12325 is fixed
-    if (named) {
+    if (options.named) {
         if (mem.eql(u8, callback.name, "ClosureNotify")) {
-            try out.print("pub const ClosureNotify = ?*const fn (p_data: ?*anyopaque, p_closure: *anyopaque) callconv(.C) void;\n\n", .{});
+            try out.print("pub const ClosureNotify = *const fn (p_data: ?*anyopaque, p_closure: *anyopaque) callconv(.C) void;\n\n", .{});
             return;
         } else if (mem.eql(u8, callback.name, "MemoryCopyFunction")) {
-            try out.print("pub const MemoryCopyFunction = ?*const fn (p_mem: ?*anyopaque, p_offset: isize, p_size: isize) callconv(.C) *anyopaque;\n\n", .{});
+            try out.print("pub const MemoryCopyFunction = *const fn (p_mem: ?*anyopaque, p_offset: isize, p_size: isize) callconv(.C) *anyopaque;\n\n", .{});
             return;
         }
     }
 
-    if (named) {
+    if (options.named) {
         try translateDocumentation(callback.documentation, out);
         try out.print("pub const $I = ", .{callback.name});
     }
 
-    try out.print("?*const fn (", .{});
+    if (options.nullable) {
+        try out.print("?", .{});
+    }
+    try out.print("*const fn (", .{});
     try translateParameters(allocator, callback.parameters, .{ .throws = callback.throws }, ctx, out);
     try out.print(") callconv(.C) ", .{});
-    const type_options = TranslateTypeOptions{ .nullable = callback.return_value.nullable or callback.throws };
     switch (callback.return_value.type) {
-        .simple => |simple_type| try translateType(allocator, simple_type, type_options, ctx, out),
-        .array => |array_type| try translateArrayType(allocator, array_type, type_options, ctx, out),
+        .simple => |simple_type| try translateType(allocator, simple_type, .{
+            .nullable = (callback.return_value.nullable or callback.throws) and typeIsPointer(simple_type, false, ctx),
+        }, ctx, out),
+        .array => |array_type| try translateArrayType(allocator, array_type, .{
+            .nullable = (callback.return_value.nullable or callback.throws) and arrayTypeIsPointer(array_type, false, ctx),
+        }, ctx, out),
     }
 
-    if (named) {
+    if (options.named) {
         try out.print(";\n\n", .{});
     }
 }
@@ -1737,9 +1813,26 @@ const TranslateParametersOptions = struct {
 };
 
 fn translateParameters(allocator: Allocator, parameters: []const gir.Parameter, options: TranslateParametersOptions, ctx: TranslationContext, out: anytype) !void {
+    // GIR does not appear to consider the instance-parameter when numbering
+    // parameters for closure metadata
+    const param_offset: usize = if (parameters.len > 0 and parameters[0].instance) 1 else 0;
+    var force_nullable = AutoHashMapUnmanaged(usize, void){};
+    defer force_nullable.deinit(allocator);
+    for (parameters) |parameter| {
+        // TODO: GIR is pretty bad about using these attributes correctly, so we might want some extra checks
+        // See https://gitlab.gnome.org/GNOME/gobject-introspection/-/issues/285
+        if (parameter.closure) |closure| {
+            try force_nullable.put(allocator, closure + param_offset, {});
+        }
+        if (parameter.destroy) |destroy| {
+            try force_nullable.put(allocator, destroy + param_offset, {});
+        }
+    }
+
     for (parameters, 0..) |parameter, i| {
         try translateParameter(allocator, parameter, .{
             .self_type = options.self_type,
+            .force_nullable = force_nullable.get(i) != null,
             .gobject_context = options.gobject_context,
         }, ctx, out);
         if (options.throws or i < parameters.len - 1) {
@@ -1755,6 +1848,7 @@ fn translateParameters(allocator: Allocator, parameters: []const gir.Parameter, 
 
 const TranslateParameterOptions = struct {
     self_type: ?[]const u8 = null,
+    force_nullable: bool = false,
     gobject_context: bool = false,
 };
 
@@ -1766,10 +1860,6 @@ fn translateParameter(allocator: Allocator, parameter: gir.Parameter, options: T
 
     try translateParameterName(allocator, parameter.name, out);
     try out.print(": ", .{});
-    const type_options = TranslateTypeOptions{
-        .nullable = parameter.nullable or parameter.optional,
-        .gobject_context = options.gobject_context,
-    };
     switch (parameter.type) {
         .simple => |simple_type| {
             // This is kind of a hacky way of ensuring the self type is used
@@ -1781,9 +1871,15 @@ fn translateParameter(allocator: Allocator, parameter: gir.Parameter, options: T
                 .name = .{ .ns = null, .local = options.self_type.? },
                 .c_type = simple_type.c_type,
             } else simple_type;
-            try translateType(allocator, effective_type, type_options, ctx, out);
+            try translateType(allocator, effective_type, .{
+                .nullable = parameter.isNullable() or (options.force_nullable and typeIsPointer(simple_type, options.gobject_context, ctx)),
+                .gobject_context = options.gobject_context,
+            }, ctx, out);
         },
-        .array => |array_type| try translateArrayType(allocator, array_type, type_options, ctx, out),
+        .array => |array_type| try translateArrayType(allocator, array_type, .{
+            .nullable = parameter.isNullable() or (options.force_nullable and arrayTypeIsPointer(array_type, options.gobject_context, ctx)),
+            .gobject_context = options.gobject_context,
+        }, ctx, out),
         .varargs => unreachable, // handled above
     }
 }
@@ -1815,15 +1911,21 @@ const TranslateReturnValueOptions = struct {
     /// relevant for "throwing" functions, where return values are expected to
     /// be null in case of failure, but for some reason GIR doesn't mark them as
     /// nullable explicitly.
-    nullable: bool = false,
+    force_nullable: bool = false,
     gobject_context: bool = false,
 };
 
 fn translateReturnValue(allocator: Allocator, return_value: gir.ReturnValue, options: TranslateReturnValueOptions, ctx: TranslationContext, out: anytype) !void {
-    try translateAnyType(allocator, return_value.type, .{
-        .nullable = options.nullable or return_value.nullable,
-        .gobject_context = options.gobject_context,
-    }, ctx, out);
+    switch (return_value.type) {
+        .simple => |simple_type| try translateType(allocator, simple_type, .{
+            .nullable = return_value.isNullable() or (options.force_nullable and typeIsPointer(simple_type, options.gobject_context, ctx)),
+            .gobject_context = options.gobject_context,
+        }, ctx, out),
+        .array => |array_type| try translateArrayType(allocator, array_type, .{
+            .nullable = return_value.isNullable() or (options.force_nullable and arrayTypeIsPointer(array_type, options.gobject_context, ctx)),
+            .gobject_context = options.gobject_context,
+        }, ctx, out),
+    }
 }
 
 fn translateDocumentation(documentation: ?gir.Documentation, out: anytype) !void {

@@ -9,7 +9,9 @@ const modules = [_][]const u8{
     "dbus-1.0",
     "dbusglib-1.0",
     "fontconfig-2.0",
-    "freetype2-2.0",
+    // TODO: the GIR for freetype2-2.0 is just horrible and should be completely redone
+    // Issues: Int32 type (remove workaround), records should be marked as pointers
+    // "freetype2-2.0",
     "gcab-1.0",
     // TODO: "not enough type information available"
     // "gck-1",
@@ -39,7 +41,8 @@ const modules = [_][]const u8{
     "gobject-2.0",
     "graphene-1.0",
     "gsk-4.0",
-    "gst-1.0",
+    // TODO: va_list erroneously marked as nullable
+    //"gst-1.0",
     "gstallocators-1.0",
     "gstapp-1.0",
     "gstaudio-1.0",
@@ -76,7 +79,8 @@ const modules = [_][]const u8{
     "gtksource-5",
     "gudev-1.0",
     "handy-1",
-    "harfbuzz-0.0",
+    // TODO: can't translate until freetype2-2.0 is fixed
+    // "harfbuzz-0.0",
     // TODO: name conflicts with T
     // "ibus-1.0",
     // TODO: name conflicts with Class
@@ -91,7 +95,8 @@ const modules = [_][]const u8{
     "pango-1.0",
     "pangocairo-1.0",
     "pangofc-1.0",
-    "pangoft2-1.0",
+    // TODO: can't translate until freetype2-2.0 is fixed
+    // "pangoft2-1.0",
     "pangoot-1.0",
     "polkit-1.0",
     "rsvg-2.0",

@@ -48,6 +48,12 @@ pub fn attrContentBool(allocator: Allocator, attr: *const c.xmlAttr) !bool {
     return std.mem.eql(u8, raw, "1");
 }
 
+pub fn attrContentInt(allocator: Allocator, comptime T: type, attr: *const c.xmlAttr) !T {
+    const raw = try attrContent(allocator, attr);
+    defer allocator.free(raw);
+    return std.fmt.parseInt(T, raw, 10) catch return error.InvalidGir;
+}
+
 pub fn free(ptr: ?*anyopaque) void {
     c.xmlFree.?(ptr);
 }

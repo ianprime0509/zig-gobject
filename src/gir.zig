@@ -584,9 +584,7 @@ pub const Field = struct {
             if (xml.attrIs(attr, null, "name")) {
                 name = try xml.attrContent(allocator, attr);
             } else if (xml.attrIs(attr, null, "bits")) {
-                const raw = try xml.attrContent(allocator, attr);
-                defer allocator.free(raw);
-                bits = fmt.parseInt(u16, raw, 10) catch return error.InvalidGir;
+                bits = try xml.attrContentInt(allocator, u16, attr);
             }
         }
 
@@ -729,7 +727,7 @@ pub const Member = struct {
             if (xml.attrIs(attr, null, "name")) {
                 name = try xml.attrContent(allocator, attr);
             } else if (xml.attrIs(attr, null, "value")) {
-                value = fmt.parseInt(i65, try xml.attrContent(allocator, attr), 10) catch return error.InvalidGir;
+                value = try xml.attrContentInt(allocator, i65, attr);
             }
         }
 
@@ -1046,8 +1044,7 @@ pub const ArrayType = struct {
             } else if (xml.attrIs(attr, ns.c, "type")) {
                 c_type = try xml.attrContent(allocator, attr);
             } else if (xml.attrIs(attr, null, "fixed-size")) {
-                const content = try xml.attrContent(allocator, attr);
-                fixed_size = fmt.parseInt(u32, content, 10) catch return error.InvalidGir;
+                fixed_size = try xml.attrContentInt(allocator, u32, attr);
             } else if (xml.attrIs(attr, null, "zero-terminated")) {
                 zero_terminated = try xml.attrContentBool(allocator, attr);
             }
@@ -1118,11 +1115,18 @@ pub const Callback = struct {
 
 pub const Parameter = struct {
     name: []const u8,
+    type: ParameterType,
+    allow_none: bool = false,
     nullable: bool = false,
     optional: bool = false,
-    type: ParameterType,
     instance: bool = false,
+    closure: ?usize = null,
+    destroy: ?usize = null,
     documentation: ?Documentation = null,
+
+    pub fn isNullable(self: Parameter) bool {
+        return self.allow_none or self.nullable or self.optional;
+    }
 
     fn parseMany(allocator: Allocator, parameters: *ArrayListUnmanaged(Parameter), node: *const c.xmlNode, current_ns: []const u8) !void {
         var maybe_param: ?*c.xmlNode = node.children;
@@ -1135,19 +1139,28 @@ pub const Parameter = struct {
 
     fn parse(allocator: Allocator, node: *const c.xmlNode, current_ns: []const u8, instance: bool) !Parameter {
         var name: ?[]const u8 = null;
+        var @"type": ?ParameterType = null;
+        var allow_none = false;
         var nullable = false;
         var optional = false;
-        var @"type": ?ParameterType = null;
+        var closure: ?usize = null;
+        var destroy: ?usize = null;
         var documentation: ?Documentation = null;
 
         var maybe_attr: ?*c.xmlAttr = node.properties;
         while (maybe_attr) |attr| : (maybe_attr = attr.next) {
             if (xml.attrIs(attr, null, "name")) {
                 name = try xml.attrContent(allocator, attr);
+            } else if (xml.attrIs(attr, null, "allow-none")) {
+                allow_none = try xml.attrContentBool(allocator, attr);
             } else if (xml.attrIs(attr, null, "nullable")) {
                 nullable = try xml.attrContentBool(allocator, attr);
             } else if (xml.attrIs(attr, null, "optional")) {
                 optional = try xml.attrContentBool(allocator, attr);
+            } else if (xml.attrIs(attr, null, "closure")) {
+                closure = try xml.attrContentInt(allocator, usize, attr);
+            } else if (xml.attrIs(attr, null, "destroy")) {
+                destroy = try xml.attrContentInt(allocator, usize, attr);
             }
         }
 
@@ -1166,10 +1179,13 @@ pub const Parameter = struct {
 
         return .{
             .name = name orelse return error.InvalidGir,
+            .type = @"type" orelse return error.InvalidGir,
+            .allow_none = allow_none,
             .nullable = nullable,
             .optional = optional,
-            .type = @"type" orelse return error.InvalidGir,
             .instance = instance,
+            .closure = closure,
+            .destroy = destroy,
             .documentation = documentation,
         };
     }
@@ -1182,18 +1198,26 @@ pub const ParameterType = union(enum) {
 };
 
 pub const ReturnValue = struct {
-    nullable: bool = false,
     type: AnyType,
+    allow_none: bool = false,
+    nullable: bool = false,
     documentation: ?Documentation = null,
 
+    pub fn isNullable(self: ReturnValue) bool {
+        return self.allow_none or self.nullable;
+    }
+
     fn parse(allocator: Allocator, node: *const c.xmlNode, current_ns: []const u8) !ReturnValue {
-        var nullable = false;
         var @"type": ?AnyType = null;
+        var allow_none = false;
+        var nullable = false;
         var documentation: ?Documentation = null;
 
         var maybe_attr: ?*c.xmlAttr = node.properties;
         while (maybe_attr) |attr| : (maybe_attr = attr.next) {
-            if (xml.attrIs(attr, null, "nullable")) {
+            if (xml.attrIs(attr, null, "allow-none")) {
+                allow_none = try xml.attrContentBool(allocator, attr);
+            } else if (xml.attrIs(attr, null, "nullable")) {
                 nullable = try xml.attrContentBool(allocator, attr);
             }
         }
@@ -1210,8 +1234,9 @@ pub const ReturnValue = struct {
         }
 
         return .{
-            .nullable = nullable,
             .type = @"type" orelse return error.InvalidGir,
+            .allow_none = allow_none,
+            .nullable = nullable,
             .documentation = documentation,
         };
     }

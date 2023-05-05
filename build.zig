@@ -47,13 +47,16 @@ pub fn build(b: *std.Build) !void {
     test_exe_step.dependOn(&b.addRunArtifact(exe_tests).step);
     test_step.dependOn(test_exe_step);
 
-    const test_bindings_cmd = b.addSystemCommand(&.{ b.zig_exe, "build", "test" });
-    test_bindings_cmd.cwd = try b.build_root.join(b.allocator, &.{"test"});
-    test_bindings_cmd.step.dependOn(codegen_step);
+    const skip_binding_tests = b.option(bool, "skip-binding-tests", "Skip tests for generated bindings") orelse false;
+    if (!skip_binding_tests) {
+        const test_bindings_cmd = b.addSystemCommand(&.{ b.zig_exe, "build", "test" });
+        test_bindings_cmd.cwd = try b.build_root.join(b.allocator, &.{"test"});
+        test_bindings_cmd.step.dependOn(codegen_step);
 
-    const test_bindings_step = b.step("test-bindings", "Run binding tests");
-    test_bindings_step.dependOn(&test_bindings_cmd.step);
-    test_step.dependOn(test_bindings_step);
+        const test_bindings_step = b.step("test-bindings", "Run binding tests");
+        test_bindings_step.dependOn(&test_bindings_cmd.step);
+        test_step.dependOn(test_bindings_step);
+    }
 
     // Examples
     const run_example_cmd = b.addSystemCommand(&.{ b.zig_exe, "build", "run" });

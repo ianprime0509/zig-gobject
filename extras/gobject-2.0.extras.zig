@@ -235,9 +235,9 @@ pub const namespace = struct {
     pub const RegisterSignalOptions = struct {
         flags: gobject.SignalFlags = .{},
         class_closure: ?*gobject.Closure = null,
-        accumulator: gobject.SignalAccumulator = null,
+        accumulator: ?gobject.SignalAccumulator = null,
         accu_data: ?*anyopaque = null,
-        c_marshaller: gobject.SignalCMarshaller = null,
+        c_marshaller: ?gobject.SignalCMarshaller = null,
     };
 
     /// Sets up a signal definition, returning a type with various helpers
