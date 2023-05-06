@@ -1062,10 +1062,10 @@ fn translateSignal(allocator: Allocator, signal: gir.Signal, ctx: TranslationCon
 
     // normal connection
     try translateDocumentation(signal.documentation, out);
-    try out.print("pub fn connect$L(p_self: *Self, comptime T: type, p_callback: ", .{upper_signal_name});
-    // TODO: verify that T is a pointer type or compatible
+    try out.print("pub fn connect$L(p_self: *Self, comptime P_T: type, p_callback: ", .{upper_signal_name});
+    // TODO: verify that P_T is a pointer type or compatible
     try translateSignalCallbackType(allocator, signal, ctx, out);
-    try out.print(", p_data: T, p_options: struct { after: bool = false }) c_ulong ${\n", .{});
+    try out.print(", p_data: P_T, p_options: struct { after: bool = false }) c_ulong ${\n", .{});
     try out.print("return gobject.signalConnectData(p_self.as(gobject.Object), $S, @ptrCast(gobject.Callback, p_callback), p_data, null, .{ .after = p_options.after });\n", .{signal.name});
     try out.print("$}\n\n", .{});
 }
@@ -1079,7 +1079,7 @@ fn translateSignalCallbackType(allocator: Allocator, signal: gir.Signal, ctx: Tr
         .self_type = "Self",
         .gobject_context = true,
     }, ctx, out);
-    try out.print(", T) callconv(.C) ", .{});
+    try out.print(", P_T) callconv(.C) ", .{});
     try translateReturnValue(allocator, signal.return_value, .{ .gobject_context = true }, ctx, out);
 }
 

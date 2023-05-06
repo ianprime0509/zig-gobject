@@ -78,8 +78,7 @@ const modules = [_][]const u8{
     "gudev-1.0",
     "handy-1",
     "harfbuzz-0.0",
-    // TODO: name conflicts with T
-    // "ibus-1.0",
+    "ibus-1.0",
     // TODO: name conflicts with Class
     // "javascriptcore-4.1",
     // TODO: name conflicts with Class
