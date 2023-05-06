@@ -10,12 +10,12 @@ const mem = std.mem;
 const testing = std.testing;
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
+const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const ArenaAllocator = heap.ArenaAllocator;
 const AutoHashMapUnmanaged = std.AutoHashMapUnmanaged;
 const ComptimeStringMap = std.ComptimeStringMap;
-const HashMap = std.HashMap;
-const StringArrayHashMap = std.StringArrayHashMap;
-const StringHashMap = std.StringHashMap;
+const HashMapUnmanaged = std.HashMapUnmanaged;
+const StringArrayHashMapUnmanaged = std.StringArrayHashMapUnmanaged;
 const StringHashMapUnmanaged = std.StringHashMapUnmanaged;
 
 const gir = @import("gir.zig");
@@ -37,31 +37,35 @@ pub const FindError = error{InvalidGir} || Allocator.Error || fs.File.OpenError 
 
 // Finds and parses all repositories for the given root libraries, transitively
 // including dependencies.
-pub fn findRepositories(allocator: Allocator, in_dir: fs.Dir, roots: []const []const u8) FindError!Repositories {
-    var arena = ArenaAllocator.init(allocator);
-    const a = arena.allocator();
+pub fn findRepositories(parent_allocator: Allocator, in_dir: fs.Dir, roots: []const []const u8) FindError!Repositories {
+    var arena = ArenaAllocator.init(parent_allocator);
+    const allocator = arena.allocator();
 
-    var repos = StringHashMap(gir.Repository).init(a);
-    defer repos.deinit();
-    var needed_repos = ArrayList([]const u8).init(a);
-    try needed_repos.appendSlice(roots);
+    var repos = StringHashMapUnmanaged(gir.Repository){};
+    defer repos.deinit(allocator);
+    var needed_repos = ArrayListUnmanaged([]const u8){};
+    defer {
+        for (needed_repos.items) |repo| allocator.free(repo);
+        needed_repos.deinit(allocator);
+    }
+    try needed_repos.appendSlice(allocator, roots);
     while (needed_repos.popOrNull()) |needed_repo| {
         if (!repos.contains(needed_repo)) {
-            const repo = try findRepository(a, in_dir, needed_repo);
-            try repos.put(needed_repo, repo);
+            const repo = try findRepository(allocator, in_dir, needed_repo);
+            try repos.put(allocator, needed_repo, repo);
             for (repo.includes) |include| {
-                try needed_repos.append(try fmt.allocPrint(a, "{s}-{s}", .{ include.name, include.version }));
+                try needed_repos.append(allocator, try fmt.allocPrint(allocator, "{s}-{s}", .{ include.name, include.version }));
             }
         }
     }
 
-    var repos_list = ArrayList(gir.Repository).init(a);
+    var repos_list = ArrayListUnmanaged(gir.Repository){};
     var repos_iter = repos.valueIterator();
     while (repos_iter.next()) |repo| {
-        try repos_list.append(repo.*);
+        try repos_list.append(allocator, repo.*);
     }
 
-    return .{ .repositories = repos_list.items, .arena = arena };
+    return .{ .repositories = try repos_list.toOwnedSlice(allocator), .arena = arena };
 }
 
 fn findRepository(allocator: Allocator, input_dir: fs.Dir, name: []const u8) !gir.Repository {
@@ -77,7 +81,8 @@ pub const TranslateError = Allocator.Error || fs.File.OpenError || fs.File.Write
     NotSupported,
 };
 
-const RepositoryMap = HashMap(gir.Include, gir.Repository, IncludeContext, std.hash_map.default_max_load_percentage);
+const RepositoryMap = HashMapUnmanaged(gir.Include, gir.Repository, IncludeContext, std.hash_map.default_max_load_percentage);
+const RepositorySet = HashMapUnmanaged(gir.Include, void, IncludeContext, std.hash_map.default_max_load_percentage);
 const IncludeContext = struct {
     pub fn hash(_: IncludeContext, value: gir.Include) u64 {
         var hasher = std.hash.Wyhash.init(0);
@@ -108,17 +113,17 @@ const TranslationContext = struct {
 
     fn addRepositoryAndDependencies(self: *TranslationContext, repository: gir.Repository, repository_map: RepositoryMap) !void {
         const allocator = self.arena.allocator();
-        var seen = HashMap(gir.Include, void, IncludeContext, std.hash_map.default_max_load_percentage).init(allocator);
-        defer seen.deinit();
-        var needed_deps = ArrayList(gir.Include).init(allocator);
-        defer needed_deps.deinit();
-        try needed_deps.append(.{ .name = repository.namespace.name, .version = repository.namespace.version });
+        var seen = RepositorySet{};
+        defer seen.deinit(allocator);
+        var needed_deps = ArrayListUnmanaged(gir.Include){};
+        defer needed_deps.deinit(allocator);
+        try needed_deps.append(allocator, .{ .name = repository.namespace.name, .version = repository.namespace.version });
         while (needed_deps.popOrNull()) |needed_dep| {
             if (!seen.contains(needed_dep)) {
-                try seen.put(needed_dep, {});
+                try seen.put(allocator, needed_dep, {});
                 if (repository_map.get(needed_dep)) |dep_repo| {
                     try self.addRepository(dep_repo);
-                    try needed_deps.appendSlice(dep_repo.includes);
+                    try needed_deps.appendSlice(allocator, dep_repo.includes);
                 }
             }
         }
@@ -174,10 +179,10 @@ const TranslationContext = struct {
 pub fn translate(repositories: *Repositories, extras_dir: fs.Dir, out_dir: fs.Dir) TranslateError!void {
     const allocator = repositories.arena.allocator();
 
-    var repository_map = RepositoryMap.init(allocator);
-    defer repository_map.deinit();
+    var repository_map = RepositoryMap{};
+    defer repository_map.deinit(allocator);
     for (repositories.repositories) |repo| {
-        try repository_map.put(.{ .name = repo.namespace.name, .version = repo.namespace.version }, repo);
+        try repository_map.put(allocator, .{ .name = repo.namespace.name, .version = repo.namespace.version }, repo);
     }
 
     for (repositories.repositories) |repo| {
@@ -246,12 +251,12 @@ fn translateIncludes(allocator: Allocator, ns: gir.Namespace, repository_map: Re
     // std is needed for std.builtin.VaList
     try out.print("const std = @import(\"std\");\n", .{});
 
-    var seen = HashMap(gir.Include, void, IncludeContext, std.hash_map.default_max_load_percentage).init(allocator);
-    defer seen.deinit();
-    var needed_deps = ArrayList(gir.Include).init(allocator);
-    defer needed_deps.deinit();
+    var seen = RepositorySet{};
+    defer seen.deinit(allocator);
+    var needed_deps = ArrayListUnmanaged(gir.Include){};
+    defer needed_deps.deinit(allocator);
     if (repository_map.get(.{ .name = ns.name, .version = ns.version })) |dep_repo| {
-        try needed_deps.appendSlice(dep_repo.includes);
+        try needed_deps.appendSlice(allocator, dep_repo.includes);
     }
     while (needed_deps.popOrNull()) |needed_dep| {
         if (!seen.contains(needed_dep)) {
@@ -261,9 +266,9 @@ fn translateIncludes(allocator: Allocator, ns: gir.Namespace, repository_map: Re
             defer allocator.free(alias);
             try out.print("const $I = @import($S);\n", .{ alias, module_name });
 
-            try seen.put(needed_dep, {});
+            try seen.put(allocator, needed_dep, {});
             if (repository_map.get(needed_dep)) |dep_repo| {
-                try needed_deps.appendSlice(dep_repo.includes);
+                try needed_deps.appendSlice(allocator, dep_repo.includes);
             }
         }
     }
@@ -842,13 +847,13 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: Transla
     // also need to keep track of duplicate members, since GstVideo-1.0 has
     // multiple members with the same name :thinking:
     // https://gitlab.gnome.org/GNOME/gobject-introspection/-/issues/264
-    var seen = StringHashMap(void).init(allocator);
-    defer seen.deinit();
+    var seen = StringHashMapUnmanaged(void){};
+    defer seen.deinit(allocator);
     for (bit_field.members) |member| {
         if (!seen.contains(member.name)) {
             try out.print("const $I = @bitCast(Self, @as($L, $L));\n", .{ member.name, backing_int, member.value });
         }
-        try seen.put(member.name, {});
+        try seen.put(allocator, member.name, {});
     }
 
     try out.print("\npub const Own = struct${\n", .{});
@@ -879,14 +884,14 @@ fn translateEnum(allocator: Allocator, @"enum": gir.Enum, ctx: TranslationContex
     // "base" value
     var seen_values = AutoHashMapUnmanaged(i65, gir.Member){};
     defer seen_values.deinit(allocator);
-    var duplicate_members = ArrayList(gir.Member).init(allocator);
-    defer duplicate_members.deinit();
+    var duplicate_members = ArrayListUnmanaged(gir.Member){};
+    defer duplicate_members.deinit(allocator);
     for (@"enum".members) |member| {
         if (seen_values.get(member.value) == null) {
             try out.print("$I = $L,\n", .{ member.name, member.value });
             try seen_values.put(allocator, member.value, member);
         } else {
-            try duplicate_members.append(member);
+            try duplicate_members.append(allocator, member);
         }
     }
 
@@ -947,7 +952,9 @@ fn translateFunction(allocator: Allocator, function: gir.Function, options: Tran
         .throws = function.throws,
     }, ctx, out);
     try out.print(") ", .{});
-    try translateReturnValue(allocator, function.return_value, .{ .force_nullable = function.throws }, ctx, out);
+    try translateReturnValue(allocator, function.return_value, .{
+        .force_nullable = function.throws and anyTypeIsPointer(function.return_value.type, false, ctx),
+    }, ctx, out);
     try out.print(";\n", .{});
 
     // function rename
@@ -1022,7 +1029,9 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
         .throws = virtual_method.throws,
     }, ctx, out);
     try out.print(") ", .{});
-    try translateReturnValue(allocator, virtual_method.return_value, .{ .force_nullable = virtual_method.throws }, ctx, out);
+    try translateReturnValue(allocator, virtual_method.return_value, .{
+        .force_nullable = virtual_method.throws and anyTypeIsPointer(virtual_method.return_value.type, false, ctx),
+    }, ctx, out);
     try out.print(" ${\n", .{});
     try out.print("return @ptrCast(*$I, @alignCast(@alignOf(*$I), p_class)).$I.?(", .{ container_type, container_type, virtual_method.name });
     try translateParameterNames(allocator, virtual_method.parameters, .{ .throws = virtual_method.throws }, out);
@@ -1037,7 +1046,9 @@ fn translateVirtualMethodImplementationType(allocator: Allocator, virtual_method
         .throws = virtual_method.throws,
     }, ctx, out);
     try out.print(") callconv(.C) ", .{});
-    try translateReturnValue(allocator, virtual_method.return_value, .{ .force_nullable = virtual_method.throws }, ctx, out);
+    try translateReturnValue(allocator, virtual_method.return_value, .{
+        .force_nullable = virtual_method.throws and anyTypeIsPointer(virtual_method.return_value.type, false, ctx),
+    }, ctx, out);
 }
 
 fn translateSignal(allocator: Allocator, signal: gir.Signal, ctx: TranslationContext, out: anytype) !void {
@@ -1731,6 +1742,13 @@ fn testTranslateArrayType(expected: []const u8, @"type": gir.ArrayType, options:
     try testing.expectEqual(options.is_pointer orelse zigTypeIsPointer(expected), arrayTypeIsPointer(@"type", options.gobject_context, ctx));
 }
 
+fn anyTypeIsPointer(@"type": gir.AnyType, gobject_context: bool, ctx: TranslationContext) bool {
+    return switch (@"type") {
+        .simple => |simple_type| typeIsPointer(simple_type, gobject_context, ctx),
+        .array => |array_type| arrayTypeIsPointer(array_type, gobject_context, ctx),
+    };
+}
+
 fn zigTypeIsPointer(expected: []const u8) bool {
     return mem.startsWith(u8, expected, "*") or
         mem.startsWith(u8, expected, "?*") or
@@ -1822,10 +1840,16 @@ fn translateParameters(allocator: Allocator, parameters: []const gir.Parameter, 
         // TODO: GIR is pretty bad about using these attributes correctly, so we might want some extra checks
         // See https://gitlab.gnome.org/GNOME/gobject-introspection/-/issues/285
         if (parameter.closure) |closure| {
-            try force_nullable.put(allocator, closure + param_offset, {});
+            const idx = closure + param_offset;
+            if (idx < parameters.len and parameterTypeIsPointer(parameters[idx].type, options.gobject_context, ctx)) {
+                try force_nullable.put(allocator, closure + param_offset, {});
+            }
         }
         if (parameter.destroy) |destroy| {
-            try force_nullable.put(allocator, destroy + param_offset, {});
+            const idx = destroy + param_offset;
+            if (idx < parameters.len and parameterTypeIsPointer(parameters[idx].type, options.gobject_context, ctx)) {
+                try force_nullable.put(allocator, destroy + param_offset, {});
+            }
         }
     }
 
@@ -1872,16 +1896,24 @@ fn translateParameter(allocator: Allocator, parameter: gir.Parameter, options: T
                 .c_type = simple_type.c_type,
             } else simple_type;
             try translateType(allocator, effective_type, .{
-                .nullable = parameter.isNullable() or (options.force_nullable and typeIsPointer(simple_type, options.gobject_context, ctx)),
+                .nullable = options.force_nullable or parameter.isNullable(),
                 .gobject_context = options.gobject_context,
             }, ctx, out);
         },
         .array => |array_type| try translateArrayType(allocator, array_type, .{
-            .nullable = parameter.isNullable() or (options.force_nullable and arrayTypeIsPointer(array_type, options.gobject_context, ctx)),
+            .nullable = options.force_nullable or parameter.isNullable(),
             .gobject_context = options.gobject_context,
         }, ctx, out),
         .varargs => unreachable, // handled above
     }
+}
+
+fn parameterTypeIsPointer(@"type": gir.ParameterType, gobject_context: bool, ctx: TranslationContext) bool {
+    return switch (@"type") {
+        .simple => |simple_type| typeIsPointer(simple_type, gobject_context, ctx),
+        .array => |array_type| arrayTypeIsPointer(array_type, gobject_context, ctx),
+        .varargs => false,
+    };
 }
 
 const TranslateParameterNamesOptions = struct {
@@ -1918,11 +1950,11 @@ const TranslateReturnValueOptions = struct {
 fn translateReturnValue(allocator: Allocator, return_value: gir.ReturnValue, options: TranslateReturnValueOptions, ctx: TranslationContext, out: anytype) !void {
     switch (return_value.type) {
         .simple => |simple_type| try translateType(allocator, simple_type, .{
-            .nullable = return_value.isNullable() or (options.force_nullable and typeIsPointer(simple_type, options.gobject_context, ctx)),
+            .nullable = options.force_nullable or return_value.isNullable(),
             .gobject_context = options.gobject_context,
         }, ctx, out),
         .array => |array_type| try translateArrayType(allocator, array_type, .{
-            .nullable = return_value.isNullable() or (options.force_nullable and arrayTypeIsPointer(array_type, options.gobject_context, ctx)),
+            .nullable = options.force_nullable or return_value.isNullable(),
             .gobject_context = options.gobject_context,
         }, ctx, out),
     }
@@ -1951,20 +1983,41 @@ fn translateNameNs(allocator: Allocator, nameNs: ?[]const u8, out: anytype) !voi
 }
 
 fn toCamelCase(allocator: Allocator, name: []const u8, word_sep: []const u8) ![]u8 {
-    var out = ArrayList(u8).init(allocator);
+    var out = ArrayListUnmanaged(u8){};
+    try out.ensureTotalCapacity(allocator, name.len);
     var words = mem.split(u8, name, word_sep);
     var i: usize = 0;
-    while (words.next()) |word| : (i += 1) {
+    while (words.next()) |word| {
         if (word.len > 0) {
             if (i == 0) {
-                try out.appendSlice(word);
+                out.appendSliceAssumeCapacity(word);
             } else {
-                try out.append(ascii.toUpper(word[0]));
-                try out.appendSlice(word[1..]);
+                out.appendAssumeCapacity(ascii.toUpper(word[0]));
+                out.appendSliceAssumeCapacity(word[1..]);
             }
+            i += 1;
+        } else if (i == 0) {
+            out.appendSliceAssumeCapacity("_");
         }
     }
-    return out.toOwnedSlice();
+    return try out.toOwnedSlice(allocator);
+}
+
+test "toCamelCase" {
+    try testToCamelCase("hello", "hello", "-");
+    try testToCamelCase("hello", "hello", "_");
+    try testToCamelCase("helloWorld", "hello_world", "_");
+    try testToCamelCase("helloWorld", "hello-world", "-");
+    try testToCamelCase("helloWorldManyWords", "hello-world-many-words", "-");
+    try testToCamelCase("helloWorldManyWords", "hello_world_many_words", "_");
+    try testToCamelCase("__hidden", "__hidden", "-");
+    try testToCamelCase("__hidden", "__hidden", "_");
+}
+
+fn testToCamelCase(expected: []const u8, input: []const u8, word_sep: []const u8) !void {
+    const actual = try toCamelCase(testing.allocator, input, word_sep);
+    defer testing.allocator.free(actual);
+    try testing.expectEqualStrings(expected, actual);
 }
 
 pub const CreateBuildFileError = Allocator.Error || fs.File.OpenError || fs.File.WriteError || error{
@@ -1975,10 +2028,10 @@ pub const CreateBuildFileError = Allocator.Error || fs.File.OpenError || fs.File
 pub fn createBuildFile(repositories: *Repositories, out_dir: fs.Dir) !void {
     const allocator = repositories.arena.allocator();
 
-    var repository_map = RepositoryMap.init(allocator);
-    defer repository_map.deinit();
+    var repository_map = RepositoryMap{};
+    defer repository_map.deinit(allocator);
     for (repositories.repositories) |repo| {
-        try repository_map.put(.{ .name = repo.namespace.name, .version = repo.namespace.version }, repo);
+        try repository_map.put(allocator, .{ .name = repo.namespace.name, .version = repo.namespace.version }, repo);
     }
 
     const file = try out_dir.createFile("build.zig", .{});
@@ -2009,12 +2062,12 @@ pub fn createBuildFile(repositories: *Repositories, out_dir: fs.Dir) !void {
         const module_name = try moduleNameAlloc(allocator, repo.namespace.name, repo.namespace.version);
         defer allocator.free(module_name);
 
-        var seen = HashMap(gir.Include, void, IncludeContext, std.hash_map.default_max_load_percentage).init(allocator);
-        defer seen.deinit();
-        var needed_deps = ArrayList(gir.Include).init(allocator);
-        defer needed_deps.deinit();
+        var seen = RepositorySet{};
+        defer seen.deinit(allocator);
+        var needed_deps = ArrayListUnmanaged(gir.Include){};
+        defer needed_deps.deinit(allocator);
         if (repository_map.get(.{ .name = repo.namespace.name, .version = repo.namespace.version })) |dep_repo| {
-            try needed_deps.appendSlice(dep_repo.includes);
+            try needed_deps.appendSlice(allocator, dep_repo.includes);
         }
         while (needed_deps.popOrNull()) |needed_dep| {
             if (!seen.contains(needed_dep)) {
@@ -2024,9 +2077,9 @@ pub fn createBuildFile(repositories: *Repositories, out_dir: fs.Dir) !void {
                 defer allocator.free(alias);
                 try out.print("try $I.dependencies.put($S, $I);\n", .{ module_name, dep_module_name, dep_module_name });
 
-                try seen.put(needed_dep, {});
+                try seen.put(allocator, needed_dep, {});
                 if (repository_map.get(needed_dep)) |dep_repo| {
-                    try needed_deps.appendSlice(dep_repo.includes);
+                    try needed_deps.appendSlice(allocator, dep_repo.includes);
                 }
             }
         }
