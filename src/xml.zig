@@ -2,8 +2,12 @@ const std = @import("std");
 const c = @import("c.zig");
 const Allocator = std.mem.Allocator;
 
+pub fn parseBytes(bytes: []const u8, url: [:0]const u8) !*c.xmlDoc {
+    return c.xmlReadMemory(bytes.ptr, @intCast(c_int, bytes.len), url, null, 0) orelse return error.InvalidXml;
+}
+
 pub fn parseFile(file: [:0]const u8) !*c.xmlDoc {
-    return c.xmlParseFile(file.ptr) orelse return error.InvalidXml;
+    return c.xmlReadFile(file.ptr, null, 0) orelse return error.InvalidXml;
 }
 
 pub fn nodeIs(node: *const c.xmlNode, ns_name: ?[:0]const u8, local_name: [:0]const u8) bool {

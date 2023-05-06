@@ -1,5 +1,6 @@
 const std = @import("std");
 const libxml2 = @import("lib/zig-libxml2/libxml2.zig");
+const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
@@ -168,6 +169,10 @@ fn addCodegenStep(b: *std.Build, codegen_exe: *std.Build.CompileStep) !*std.Buil
         "xrandr-1.3.gir",
     };
 
+    const gir_overrides = [_][]const u8{
+        "freetype2-2.0.gir",
+    };
+
     const extras = [_][]const u8{
         "cairo-1.0.extras.zig",
         "glib-2.0.extras.zig",
@@ -182,11 +187,19 @@ fn addCodegenStep(b: *std.Build, codegen_exe: *std.Build.CompileStep) !*std.Buil
         try repo_names.append(file[0 .. file.len - ".gir".len]);
         try file_deps.append(try b.build_root.join(b.allocator, &.{ "lib", "gir-files", file }));
     }
+    for (gir_overrides) |file| {
+        try file_deps.append(try b.build_root.join(b.allocator, &.{ "gir-overrides", file }));
+    }
     for (extras) |file| {
         try file_deps.append(try b.build_root.join(b.allocator, &.{ "extras", file }));
     }
     codegen_cmd.extra_file_dependencies = file_deps.items;
-    codegen_cmd.addArg(try b.build_root.join(b.allocator, &.{ "lib", "gir-files" }));
+
+    var search_path = ArrayListUnmanaged(u8){};
+    try search_path.appendSlice(b.allocator, try b.build_root.join(b.allocator, &.{"gir-overrides"}));
+    try search_path.append(b.allocator, std.fs.path.delimiter);
+    try search_path.appendSlice(b.allocator, try b.build_root.join(b.allocator, &.{ "lib", "gir-files" }));
+    codegen_cmd.addArg(search_path.items);
     codegen_cmd.addArg(try b.build_root.join(b.allocator, &.{"extras"}));
     codegen_cmd.addArg(try b.build_root.join(b.allocator, &.{"bindings"}));
     codegen_cmd.addArgs(repo_names.items);

@@ -29,15 +29,16 @@ pub const Repositories = struct {
     }
 };
 
-pub const FindError = error{InvalidGir} || Allocator.Error || fs.File.OpenError || error{
+pub const FindError = error{ InvalidGir, RepositoryNotFound } || Allocator.Error || fs.File.OpenError || fs.File.ReadError || error{
     FileSystem,
     InputOutput,
     NotSupported,
+    Unseekable,
 };
 
 // Finds and parses all repositories for the given root libraries, transitively
 // including dependencies.
-pub fn findRepositories(parent_allocator: Allocator, in_dir: fs.Dir, roots: []const []const u8) FindError!Repositories {
+pub fn findRepositories(parent_allocator: Allocator, search_path: []const fs.Dir, roots: []const []const u8) FindError!Repositories {
     var arena = ArenaAllocator.init(parent_allocator);
     const allocator = arena.allocator();
 
@@ -51,7 +52,7 @@ pub fn findRepositories(parent_allocator: Allocator, in_dir: fs.Dir, roots: []co
     try needed_repos.appendSlice(allocator, roots);
     while (needed_repos.popOrNull()) |needed_repo| {
         if (!repos.contains(needed_repo)) {
-            const repo = try findRepository(allocator, in_dir, needed_repo);
+            const repo = try findRepository(allocator, search_path, needed_repo);
             try repos.put(allocator, needed_repo, repo);
             for (repo.includes) |include| {
                 try needed_repos.append(allocator, try fmt.allocPrint(allocator, "{s}-{s}", .{ include.name, include.version }));
@@ -68,12 +69,19 @@ pub fn findRepositories(parent_allocator: Allocator, in_dir: fs.Dir, roots: []co
     return .{ .repositories = try repos_list.toOwnedSlice(allocator), .arena = arena };
 }
 
-fn findRepository(allocator: Allocator, input_dir: fs.Dir, name: []const u8) !gir.Repository {
-    const repo_path = try fmt.allocPrint(allocator, "{s}.gir", .{name});
+fn findRepository(allocator: Allocator, search_path: []const fs.Dir, name: []const u8) !gir.Repository {
+    const repo_path = try fmt.allocPrintZ(allocator, "{s}.gir", .{name});
     defer allocator.free(repo_path);
-    const path = try realpathAllocZ(allocator, input_dir, repo_path);
-    defer allocator.free(path);
-    return try gir.Repository.parseFile(allocator, path);
+    for (search_path) |dir| {
+        const data = dir.readFileAlloc(allocator, repo_path, math.maxInt(usize)) catch |err| switch (err) {
+            error.FileTooBig => unreachable,
+            error.FileNotFound => continue,
+            else => return err,
+        };
+        defer allocator.free(data);
+        return try gir.Repository.parseBytes(allocator, data, repo_path);
+    }
+    return error.RepositoryNotFound;
 }
 
 pub const TranslateError = Allocator.Error || fs.File.OpenError || fs.File.WriteError || fs.Dir.CopyFileError || error{
@@ -211,12 +219,6 @@ fn extrasFileNameAlloc(allocator: Allocator, name: []const u8, version: []const 
     const file_name = try fmt.allocPrint(allocator, "{s}-{s}.extras.zig", .{ name, version });
     _ = ascii.lowerString(file_name, file_name);
     return file_name;
-}
-
-fn realpathAllocZ(allocator: Allocator, dir: fs.Dir, name: []const u8) ![:0]u8 {
-    const path = try dir.realpathAlloc(allocator, name);
-    defer allocator.free(path);
-    return try allocator.dupeZ(u8, path);
 }
 
 fn translateRepository(allocator: Allocator, repo: gir.Repository, maybe_extras_path: ?[]const u8, repository_map: RepositoryMap, ctx: TranslationContext, out_dir: fs.Dir) !void {
@@ -1102,28 +1104,20 @@ const builtins = ComptimeStringMap([]const u8, .{
     .{ "unsigned char", "u8" },
     .{ "guchar", "u8" },
     .{ "int8_t", "i8" },
-    .{ "int8", "i8" },
     .{ "gint8", "i8" },
     .{ "uint8_t", "u8" },
-    .{ "uint8", "u8" },
     .{ "guint8", "u8" },
     .{ "int16_t", "i16" },
-    .{ "int16", "i16" },
     .{ "gint16", "i16" },
     .{ "uint16_t", "u16" },
-    .{ "uint16", "u16" },
     .{ "guint16", "u16" },
     .{ "int32_t", "i32" },
-    .{ "int32", "i32" },
     .{ "gint32", "i32" },
     .{ "uint32_t", "u32" },
-    .{ "uint32", "u32" },
     .{ "guint32", "u32" },
     .{ "int64_t", "i64" },
-    .{ "int64", "i64" },
     .{ "gint64", "i64" },
     .{ "uint64_t", "u64" },
-    .{ "uint64", "u64" },
     .{ "guint64", "u64" },
     .{ "short", "c_short" },
     .{ "gshort", "c_short" },
@@ -1345,7 +1339,6 @@ test "translateType" {
     try testTranslateType("i8", .{ .name = .{ .ns = null, .local = "gint8" }, .c_type = "int8_t" }, .{});
     try testTranslateType("u8", .{ .name = .{ .ns = null, .local = "guint8" }, .c_type = "guint8" }, .{});
     try testTranslateType("u8", .{ .name = .{ .ns = null, .local = "guint8" }, .c_type = "uint8_t" }, .{});
-    try testTranslateType("i32", .{ .name = .{ .ns = null, .local = "int32" }, .c_type = null }, .{});
     try testTranslateType("i16", .{ .name = .{ .ns = null, .local = "gint16" }, .c_type = "gint16" }, .{});
     try testTranslateType("i16", .{ .name = .{ .ns = null, .local = "gint16" }, .c_type = "int16_t" }, .{});
     try testTranslateType("u16", .{ .name = .{ .ns = null, .local = "guint16" }, .c_type = "guint16" }, .{});

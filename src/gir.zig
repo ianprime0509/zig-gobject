@@ -23,6 +23,12 @@ pub const Repository = struct {
     namespace: Namespace,
     arena: ArenaAllocator,
 
+    pub fn parseBytes(allocator: Allocator, bytes: []const u8, url: [:0]const u8) Error!Repository {
+        const doc = xml.parseBytes(bytes, url) catch return error.InvalidGir;
+        defer c.xmlFreeDoc(doc);
+        return try parseDoc(allocator, doc);
+    }
+
     pub fn parseFile(allocator: Allocator, file: [:0]const u8) Error!Repository {
         const doc = xml.parseFile(file) catch return error.InvalidGir;
         defer c.xmlFreeDoc(doc);
@@ -1320,16 +1326,6 @@ const builtin_names = ComptimeStringMap(void, .{
     .{ "gconstpointer", {} },
     .{ "utf8", {} },
     .{ "filename", {} },
-    // Only int32 has been observed in the wild so far (in freetype-2.0); the
-    // others are extrapolated
-    .{ "int8", {} },
-    .{ "uint8", {} },
-    .{ "int16", {} },
-    .{ "uint16", {} },
-    .{ "int32", {} },
-    .{ "uint32", {} },
-    .{ "int64", {} },
-    .{ "uint64", {} },
 });
 
 pub const Name = struct {
