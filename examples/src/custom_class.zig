@@ -10,7 +10,9 @@ const ExampleApplication = extern struct {
     pub const Parent = gtk.Application;
     const Self = @This();
 
-    pub const getType = gobject.defineType(Self, .{});
+    pub const getType = gobject.defineType(Self, .{
+        .classInit = &Class.init,
+    });
 
     pub fn new() *Self {
         return Self.newWith(.{
@@ -31,7 +33,7 @@ const ExampleApplication = extern struct {
 
         pub const Instance = Self;
 
-        pub fn init(self: *Class) callconv(.C) void {
+        fn init(self: *Class) callconv(.C) void {
             self.implementActivate(&ExampleApplication.activateImpl);
         }
 
@@ -79,19 +81,23 @@ const ExampleApplicationWindow = extern struct {
     pub const Parent = gtk.ApplicationWindow;
     const Self = @This();
 
-    pub const Private = struct {
+    const Private = struct {
         button: *ExampleButton,
 
-        pub var offset: c_int = 0;
+        var offset: c_int = 0;
     };
 
-    pub const getType = gobject.defineType(Self, .{});
+    pub const getType = gobject.defineType(Self, .{
+        .instanceInit = &init,
+        .classInit = &Class.init,
+        .private = .{ .Type = Private, .offset = &Private.offset },
+    });
 
     pub fn new(app: *ExampleApplication) *Self {
         return Self.newWith(.{ .application = app });
     }
 
-    pub fn init(self: *Self, _: *Class) callconv(.C) void {
+    fn init(self: *Self, _: *Class) callconv(.C) void {
         self.initTemplate();
 
         _ = self.private().button.connectCounterIncremented(?*anyopaque, &handleIncremented, null, .{});
@@ -101,6 +107,10 @@ const ExampleApplicationWindow = extern struct {
         std.debug.print("New button value: {}\n", .{new_value});
     }
 
+    fn private(self: *Self) *Private {
+        return gobject.impl_helpers.getPrivate(self, Private, Private.offset);
+    }
+
     pub usingnamespace Parent.Methods(Self);
 
     pub const Class = extern struct {
@@ -108,12 +118,16 @@ const ExampleApplicationWindow = extern struct {
 
         pub const Instance = Self;
 
-        pub fn init(self: *Class) callconv(.C) void {
+        fn init(self: *Class) callconv(.C) void {
             // Ensure the ExampleButton type is registered before handling the
             // template
             _ = ExampleButton.getType();
             self.setTemplateFromSlice(template);
-            self.bindTemplateChild("button", .{ .private = true });
+            self.bindTemplateChildPrivate("button", .{});
+        }
+
+        fn bindTemplateChildPrivate(self: *Class, comptime name: [:0]const u8, comptime options: gtk.BindTemplateChildOptions) void {
+            gtk.impl_helpers.bindTemplateChildPrivate(self, name, Private, Private.offset, options);
         }
 
         pub usingnamespace Parent.Class.Methods(Class);
@@ -127,18 +141,22 @@ const ExampleButton = extern struct {
     pub const Parent = gtk.Button;
     const Self = @This();
 
-    pub const Private = struct {
+    const Private = struct {
         counter: c_uint,
 
-        pub var offset: c_int = 0;
+        var offset: c_int = 0;
     };
 
-    pub const getType = gobject.defineType(Self, .{});
+    pub const getType = gobject.defineType(Self, .{
+        .instanceInit = &init,
+        .classInit = &Class.init,
+        .private = .{ .Type = Private, .offset = &Private.offset },
+    });
 
     const counter_incremented = gobject.defineSignal("counter-incremented", *Self, &.{c_uint}, void);
     pub const connectCounterIncremented = counter_incremented.connect;
 
-    pub fn init(self: *Self, _: *Class) callconv(.C) void {
+    fn init(self: *Self, _: *Class) callconv(.C) void {
         _ = self.connectClicked(?*anyopaque, &handleClicked, null, .{});
 
         self.updateLabel();
@@ -155,6 +173,10 @@ const ExampleButton = extern struct {
         self.setLabel(std.fmt.bufPrintZ(&buf, "Clicked: {}", .{self.private().counter}) catch unreachable);
     }
 
+    fn private(self: *Self) *Private {
+        return gobject.impl_helpers.getPrivate(self, Private, Private.offset);
+    }
+
     pub usingnamespace Parent.Methods(Self);
 
     pub const Class = extern struct {
@@ -162,7 +184,7 @@ const ExampleButton = extern struct {
 
         pub const Instance = Self;
 
-        pub fn init(_: *Class) callconv(.C) void {
+        fn init(_: *Class) callconv(.C) void {
             counter_incremented.register(.{});
         }
 

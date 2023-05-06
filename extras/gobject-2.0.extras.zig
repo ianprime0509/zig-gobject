@@ -67,10 +67,22 @@ pub const namespace = struct {
         }
     }
 
-    pub const RegisterTypeOptions = struct {
-        name: ?[:0]const u8 = null,
-        flags: gobject.TypeFlags = .{},
-    };
+    pub fn DefineTypeOptions(comptime Self: type) type {
+        return struct {
+            name: ?[:0]const u8 = null,
+            flags: gobject.TypeFlags = .{},
+            baseInit: ?*const fn (*Self.Class) callconv(.C) void = null,
+            baseFinalize: ?*const fn (*Self.Class) callconv(.C) void = null,
+            classInit: ?*const fn (*Self.Class) callconv(.C) void = null,
+            classFinalize: ?*const fn (*Self.Class) callconv(.C) void = null,
+            instanceInit: ?*const fn (*Self, *Self.Class) callconv(.C) void = null,
+            parent_class: ?**Self.Parent.Class = null,
+            private: ?struct {
+                Type: type,
+                offset: *c_int,
+            } = null,
+        };
+    }
 
     /// Sets up a class type in the GObject type system, returning the associated
     /// `getType` function.
@@ -111,7 +123,7 @@ pub const namespace = struct {
     /// Self)`. This is not enforced by the type registration logic, and has no bearing
     /// on the validity of the type from a GObject perspective, but other helper methods
     /// may depend on base class methods being present.
-    pub fn defineType(comptime Self: type, comptime options: RegisterTypeOptions) fn () callconv(.C) gobject.Type {
+    pub fn defineType(comptime Self: type, comptime options: DefineTypeOptions(Self)) fn () callconv(.C) gobject.Type {
         const self_info = @typeInfo(Self);
         if (self_info != .Struct or self_info.Struct.layout != .Extern) {
             @compileError("an instance type must be an extern struct");
@@ -142,28 +154,6 @@ pub const namespace = struct {
             @compileError("the first field of the class struct must have type " ++ @typeName(Self.Parent.Class));
         }
 
-        if (@hasDecl(Self, "Private")) {
-            if (@typeInfo(Self.Private) != .Struct or !@hasDecl(Self.Private, "offset") or @TypeOf(Self.Private.offset) != c_int) {
-                @compileError("private type must be a struct with an offset declaration of type c_int to store the private data offset");
-            }
-        }
-
-        if (@hasDecl(Self.Class, "baseInit")) {
-            assertTypesEqual("Class.baseInit", fn (*Self.Class) callconv(.C) void, @TypeOf(Self.Class.baseInit));
-        }
-        if (@hasDecl(Self.Class, "baseFinalize")) {
-            assertTypesEqual("Class.baseFinalize", fn (*Self.Class) callconv(.C) void, @TypeOf(Self.Class.baseFinalize));
-        }
-        if (@hasDecl(Self.Class, "init")) {
-            assertTypesEqual("Class.init", fn (*Self.Class) callconv(.C) void, @TypeOf(Self.Class.init));
-        }
-        if (@hasDecl(Self.Class, "finalize")) {
-            assertTypesEqual("Class.finalize", fn (*Self.Class) callconv(.C) void, @TypeOf(Self.Class.finalize));
-        }
-        if (@hasDecl(Self, "init")) {
-            assertTypesEqual("init", fn (*Self, *Self.Class) callconv(.C) void, @TypeOf(Self.init));
-        }
-
         return struct {
             var registered_type: gobject.Type = 0;
 
@@ -171,27 +161,27 @@ pub const namespace = struct {
                 if (glib.Once.initEnter(&registered_type) != 0) {
                     const classInitFunc = struct {
                         fn classInit(class: *Self.Class) callconv(.C) void {
-                            if (@hasDecl(Self.Class, "parent")) {
-                                Self.Class.parent = @ptrCast(*Self.Parent.Class, @alignCast(@alignOf(*Self.Parent.Class), class.peekParent()));
+                            if (options.parent_class) |parent_class| {
+                                parent_class.* = @ptrCast(*Self.Parent.Class, @alignCast(@alignOf(*Self.Parent.Class), class.peekParent()));
                             }
-                            if (@hasDecl(Self, "Private")) {
-                                gobject.TypeClass.adjustPrivateOffset(class, &Self.Private.offset);
+                            if (options.private) |private| {
+                                gobject.TypeClass.adjustPrivateOffset(class, private.offset);
                             }
-                            if (@hasDecl(Self.Class, "init")) {
-                                Self.Class.init(class);
+                            if (options.classInit) |userClassInit| {
+                                userClassInit(class);
                             }
                         }
                     }.classInit;
                     const info = gobject.TypeInfo{
                         .class_size = @sizeOf(Self.Class),
-                        .base_init = if (@hasDecl(Self, "baseInit")) @ptrCast(gobject.BaseInitFunc, &Self.baseInit) else null,
-                        .base_finalize = if (@hasDecl(Self, "baseFinalize")) @ptrCast(gobject.BaseFinalizeFunc, &Self.baseFinalize) else null,
-                        .class_init = @ptrCast(gobject.ClassInitFunc, &classInitFunc),
-                        .class_finalize = if (@hasDecl(Self.Class, "finalize")) @ptrCast(gobject.ClassFinalizeFunc, &Self.Class.finalize) else null,
+                        .base_init = @ptrCast(?gobject.BaseInitFunc, options.baseInit),
+                        .base_finalize = @ptrCast(?gobject.BaseFinalizeFunc, options.baseFinalize),
+                        .class_init = @ptrCast(?gobject.ClassInitFunc, &classInitFunc),
+                        .class_finalize = @ptrCast(?gobject.ClassFinalizeFunc, options.classFinalize),
                         .class_data = null,
                         .instance_size = @sizeOf(Self),
                         .n_preallocs = 0,
-                        .instance_init = if (@hasDecl(Self, "init")) @ptrCast(gobject.InstanceInitFunc, &Self.init) else null,
+                        .instance_init = @ptrCast(?gobject.InstanceInitFunc, options.instanceInit),
                         .value_table = null,
                     };
                     const type_name = if (options.name) |name| name else blk: {
@@ -203,8 +193,8 @@ pub const namespace = struct {
                         break :blk self_name;
                     };
                     const type_id = gobject.typeRegisterStatic(Self.Parent.getType(), type_name, &info, options.flags);
-                    if (@hasDecl(Self, "Private")) {
-                        Self.Private.offset = gobject.typeAddInstancePrivate(type_id, @sizeOf(Self.Private));
+                    if (options.private) |private| {
+                        private.offset.* = gobject.typeAddInstancePrivate(type_id, @sizeOf(private.Type));
                     }
                     glib.Once.initLeave(&registered_type, type_id);
                 }
@@ -341,6 +331,21 @@ pub const namespace = struct {
             }
         };
     }
+
+    /// Implementation helpers not meant to be used outside implementations of
+    /// new classes.
+    pub const impl_helpers = struct {
+        /// Returns a pointer to the private data struct of the given instance.
+        ///
+        /// ```zig
+        /// fn private(self: *Self) *Private {
+        ///     return gobject.getPrivate(self, Private, Private.offset);
+        /// }
+        /// ```
+        pub fn getPrivate(self: *anyopaque, comptime Private: type, offset: c_int) *Private {
+            return @intToPtr(*Private, @ptrToInt(self) +% @bitCast(usize, @as(isize, offset)));
+        }
+    };
 };
 
 pub fn TypeInstanceMethods(comptime Self: type) type {
@@ -358,23 +363,6 @@ pub fn TypeInstanceMethods(comptime Self: type) type {
         /// Returns whether this is an instance of the given type or some sub-type.
         pub fn isA(self: *Self, comptime T: type) bool {
             return gobject.typeCheckInstanceIsA(self.castUnchecked(gobject.TypeInstance), gobject.typeFor(T));
-        }
-
-        /// Returns the offset of a private data field relative to the instance struct.
-        pub fn offsetOfPrivate(comptime field_name: []const u8) isize {
-            if (!@hasDecl(Self, "Private")) {
-                @compileError("no private data available for " ++ @typeName(Self));
-            }
-            return @as(isize, Self.Private.offset) + @offsetOf(Self.Private, field_name);
-        }
-
-        /// Returns the private data struct for this object.
-        pub fn private(self: *Self) *PrivateType(Self) {
-            return @intToPtr(*Self.Private, @ptrToInt(self) +% @bitCast(usize, @as(isize, Self.Private.offset)));
-        }
-
-        fn PrivateType(comptime T: type) type {
-            return if (@hasDecl(T, "Private")) T.Private else @compileError("no private data available for " ++ @typeName(T));
         }
     };
 }

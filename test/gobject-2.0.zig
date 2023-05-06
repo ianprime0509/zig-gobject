@@ -60,24 +60,31 @@ test "Object subclass" {
         pub const Parent = gobject.Object;
         const Self = @This();
 
-        pub const Private = struct {
+        const Private = struct {
             some_value: i32,
 
-            pub var offset: c_int = 0;
+            var offset: c_int = 0;
         };
 
-        pub const getType = gobject.defineType(Self, .{});
+        pub const getType = gobject.defineType(Self, .{
+            .instanceInit = &init,
+            .private = .{ .Type = Private, .offset = &Private.offset },
+        });
 
         pub fn new() *Self {
             return Self.newWith(.{});
         }
 
-        pub fn init(self: *Self, _: *Self.Class) callconv(.C) void {
+        fn init(self: *Self, _: *Self.Class) callconv(.C) void {
             self.private().some_value = 123;
         }
 
         pub fn getSomeValue(self: *Self) i32 {
             return self.private().some_value;
+        }
+
+        fn private(self: *Self) *Private {
+            return gobject.impl_helpers.getPrivate(self, Private, Private.offset);
         }
 
         pub usingnamespace Parent.Methods(Self);
