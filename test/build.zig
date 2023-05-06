@@ -79,10 +79,8 @@ const modules = [_][]const u8{
     "handy-1",
     "harfbuzz-0.0",
     "ibus-1.0",
-    // TODO: name conflicts with Class
-    // "javascriptcore-4.1",
-    // TODO: name conflicts with Class
-    // "javascriptcore-6.0",
+    "javascriptcore-4.1",
+    "javascriptcore-6.0",
     "json-1.0",
     "libxml2-2.0",
     "manette-0.2",
@@ -100,14 +98,12 @@ const modules = [_][]const u8{
     // TODO: can't find the package to install to link this
     // "tracker-3.0",
     "vulkan-1.0",
-    // TODO: can't translate until javascriptcore-4.1 is fixed
+    // TODO: "not enough type information available"
     // "webkit2-4.1",
-    // TODO: can't translate until javascriptcore-4.1 is fixed
+    // TODO: "not enough type information available"
     // "webkit2webextension-4.1",
-    // TODO: can't translate until javascriptcore-6.0 is fixed
-    // "webkit-6.0",
-    // TODO: can't translate until javascriptcore-6.0 is fixed
-    // "webkitwebprocessextension-6.0",
+    "webkit-6.0",
+    "webkitwebprocessextension-6.0",
     "win32-1.0",
     "xfixes-4.0",
     "xft-2.0",

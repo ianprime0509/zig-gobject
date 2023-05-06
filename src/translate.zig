@@ -324,7 +324,7 @@ fn translateNamespace(allocator: Allocator, ns: gir.Namespace, ctx: TranslationC
 
 fn translateAlias(allocator: Allocator, alias: gir.Alias, ctx: TranslationContext, out: anytype) !void {
     try translateDocumentation(alias.documentation, out);
-    try out.print("pub const $I = ", .{alias.name});
+    try out.print("pub const $I = ", .{escapeTypeName(alias.name)});
     try translateType(allocator, alias.type, .{}, ctx, out);
     try out.print(";\n\n", .{});
 }
@@ -332,7 +332,7 @@ fn translateAlias(allocator: Allocator, alias: gir.Alias, ctx: TranslationContex
 fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContext, out: anytype) !void {
     // class type
     try translateDocumentation(class.documentation, out);
-    try out.print("pub const $I = ", .{class.name});
+    try out.print("pub const $I = ", .{escapeTypeName(class.name)});
     if (class.final) {
         try out.print("opaque ${\n", .{});
     } else {
@@ -354,9 +354,9 @@ fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContex
     try out.print("};\n", .{});
 
     if (class.type_struct) |type_struct| {
-        try out.print("pub const Class = $I;\n", .{type_struct});
+        try out.print("pub const Class = $I;\n", .{escapeTypeName(type_struct)});
     }
-    try out.print("const Self = $I;\n\n", .{class.name});
+    try out.print("const _Self = @This();\n\n", .{});
 
     try translateLinearFields(allocator, class.fields, ctx, out);
     if (class.fields.len > 0) {
@@ -366,13 +366,13 @@ fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContex
     try out.print("pub const Own = struct${\n", .{});
     const get_type_function = class.getTypeFunction();
     if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
-        try translateFunction(allocator, get_type_function, .{ .self_type = "Self" }, ctx, out);
+        try translateFunction(allocator, get_type_function, .{ .self_type = "_Self" }, ctx, out);
     }
     for (class.functions) |function| {
-        try translateFunction(allocator, function, .{ .self_type = "Self" }, ctx, out);
+        try translateFunction(allocator, function, .{ .self_type = "_Self" }, ctx, out);
     }
     for (class.constructors) |constructor| {
-        try translateConstructor(allocator, constructor, .{ .self_type = "Self" }, ctx, out);
+        try translateConstructor(allocator, constructor, .{ .self_type = "_Self" }, ctx, out);
     }
     for (class.constants) |constant| {
         try translateConstant(constant, out);
@@ -390,21 +390,21 @@ fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContex
     try out.print("pub const ExtraMethods = $LExtraMethods;\n\n", .{class.name});
 
     try out.print("pub usingnamespace Own;\n", .{});
-    try out.print("pub usingnamespace Methods(Self);\n", .{});
+    try out.print("pub usingnamespace Methods(_Self);\n", .{});
     try out.print("pub usingnamespace Extras;\n", .{});
 
     try out.print("$};\n\n", .{});
 
     // methods mixins
-    try out.print("fn $LOwnMethods(comptime Self: type) type ${\n", .{class.name});
+    try out.print("fn $LOwnMethods(comptime _Self: type) type ${\n", .{class.name});
     try out.print(
-        \\const _i_dont_care_if_Self_is_unused = Self;
+        \\const _i_dont_care_if_Self_is_unused = _Self;
         \\_ = _i_dont_care_if_Self_is_unused;
         \\
     , .{});
     try out.print("return struct${\n", .{});
     for (class.methods) |method| {
-        try translateMethod(allocator, method, .{ .self_type = "Self" }, ctx, out);
+        try translateMethod(allocator, method, .{ .self_type = "_Self" }, ctx, out);
     }
     for (class.signals) |signal| {
         try translateSignal(allocator, signal, ctx, out);
@@ -412,52 +412,52 @@ fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContex
     try out.print("$};\n", .{});
     try out.print("$}\n\n", .{});
 
-    try out.print("fn $LMethods(comptime Self: type) type ${\n", .{class.name});
+    try out.print("fn $LMethods(comptime _Self: type) type ${\n", .{class.name});
     try out.print("return struct${\n", .{});
-    try out.print("pub usingnamespace $LOwnMethods(Self);\n", .{class.name});
-    try out.print("pub usingnamespace $I.Parent.Methods(Self);\n", .{class.name});
+    try out.print("pub usingnamespace $LOwnMethods(_Self);\n", .{class.name});
+    try out.print("pub usingnamespace $I.Parent.Methods(_Self);\n", .{escapeTypeName(class.name)});
     for (class.implements) |implements| {
         try out.print("pub usingnamespace ", .{});
         try translateName(allocator, implements.name, out);
-        try out.print(".Methods(Self);\n", .{});
+        try out.print(".Methods(_Self);\n", .{});
     }
-    try out.print("pub usingnamespace $LExtraMethods(Self);\n", .{class.name});
+    try out.print("pub usingnamespace $LExtraMethods(_Self);\n", .{class.name});
     try out.print("$};\n", .{});
     try out.print("$}\n\n", .{});
 
-    try out.print("fn $LExtraMethods(comptime Self: type) type ${\n", .{class.name});
-    try out.print("return if (@hasDecl(extras, \"$LMethods\")) extras.$LMethods(Self) else struct {};\n", .{ class.name, class.name });
+    try out.print("fn $LExtraMethods(comptime _Self: type) type ${\n", .{class.name});
+    try out.print("return if (@hasDecl(extras, \"$LMethods\")) extras.$LMethods(_Self) else struct {};\n", .{ class.name, class.name });
     try out.print("$}\n\n", .{});
 
     // virtual methods mixins
     if (class.type_struct) |type_struct| {
-        try out.print("fn $LOwnVirtualMethods(comptime Class: type, comptime Instance: type) type ${\n", .{class.name});
+        try out.print("fn $LOwnVirtualMethods(comptime _Class: type, comptime _Instance: type) type ${\n", .{class.name});
         try out.print(
-            \\const _i_dont_care_if_Class_is_unused = Class;
+            \\const _i_dont_care_if_Class_is_unused = _Class;
             \\_ = _i_dont_care_if_Class_is_unused;
-            \\const _i_dont_care_if_Instance_is_unused = Instance;
+            \\const _i_dont_care_if_Instance_is_unused = _Instance;
             \\_ = _i_dont_care_if_Instance_is_unused;
             \\
         , .{});
         try out.print("return struct${\n", .{});
         for (class.virtual_methods) |virtual_method| {
-            try translateVirtualMethod(allocator, virtual_method, "Class", type_struct, class.name, ctx, out);
+            try translateVirtualMethod(allocator, virtual_method, "_Class", type_struct, class.name, ctx, out);
         }
         try out.print("$};\n", .{});
         try out.print("$}\n\n", .{});
 
-        try out.print("fn $LVirtualMethods(comptime Class: type, comptime Instance: type) type ${\n", .{class.name});
+        try out.print("fn $LVirtualMethods(comptime _Class: type, comptime _Instance: type) type ${\n", .{class.name});
         try out.print("return struct${\n", .{});
-        try out.print("pub usingnamespace $LOwnVirtualMethods(Class, Instance);\n", .{class.name});
+        try out.print("pub usingnamespace $LOwnVirtualMethods(_Class, _Instance);\n", .{class.name});
         if (class.parent != null) {
-            try out.print("pub usingnamespace if (@hasDecl($I.Parent, \"VirtualMethods\")) $I.Parent.VirtualMethods(Class, Instance) else struct {};\n", .{ class.name, class.name });
+            try out.print("pub usingnamespace if (@hasDecl($I.Parent, \"VirtualMethods\")) $I.Parent.VirtualMethods(_Class, _Instance) else struct {};\n", .{ escapeTypeName(class.name), escapeTypeName(class.name) });
         }
-        try out.print("pub usingnamespace $LExtraVirtualMethods(Class, Instance);\n", .{class.name});
+        try out.print("pub usingnamespace $LExtraVirtualMethods(_Class, _Instance);\n", .{class.name});
         try out.print("$};\n", .{});
         try out.print("$}\n\n", .{});
 
-        try out.print("fn $LExtraVirtualMethods(comptime Class: type, comptime Instance: type) type ${\n", .{class.name});
-        try out.print("return if (@hasDecl(extras, \"$LVirtualMethods\")) extras.$LVirtualMethods(Class, Instance) else struct {};\n", .{ class.name, class.name });
+        try out.print("fn $LExtraVirtualMethods(comptime _Class: type, comptime _Instance: type) type ${\n", .{class.name});
+        try out.print("return if (@hasDecl(extras, \"$LVirtualMethods\")) extras.$LVirtualMethods(_Class, _Instance) else struct {};\n", .{ class.name, class.name });
         try out.print("$}\n\n", .{});
     }
 }
@@ -465,7 +465,7 @@ fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContex
 fn translateInterface(allocator: Allocator, interface: gir.Interface, ctx: TranslationContext, out: anytype) !void {
     // interface type
     try translateDocumentation(interface.documentation, out);
-    try out.print("pub const $I = opaque ${\n", .{interface.name});
+    try out.print("pub const $I = opaque ${\n", .{escapeTypeName(interface.name)});
 
     try out.print("pub const Prerequisites = [_]type{", .{});
     // This doesn't seem to be correct (since it seems to be possible to create
@@ -483,20 +483,20 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, ctx: Trans
     try out.print("};\n", .{});
 
     if (interface.type_struct) |type_struct| {
-        try out.print("pub const Iface = $I;\n", .{type_struct});
+        try out.print("pub const Iface = $I;\n", .{escapeTypeName(type_struct)});
     }
-    try out.print("const Self = $I;\n\n", .{interface.name});
+    try out.print("const _Self = @This();\n\n", .{});
 
     try out.print("pub const Own = struct${\n", .{});
     const get_type_function = interface.getTypeFunction();
     if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
-        try translateFunction(allocator, get_type_function, .{ .self_type = "Self" }, ctx, out);
+        try translateFunction(allocator, get_type_function, .{ .self_type = "_Self" }, ctx, out);
     }
     for (interface.functions) |function| {
-        try translateFunction(allocator, function, .{ .self_type = "Self" }, ctx, out);
+        try translateFunction(allocator, function, .{ .self_type = "_Self" }, ctx, out);
     }
     for (interface.constructors) |constructor| {
-        try translateConstructor(allocator, constructor, .{ .self_type = "Self" }, ctx, out);
+        try translateConstructor(allocator, constructor, .{ .self_type = "_Self" }, ctx, out);
     }
     for (interface.constants) |constant| {
         try translateConstant(constant, out);
@@ -514,21 +514,21 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, ctx: Trans
     try out.print("pub const ExtraMethods = $LExtraMethods;\n\n", .{interface.name});
 
     try out.print("pub usingnamespace Own;\n", .{});
-    try out.print("pub usingnamespace Methods(Self);\n", .{});
+    try out.print("pub usingnamespace Methods(_Self);\n", .{});
     try out.print("pub usingnamespace Extras;\n", .{});
 
     try out.print("$};\n\n", .{});
 
     // methods mixins
-    try out.print("fn $LOwnMethods(comptime Self: type) type ${\n", .{interface.name});
+    try out.print("fn $LOwnMethods(comptime _Self: type) type ${\n", .{interface.name});
     try out.print(
-        \\const _i_dont_care_if_Self_is_unused = Self;
+        \\const _i_dont_care_if_Self_is_unused = _Self;
         \\_ = _i_dont_care_if_Self_is_unused;
         \\
     , .{});
     try out.print("return struct${\n", .{});
     for (interface.methods) |method| {
-        try translateMethod(allocator, method, .{ .self_type = "Self" }, ctx, out);
+        try translateMethod(allocator, method, .{ .self_type = "_Self" }, ctx, out);
     }
     for (interface.signals) |signal| {
         try translateSignal(allocator, signal, ctx, out);
@@ -536,52 +536,52 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, ctx: Trans
     try out.print("$};\n", .{});
     try out.print("$}\n\n", .{});
 
-    try out.print("fn $LMethods(comptime Self: type) type ${\n", .{interface.name});
+    try out.print("fn $LMethods(comptime _Self: type) type ${\n", .{interface.name});
     try out.print("return struct ${\n", .{});
-    try out.print("pub usingnamespace $LOwnMethods(Self);\n", .{interface.name});
+    try out.print("pub usingnamespace $LOwnMethods(_Self);\n", .{interface.name});
     // See the note above on this implicit prerequisite
     if (interface.prerequisites.len == 0) {
-        try out.print("pub usingnamespace gobject.Object.Methods(Self);\n", .{});
+        try out.print("pub usingnamespace gobject.Object.Methods(_Self);\n", .{});
     }
     for (interface.prerequisites) |prerequisite| {
         try out.print("pub usingnamespace ", .{});
         try translateName(allocator, prerequisite.name, out);
-        try out.print(".Methods(Self);\n", .{});
+        try out.print(".Methods(_Self);\n", .{});
     }
-    try out.print("pub usingnamespace $LExtraMethods(Self);\n", .{interface.name});
+    try out.print("pub usingnamespace $LExtraMethods(_Self);\n", .{interface.name});
     try out.print("$};\n", .{});
     try out.print("$}\n\n", .{});
 
-    try out.print("fn $LExtraMethods(comptime Self: type) type ${\n", .{interface.name});
-    try out.print("return if (@hasDecl(extras, \"$LMethods\")) extras.$LMethods(Self) else struct {};\n", .{ interface.name, interface.name });
+    try out.print("fn $LExtraMethods(comptime _Self: type) type ${\n", .{interface.name});
+    try out.print("return if (@hasDecl(extras, \"$LMethods\")) extras.$LMethods(_Self) else struct {};\n", .{ interface.name, interface.name });
     try out.print("$}\n\n", .{});
 
     // virtual methods mixins
     if (interface.type_struct) |type_struct| {
-        try out.print("fn $LOwnVirtualMethods(comptime Iface: type, comptime Instance: type) type ${\n", .{interface.name});
+        try out.print("fn $LOwnVirtualMethods(comptime _Iface: type, comptime _Instance: type) type ${\n", .{interface.name});
         try out.print(
-            \\const _i_dont_care_if_Iface_is_unused = Iface;
+            \\const _i_dont_care_if_Iface_is_unused = _Iface;
             \\_ = _i_dont_care_if_Iface_is_unused;
-            \\const _i_dont_care_if_Instance_is_unused = Instance;
+            \\const _i_dont_care_if_Instance_is_unused = _Instance;
             \\_ = _i_dont_care_if_Instance_is_unused;
             \\
         , .{});
         try out.print("return struct${\n", .{});
         for (interface.virtual_methods) |virtual_method| {
-            try translateVirtualMethod(allocator, virtual_method, "Iface", type_struct, interface.name, ctx, out);
+            try translateVirtualMethod(allocator, virtual_method, "_Iface", type_struct, interface.name, ctx, out);
         }
         try out.print("$};\n", .{});
         try out.print("$}\n\n", .{});
 
-        try out.print("fn $LVirtualMethods(comptime Iface: type, comptime Instance: type) type ${\n", .{interface.name});
+        try out.print("fn $LVirtualMethods(comptime _Iface: type, comptime _Instance: type) type ${\n", .{interface.name});
         try out.print("return struct${\n", .{});
-        try out.print("pub usingnamespace $LOwnVirtualMethods(Iface, Instance);\n", .{interface.name});
-        try out.print("pub usingnamespace $LExtraVirtualMethods(Iface, Instance);\n", .{interface.name});
+        try out.print("pub usingnamespace $LOwnVirtualMethods(_Iface, _Instance);\n", .{interface.name});
+        try out.print("pub usingnamespace $LExtraVirtualMethods(_Iface, _Instance);\n", .{interface.name});
         try out.print("$};\n", .{});
         try out.print("$}\n\n", .{});
 
-        try out.print("fn $LExtraVirtualMethods(comptime Iface: type, comptime Instance: type) type ${\n", .{interface.name});
-        try out.print("return if (@hasDecl(extras, \"$LVirtualMethods\")) extras.$LVirtualMethods(Iface, Instance) else struct {};\n", .{ interface.name, interface.name });
+        try out.print("fn $LExtraVirtualMethods(comptime _Iface: type, comptime _Instance: type) type ${\n", .{interface.name});
+        try out.print("return if (@hasDecl(extras, \"$LVirtualMethods\")) extras.$LVirtualMethods(_Iface, _Instance) else struct {};\n", .{ interface.name, interface.name });
         try out.print("$}\n\n", .{});
     }
 }
@@ -589,7 +589,7 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, ctx: Trans
 fn translateRecord(allocator: Allocator, record: gir.Record, ctx: TranslationContext, out: anytype) !void {
     // record type
     try translateDocumentation(record.documentation, out);
-    try out.print("pub const $I = ", .{record.name});
+    try out.print("pub const $I = ", .{escapeTypeName(record.name)});
     if (record.isPointer()) {
         try out.print("*", .{});
     }
@@ -600,9 +600,9 @@ fn translateRecord(allocator: Allocator, record: gir.Record, ctx: TranslationCon
     }
 
     if (record.is_gtype_struct_for) |is_gtype_struct_for| {
-        try out.print("pub const Instance = $I;\n", .{is_gtype_struct_for});
+        try out.print("pub const Instance = $I;\n", .{escapeTypeName(is_gtype_struct_for)});
     }
-    try out.print("const Self = $I;\n\n", .{record.name});
+    try out.print("const _Self = @This();\n\n", .{});
 
     try translateLinearFields(allocator, record.fields, ctx, out);
     if (record.fields.len > 0) {
@@ -612,14 +612,14 @@ fn translateRecord(allocator: Allocator, record: gir.Record, ctx: TranslationCon
     try out.print("pub const Own = struct${\n", .{});
     if (record.getTypeFunction()) |get_type_function| {
         if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
-            try translateFunction(allocator, get_type_function, .{ .self_type = "Self" }, ctx, out);
+            try translateFunction(allocator, get_type_function, .{ .self_type = "_Self" }, ctx, out);
         }
     }
     for (record.functions) |function| {
-        try translateFunction(allocator, function, .{ .self_type = "Self" }, ctx, out);
+        try translateFunction(allocator, function, .{ .self_type = "_Self" }, ctx, out);
     }
     for (record.constructors) |constructor| {
-        try translateConstructor(allocator, constructor, .{ .self_type = "Self" }, ctx, out);
+        try translateConstructor(allocator, constructor, .{ .self_type = "_Self" }, ctx, out);
     }
     try out.print("$};\n\n", .{});
 
@@ -629,56 +629,56 @@ fn translateRecord(allocator: Allocator, record: gir.Record, ctx: TranslationCon
     try out.print("pub const ExtraMethods = $LExtraMethods;\n\n", .{record.name});
 
     try out.print("pub usingnamespace Own;\n", .{});
-    try out.print("pub usingnamespace Methods(Self);\n", .{});
+    try out.print("pub usingnamespace Methods(_Self);\n", .{});
     if (record.is_gtype_struct_for != null) {
-        try out.print("pub usingnamespace Instance.VirtualMethods(Self, Instance);\n", .{});
+        try out.print("pub usingnamespace Instance.VirtualMethods(_Self, Instance);\n", .{});
     }
     try out.print("pub usingnamespace Extras;\n", .{});
 
     try out.print("$};\n\n", .{});
 
     // methods mixins
-    try out.print("fn $LOwnMethods(comptime Self: type) type ${\n", .{record.name});
+    try out.print("fn $LOwnMethods(comptime _Self: type) type ${\n", .{record.name});
     try out.print(
-        \\const _i_dont_care_if_Self_is_unused = Self;
+        \\const _i_dont_care_if_Self_is_unused = _Self;
         \\_ = _i_dont_care_if_Self_is_unused;
         \\
     , .{});
     try out.print("return struct${\n", .{});
     for (record.methods) |method| {
-        try translateMethod(allocator, method, .{ .self_type = "Self" }, ctx, out);
+        try translateMethod(allocator, method, .{ .self_type = "_Self" }, ctx, out);
     }
     try out.print("$};\n", .{});
     try out.print("$}\n\n", .{});
 
-    try out.print("fn $LMethods(comptime Self: type) type ${\n", .{record.name});
+    try out.print("fn $LMethods(comptime _Self: type) type ${\n", .{record.name});
     try out.print("return struct${\n", .{});
-    try out.print("pub usingnamespace $LOwnMethods(Self);\n", .{record.name});
+    try out.print("pub usingnamespace $LOwnMethods(_Self);\n", .{record.name});
     if (record.is_gtype_struct_for) |is_gtype_struct_for| {
         try out.print(
             \\pub usingnamespace if (@hasDecl($I, "Parent") and @hasDecl($I.Parent, "Class"))
-            \\    $I.Parent.Class.Methods(Self)
+            \\    $I.Parent.Class.Methods(_Self)
             \\else if (@hasDecl($I, "Parent"))
-            \\    gobject.TypeClass.Methods(Self)
+            \\    gobject.TypeClass.Methods(_Self)
             \\else
             \\    struct{}
             \\;
             \\
-        , .{ is_gtype_struct_for, is_gtype_struct_for, is_gtype_struct_for, is_gtype_struct_for });
+        , .{ escapeTypeName(is_gtype_struct_for), escapeTypeName(is_gtype_struct_for), escapeTypeName(is_gtype_struct_for), escapeTypeName(is_gtype_struct_for) });
     }
-    try out.print("pub usingnamespace $LExtraMethods(Self);\n", .{record.name});
+    try out.print("pub usingnamespace $LExtraMethods(_Self);\n", .{record.name});
     try out.print("$};\n", .{});
     try out.print("$}\n\n", .{});
 
-    try out.print("fn $LExtraMethods(comptime Self: type) type ${\n", .{record.name});
-    try out.print("return if (@hasDecl(extras, \"$LMethods\")) extras.$LMethods(Self) else struct {};\n", .{ record.name, record.name });
+    try out.print("fn $LExtraMethods(comptime _Self: type) type ${\n", .{record.name});
+    try out.print("return if (@hasDecl(extras, \"$LMethods\")) extras.$LMethods(_Self) else struct {};\n", .{ record.name, record.name });
     try out.print("$}\n\n", .{});
 }
 
 fn translateUnion(allocator: Allocator, @"union": gir.Union, ctx: TranslationContext, out: anytype) !void {
     try translateDocumentation(@"union".documentation, out);
-    try out.print("pub const $I = extern union ${\n", .{@"union".name});
-    try out.print("const Self = $I;\n\n", .{@"union".name});
+    try out.print("pub const $I = extern union ${\n", .{escapeTypeName(@"union".name)});
+    try out.print("const _Self = @This();\n\n", .{});
 
     try translateUnionFields(allocator, @"union".fields, ctx, out);
     if (@"union".fields.len > 0) {
@@ -688,14 +688,14 @@ fn translateUnion(allocator: Allocator, @"union": gir.Union, ctx: TranslationCon
     try out.print("pub const Own = struct${\n", .{});
     if (@"union".getTypeFunction()) |get_type_function| {
         if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
-            try translateFunction(allocator, get_type_function, .{ .self_type = "Self" }, ctx, out);
+            try translateFunction(allocator, get_type_function, .{ .self_type = "_Self" }, ctx, out);
         }
     }
     for (@"union".functions) |function| {
-        try translateFunction(allocator, function, .{ .self_type = "Self" }, ctx, out);
+        try translateFunction(allocator, function, .{ .self_type = "_Self" }, ctx, out);
     }
     for (@"union".constructors) |constructor| {
-        try translateConstructor(allocator, constructor, .{ .self_type = "Self" }, ctx, out);
+        try translateConstructor(allocator, constructor, .{ .self_type = "_Self" }, ctx, out);
     }
     try out.print("$};\n\n", .{});
 
@@ -705,34 +705,34 @@ fn translateUnion(allocator: Allocator, @"union": gir.Union, ctx: TranslationCon
     try out.print("pub const ExtraMethods = $LExtraMethods;\n\n", .{@"union".name});
 
     try out.print("pub usingnamespace Own;\n", .{});
-    try out.print("pub usingnamespace Methods(Self);\n", .{});
+    try out.print("pub usingnamespace Methods(_Self);\n", .{});
     try out.print("pub usingnamespace Extras;\n", .{});
 
     try out.print("$};\n\n", .{});
 
     // methods mixins
-    try out.print("fn $LOwnMethods(comptime Self: type) type ${\n", .{@"union".name});
+    try out.print("fn $LOwnMethods(comptime _Self: type) type ${\n", .{@"union".name});
     try out.print(
-        \\const _i_dont_care_if_Self_is_unused = Self;
+        \\const _i_dont_care_if_Self_is_unused = _Self;
         \\_ = _i_dont_care_if_Self_is_unused;
         \\
     , .{});
     try out.print("return struct${\n", .{});
     for (@"union".methods) |method| {
-        try translateMethod(allocator, method, .{ .self_type = "Self" }, ctx, out);
+        try translateMethod(allocator, method, .{ .self_type = "_Self" }, ctx, out);
     }
     try out.print("$};\n", .{});
     try out.print("$}\n\n", .{});
 
-    try out.print("fn $LMethods(comptime Self: type) type ${\n", .{@"union".name});
+    try out.print("fn $LMethods(comptime _Self: type) type ${\n", .{@"union".name});
     try out.print("return struct${\n", .{});
-    try out.print("pub usingnamespace $LOwnMethods(Self);\n", .{@"union".name});
-    try out.print("pub usingnamespace $LExtraMethods(Self);\n", .{@"union".name});
+    try out.print("pub usingnamespace $LOwnMethods(_Self);\n", .{@"union".name});
+    try out.print("pub usingnamespace $LExtraMethods(_Self);\n", .{@"union".name});
     try out.print("$};\n", .{});
     try out.print("$}\n\n", .{});
 
-    try out.print("fn $LExtraMethods(comptime Self: type) type ${\n", .{@"union".name});
-    try out.print("return if (@hasDecl(extras, \"$LMethods\")) extras.$LMethods(Self) else struct {};\n", .{ @"union".name, @"union".name });
+    try out.print("fn $LExtraMethods(comptime _Self: type) type ${\n", .{@"union".name});
+    try out.print("return if (@hasDecl(extras, \"$LMethods\")) extras.$LMethods(_Self) else struct {};\n", .{ @"union".name, @"union".name });
     try out.print("$}\n\n", .{});
 }
 
@@ -831,7 +831,7 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: Transla
     const backing_int = if (needs_u64) "u64" else "c_uint";
 
     try translateDocumentation(bit_field.documentation, out);
-    try out.print("pub const $I = packed struct($L) ${\n", .{ bit_field.name, backing_int });
+    try out.print("pub const $I = packed struct($L) ${\n", .{ escapeTypeName(bit_field.name), backing_int });
     for (members, 0..) |maybe_member, i| {
         if (maybe_member) |member| {
             try out.print("$I: bool = false,\n", .{member.name});
@@ -840,7 +840,7 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: Transla
         }
     }
 
-    try out.print("\nconst Self = $I;\n", .{bit_field.name});
+    try out.print("\nconst _Self = @This();\n", .{});
     // Adding all values as constants makes sure we don't miss anything that was
     // 0, not a power of 2, etc. It may be somewhat confusing to have the
     // members we just translated as fields also included here, but this is
@@ -853,7 +853,7 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: Transla
     defer seen.deinit(allocator);
     for (bit_field.members) |member| {
         if (!seen.contains(member.name)) {
-            try out.print("const $I = @bitCast(Self, @as($L, $L));\n", .{ member.name, backing_int, member.value });
+            try out.print("const $I = @bitCast(_Self, @as($L, $L));\n", .{ member.name, backing_int, member.value });
         }
         try seen.put(allocator, member.name, {});
     }
@@ -861,11 +861,11 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: Transla
     try out.print("\npub const Own = struct${\n", .{});
     if (bit_field.getTypeFunction()) |get_type_function| {
         if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
-            try translateFunction(allocator, get_type_function, .{ .self_type = "Self" }, ctx, out);
+            try translateFunction(allocator, get_type_function, .{ .self_type = "_Self" }, ctx, out);
         }
     }
     for (bit_field.functions) |function| {
-        try translateFunction(allocator, function, .{ .self_type = "Self" }, ctx, out);
+        try translateFunction(allocator, function, .{ .self_type = "_Self" }, ctx, out);
     }
     try out.print("$};\n\n", .{});
 
@@ -879,7 +879,7 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: Transla
 
 fn translateEnum(allocator: Allocator, @"enum": gir.Enum, ctx: TranslationContext, out: anytype) !void {
     try translateDocumentation(@"enum".documentation, out);
-    try out.print("pub const $I = enum(c_int) ${\n", .{@"enum".name});
+    try out.print("pub const $I = enum(c_int) ${\n", .{escapeTypeName(@"enum".name)});
 
     // Zig does not allow enums to have multiple fields with the same value, so
     // we must translate any duplicate values as constants referencing the
@@ -897,20 +897,20 @@ fn translateEnum(allocator: Allocator, @"enum": gir.Enum, ctx: TranslationContex
         }
     }
 
-    try out.print("\nconst Self = $I;\n\n", .{@"enum".name});
+    try out.print("\nconst _Self = @This();\n\n", .{});
 
     for (duplicate_members.items) |member| {
-        try out.print("pub const $I = Self.$I;\n", .{ member.name, seen_values.get(member.value).?.name });
+        try out.print("pub const $I = _Self.$I;\n", .{ member.name, seen_values.get(member.value).?.name });
     }
 
     try out.print("pub const Own = struct${\n", .{});
     if (@"enum".getTypeFunction()) |get_type_function| {
         if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
-            try translateFunction(allocator, get_type_function, .{ .self_type = "Self" }, ctx, out);
+            try translateFunction(allocator, get_type_function, .{ .self_type = "_Self" }, ctx, out);
         }
     }
     for (@"enum".functions) |function| {
-        try translateFunction(allocator, function, .{ .self_type = "Self" }, ctx, out);
+        try translateFunction(allocator, function, .{ .self_type = "_Self" }, ctx, out);
     }
     try out.print("$};\n\n", .{});
 
@@ -983,8 +983,8 @@ fn translateConstructor(allocator: Allocator, constructor: gir.Constructor, opti
         // TODO: consider if the return value is const, or maybe not even a pointer at all
         // TODO: doesn't respect the self_type option, even though nobody cares right now
         .return_value = .{ .type = .{ .simple = .{
-            .name = .{ .ns = null, .local = "Self" },
-            .c_type = "Self*",
+            .name = .{ .ns = null, .local = "_Self" },
+            .c_type = "_Self*",
         } } },
         .throws = constructor.throws,
         .documentation = constructor.documentation,
@@ -1017,7 +1017,7 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
     // implementation
     try translateDocumentation(virtual_method.documentation, out);
     try out.print("pub fn implement$L(p_class: *$I, p_implementation: ", .{ upper_method_name, container_name });
-    try translateVirtualMethodImplementationType(allocator, virtual_method, "Instance", ctx, out);
+    try translateVirtualMethodImplementationType(allocator, virtual_method, "_Instance", ctx, out);
     try out.print(") void ${\n", .{});
     try out.print("@ptrCast(*$I, @alignCast(@alignOf(*$I), p_class)).$I = @ptrCast(", .{ container_type, container_type, virtual_method.name });
     try translateVirtualMethodImplementationType(allocator, virtual_method, instance_type, ctx, out);
@@ -1062,7 +1062,7 @@ fn translateSignal(allocator: Allocator, signal: gir.Signal, ctx: TranslationCon
 
     // normal connection
     try translateDocumentation(signal.documentation, out);
-    try out.print("pub fn connect$L(p_self: *Self, comptime P_T: type, p_callback: ", .{upper_signal_name});
+    try out.print("pub fn connect$L(p_self: *_Self, comptime P_T: type, p_callback: ", .{upper_signal_name});
     // TODO: verify that P_T is a pointer type or compatible
     try translateSignalCallbackType(allocator, signal, ctx, out);
     try out.print(", p_data: P_T, p_options: struct { after: bool = false }) c_ulong ${\n", .{});
@@ -1071,12 +1071,12 @@ fn translateSignal(allocator: Allocator, signal: gir.Signal, ctx: TranslationCon
 }
 
 fn translateSignalCallbackType(allocator: Allocator, signal: gir.Signal, ctx: TranslationContext, out: anytype) !void {
-    try out.print("*const fn (*Self", .{});
+    try out.print("*const fn (*_Self", .{});
     if (signal.parameters.len > 0) {
         try out.print(", ", .{});
     }
     try translateParameters(allocator, signal.parameters, .{
-        .self_type = "Self",
+        .self_type = "_Self",
         .gobject_context = true,
     }, ctx, out);
     try out.print(", P_T) callconv(.C) ", .{});
@@ -1794,7 +1794,7 @@ fn translateCallback(allocator: Allocator, callback: gir.Callback, options: Tran
 
     if (options.named) {
         try translateDocumentation(callback.documentation, out);
-        try out.print("pub const $I = ", .{callback.name});
+        try out.print("pub const $I = ", .{escapeTypeName(callback.name)});
     }
 
     if (options.nullable) {
@@ -1962,9 +1962,30 @@ fn translateDocumentation(documentation: ?gir.Documentation, out: anytype) !void
     }
 }
 
+const type_name_escapes = ComptimeStringMap([]const u8, .{
+    .{ "Class", "Class_" },
+    .{ "Iface", "Iface_" },
+    .{ "Parent", "Parent_" },
+    .{ "Implements", "Implements_" },
+    .{ "Own", "Own_" },
+    .{ "OwnMethods", "OwnMethods_" },
+    .{ "Methods", "Methods_" },
+    .{ "OwnVirtualMethods", "OwnVirtualMethods_" },
+    .{ "VirtualMethods", "VirtualMethods_" },
+    .{ "ExtraVirtualMethods", "ExtraVirtualMethods_" },
+    .{ "Extras", "Extras_" },
+    .{ "ExtraMethods", "ExtraMethods_" },
+});
+
+/// Escapes a potentially problematic type name (such as Class) with an
+/// alternative which will not collide with other names used in codegen.
+fn escapeTypeName(name: []const u8) []const u8 {
+    return type_name_escapes.get(name) orelse name;
+}
+
 fn translateName(allocator: Allocator, name: gir.Name, out: anytype) !void {
     try translateNameNs(allocator, name.ns, out);
-    try out.print("$I", .{name.local});
+    try out.print("$I", .{escapeTypeName(name.local)});
 }
 
 fn translateNameNs(allocator: Allocator, nameNs: ?[]const u8, out: anytype) !void {
