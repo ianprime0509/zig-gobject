@@ -73,13 +73,13 @@ fn findRepository(allocator: Allocator, search_path: []const fs.Dir, name: []con
     const repo_path = try fmt.allocPrintZ(allocator, "{s}.gir", .{name});
     defer allocator.free(repo_path);
     for (search_path) |dir| {
-        const data = dir.readFileAlloc(allocator, repo_path, math.maxInt(usize)) catch |err| switch (err) {
-            error.FileTooBig => unreachable,
+        const file = dir.openFile(repo_path, .{}) catch |err| switch (err) {
             error.FileNotFound => continue,
-            else => return err,
+            else => |other| return other,
         };
-        defer allocator.free(data);
-        return try gir.Repository.parseBytes(allocator, data, repo_path);
+        defer file.close();
+        var reader = io.bufferedReader(file.reader());
+        return try gir.Repository.parse(allocator, reader.reader());
     }
     return error.RepositoryNotFound;
 }

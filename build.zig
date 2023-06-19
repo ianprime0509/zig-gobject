@@ -1,17 +1,11 @@
 const std = @import("std");
-const libxml2 = @import("lib/zig-libxml2/libxml2.zig");
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const libxml2_lib = try libxml2.create(b, target, optimize, .{
-        .iconv = false,
-        .lzma = false,
-        .sax1 = true,
-        .zlib = false,
-    });
+    const xml = b.dependency("xml", .{}).module("xml");
 
     const exe = b.addExecutable(.{
         .name = "zig-gobject",
@@ -19,7 +13,7 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     });
-    libxml2_lib.link(exe);
+    exe.addModule("xml", xml);
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
@@ -42,7 +36,6 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
     exe_tests.linkLibC();
-    libxml2_lib.link(exe_tests);
 
     const test_exe_step = b.step("test-exe", "Run tests for the binding generator");
     test_exe_step.dependOn(&b.addRunArtifact(exe_tests).step);

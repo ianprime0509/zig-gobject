@@ -1,0 +1,10 @@
+.{
+    .name = "zig-gobject-codegen",
+    .version = "0.0.0",
+    .dependencies = .{
+        .xml = .{
+            .url = "https://github.com/ianprime0509/zig-xml/archive/3518ca9e5e08647ebb9508fbac628605d6456dfa.tar.gz",
+            .hash = "1220509b30d80cb06c564ac5dead60047491d84acf69776b9c8142095fb3d32955c1",
+        },
+    },
+}
