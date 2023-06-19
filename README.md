@@ -1,5 +1,19 @@
 # zig-gobject
 
+**Note:** this project is largely on hold until the following two PRs are merged
+(or equivalent functionality is added):
+
+- https://github.com/ziglang/zig/pull/14603 - to support dependencies specified
+  as paths
+- https://github.com/ziglang/zig/pull/14731 - to support additional `Module`
+  APIs
+
+Without these changes, the main codegen step still works, and the bindings can
+be used, but it is overly tedious to consume them from other modules/projects.
+The tests and examples do not work without these changes.
+
+---
+
 Early work-in-progress bindings for GObject-based libraries (such as GTK)
 generated using GObject introspection data.
 
@@ -149,37 +163,3 @@ gtk.Root.OwnMethods(gtk.Window).setFocus(window, widget);
 This is certainly more tedious than if `setFocus` just worked directly, but it
 ensures none of the functionality of the underlying libraries is lost in
 translation.
-
-## Required Zig version
-
-This project relies heavily on the in-progress Zig package manager to structure
-itself into various submodules. As the Zig package manager is not yet complete,
-building this project requires a build of the latest Zig master branch with the
-following additional changes applied:
-
-- https://github.com/ziglang/zig/pull/14603 - to support dependencies specified
-  as paths
-- https://github.com/ziglang/zig/pull/14731 - to support additional `Module`
-  APIs
-- The following small patch to avoid needing to specify a `hash` for each
-  submodule (see
-  https://github.com/ziglang/zig/issues/14339#issuecomment-1474518628):
-
-  ```patch
-  --- a/src/Package.zig
-  +++ b/src/Package.zig
-  @@ -746,7 +746,7 @@ fn fetchAndUnpack(
-                  h, actual_hex,
-              });
-          }
-  -    } else {
-  +    } else if (dep.location != .path) {
-          const file_path = try report.directory.join(gpa, &.{Manifest.basename});
-          defer gpa.free(file_path);
-
-  ```
-
-Note: at the time of writing, at least the `Module` APIs PR has introduced
-enough breaking changes that it is not usable with this project in its current
-form. My personal Zig branch can be used to get the latest working build I'm
-using: https://github.com/ianprime0509/zig/tree/personal
