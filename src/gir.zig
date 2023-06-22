@@ -24,7 +24,7 @@ pub const Repository = struct {
     arena: ArenaAllocator,
 
     pub fn parse(allocator: Allocator, reader: anytype) (error{InvalidGir} || @TypeOf(reader).Error || Allocator.Error)!Repository {
-        var r = xml.reader(allocator, reader, xml.encoding.Utf8Decoder{}, .{});
+        var r = xml.reader(allocator, reader, xml.encoding.Utf8Decoder{}, .{ .enable_normalization = false });
         defer r.deinit();
         return parseXml(allocator, &r) catch |err| switch (err) {
             error.CannotUndeclareNsPrefix,

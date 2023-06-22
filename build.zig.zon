@@ -3,8 +3,8 @@
     .version = "0.0.0",
     .dependencies = .{
         .xml = .{
-            .url = "https://github.com/ianprime0509/zig-xml/archive/3518ca9e5e08647ebb9508fbac628605d6456dfa.tar.gz",
-            .hash = "1220509b30d80cb06c564ac5dead60047491d84acf69776b9c8142095fb3d32955c1",
+            .url = "https://github.com/ianprime0509/zig-xml/archive/327736dc98ac71ea859d51a01b6ae5e5c69b878a.tar.gz",
+            .hash = "122009ae9abe9b14545cdb2658f8cb4467c719488cfb4768950eca844009d86f46f3",
         },
     },
 }
