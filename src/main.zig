@@ -9,8 +9,7 @@ const testing = std.testing;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
+    const allocator = std.heap.c_allocator;
 
     const args = try process.argsAlloc(allocator);
     defer process.argsFree(allocator, args);

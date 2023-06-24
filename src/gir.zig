@@ -29,6 +29,7 @@ pub const Repository = struct {
         return parseXml(allocator, &r) catch |err| switch (err) {
             error.CannotUndeclareNsPrefix,
             error.DuplicateAttribute,
+            error.InvalidNsPrefix,
             error.InvalidQName,
             error.MismatchedEndTag,
             error.UndeclaredEntityReference,
