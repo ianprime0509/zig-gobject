@@ -25,8 +25,8 @@ pub const namespace = struct {
             comptime options: BindTemplateChildOptions,
         ) void {
             const field = options.field orelse name;
-            const widget_class = @ptrCast(*gtk.WidgetClass, @alignCast(@alignOf(*gtk.WidgetClass), class));
-            widget_class.bindTemplateChildFull(name, @boolToInt(options.internal), private_offset + @offsetOf(Private, field));
+            const widget_class: *gtk.WidgetClass = @ptrCast(@alignCast(class));
+            widget_class.bindTemplateChildFull(name, @intFromBool(options.internal), private_offset + @offsetOf(Private, field));
         }
     };
 };
@@ -41,7 +41,7 @@ pub fn WidgetClassMethods(comptime Self: type) type {
         /// if it differs.
         pub fn bindTemplateChild(class: *Self, comptime name: [:0]const u8, comptime options: gtk.BindTemplateChildOptions) void {
             const field = options.field orelse name;
-            class.bindTemplateChildFull(name, @boolToInt(options.internal), @offsetOf(Self.Instance, field));
+            class.bindTemplateChildFull(name, @intFromBool(options.internal), @offsetOf(Self.Instance, field));
         }
 
         /// Sets the template for a widget from a byte slice.

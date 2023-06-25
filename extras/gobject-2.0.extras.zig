@@ -162,7 +162,7 @@ pub const namespace = struct {
                     const classInitFunc = struct {
                         fn classInit(class: *Self.Class) callconv(.C) void {
                             if (options.parent_class) |parent_class| {
-                                parent_class.* = @ptrCast(*Self.Parent.Class, @alignCast(@alignOf(*Self.Parent.Class), class.peekParent()));
+                                parent_class.* = @ptrCast(@alignCast(class.peekParent()));
                             }
                             if (options.private) |private| {
                                 gobject.TypeClass.adjustPrivateOffset(class, private.offset);
@@ -174,14 +174,14 @@ pub const namespace = struct {
                     }.classInit;
                     const info = gobject.TypeInfo{
                         .class_size = @sizeOf(Self.Class),
-                        .base_init = @ptrCast(?gobject.BaseInitFunc, options.baseInit),
-                        .base_finalize = @ptrCast(?gobject.BaseFinalizeFunc, options.baseFinalize),
-                        .class_init = @ptrCast(?gobject.ClassInitFunc, &classInitFunc),
-                        .class_finalize = @ptrCast(?gobject.ClassFinalizeFunc, options.classFinalize),
+                        .base_init = @as(?gobject.BaseInitFunc, @ptrCast(options.baseInit)),
+                        .base_finalize = @as(?gobject.BaseFinalizeFunc, @ptrCast(options.baseFinalize)),
+                        .class_init = @as(?gobject.ClassInitFunc, @ptrCast(&classInitFunc)),
+                        .class_finalize = @as(?gobject.ClassFinalizeFunc, @ptrCast(options.classFinalize)),
                         .class_data = null,
                         .instance_size = @sizeOf(Self),
                         .n_preallocs = 0,
-                        .instance_init = @ptrCast(?gobject.InstanceInitFunc, options.instanceInit),
+                        .instance_init = @as(?gobject.InstanceInitFunc, @ptrCast(options.instanceInit)),
                         .value_table = null,
                     };
                     const type_name = if (options.name) |name| name else blk: {
@@ -323,7 +323,7 @@ pub const namespace = struct {
                 return gobject.signalConnectData(
                     target.as(gobject.Object),
                     name,
-                    @ptrCast(gobject.Callback, callback),
+                    @as(gobject.Callback, @ptrCast(callback)),
                     data,
                     null,
                     .{ .after = connect_options.after },
@@ -343,7 +343,7 @@ pub const namespace = struct {
         /// }
         /// ```
         pub fn getPrivate(self: *anyopaque, comptime Private: type, offset: c_int) *Private {
-            return @intToPtr(*Private, @ptrToInt(self) +% @bitCast(usize, @as(isize, offset)));
+            return @ptrFromInt(@intFromPtr(self) +% @as(usize, @bitCast(@as(isize, offset))));
         }
     };
 };
@@ -357,7 +357,7 @@ pub fn TypeInstanceMethods(comptime Self: type) type {
 
         /// Casts this to another type, without checking whether such a cast is actually valid.
         pub fn castUnchecked(self: *Self, comptime T: type) *T {
-            return @ptrCast(*T, @alignCast(@alignOf(*T), self));
+            return @ptrCast(@alignCast(self));
         }
 
         /// Returns whether this is an instance of the given type or some sub-type.
@@ -371,7 +371,7 @@ pub fn TypeClassMethods(comptime Self: type) type {
     return struct {
         /// Casts this to another type, without checking whether such a cast is actually valid.
         pub fn castUnchecked(self: *Self, comptime T: type) *T {
-            return @ptrCast(*T, @alignCast(@alignOf(*T), self));
+            return @ptrCast(@alignCast(self));
         }
     };
 }
@@ -390,7 +390,7 @@ pub fn ObjectMethods(comptime Self: type) type {
             }
             defer for (&values) |*value| value.unset();
             // TODO: the names parameter should actually be [*][*:0]const u8
-            return gobject.Object.newWithProperties(Self.getType(), n_props, @ptrCast([*][*:0]u8, &names), &values).castUnchecked(Self);
+            return gobject.Object.newWithProperties(Self.getType(), n_props, @as([*][*:0]u8, @ptrCast(&names)), &values).castUnchecked(Self);
         }
 
         /// Safely casts this object to an instance of `T`, emitting a compilation error if the safety of the cast cannot be guaranteed.
@@ -432,7 +432,7 @@ pub fn ObjectClassMethods(comptime Self: type) type {
             inline while (@hasDecl(curr_type.Instance, "Parent")) {
                 curr_type = curr_type.Instance.Parent.Class;
                 if (curr_type == T) {
-                    return @ptrCast(*T, @alignCast(@alignOf(*T), class));
+                    return @ptrCast(@alignCast(class));
                 }
             }
 
@@ -466,7 +466,7 @@ pub const Value = struct {
             if (typeInfo.Pointer.child.getType() == gobject.Boxed) {
                 value.setBoxed(contents);
             } else {
-                value.setObject(@ptrCast(*gobject.Object, contents));
+                value.setObject(@as(*gobject.Object, @ptrCast(contents)));
             }
         } else if (T == void) {
             value = new(T);
@@ -478,7 +478,7 @@ pub const Value = struct {
             value.setUchar(contents);
         } else if (T == bool) {
             value = new(T);
-            value.setBoolean(@boolToInt(contents));
+            value.setBoolean(@intFromBool(contents));
         } else if (T == c_int) {
             value = new(T);
             value.setInt(contents);
@@ -517,10 +517,10 @@ pub const Value = struct {
             value.setPointer(contents);
         } else if (typeInfo == .Enum and typeInfo.Enum.tag_type == c_int) {
             value = new(T);
-            value.setEnum(@enumToInt(contents));
+            value.setEnum(@intFromEnum(contents));
         } else if (typeInfo == .Struct and typeInfo.Struct.backing_integer == c_uint) {
             value = new(T);
-            value.setFlags(@bitCast(c_uint, contents));
+            value.setFlags(@as(c_uint, @bitCast(contents)));
         } else {
             @compileError("cannot construct Value from " ++ @typeName(T));
         }
@@ -535,9 +535,9 @@ pub const Value = struct {
         const typeInfo = @typeInfo(T);
         if (typeInfo == .Pointer and comptime isRegisteredType(typeInfo.Pointer.child)) {
             if (typeInfo.Pointer.child.getType() == gobject.Boxed) {
-                return @ptrCast(T, @alignCast(@alignOf(T), self.getBoxed()));
+                return @ptrCast(@alignCast(self.getBoxed()));
             } else {
-                return @ptrCast(T, self.getObject());
+                return @ptrCast(self.getObject());
             }
         } else if (T == void) {
             return {};
@@ -570,11 +570,11 @@ pub const Value = struct {
         } else if (T == *glib.Variant) {
             return self.getVariant();
         } else if (typeInfo == .Pointer or (typeInfo == .Optional and @typeInfo(typeInfo.Optional.child) == .Pointer)) {
-            return @ptrCast(T, @alignCast(@alignOf(T), self.getPointer()));
+            return @ptrCast(@alignCast(self.getPointer()));
         } else if (typeInfo == .Enum and typeInfo.Enum.tag_type == c_int) {
-            return @intToEnum(T, self.getEnum());
+            return @enumFromInt(self.getEnum());
         } else if (typeInfo == .Struct and typeInfo.Struct.backing_integer == c_uint) {
-            return @bitCast(T, self.getFlags());
+            return @bitCast(self.getFlags());
         } else {
             @compileError("cannot extract " ++ @typeName(T) ++ " from Value");
         }

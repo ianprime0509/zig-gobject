@@ -194,6 +194,6 @@ const ExampleButton = extern struct {
 };
 
 pub fn main() void {
-    const status = ExampleApplication.new().run(@intCast(c_int, std.os.argv.len), std.os.argv.ptr);
-    std.os.exit(@intCast(u8, status));
+    const status = ExampleApplication.new().run(@intCast(std.os.argv.len), std.os.argv.ptr);
+    std.os.exit(@intCast(status));
 }

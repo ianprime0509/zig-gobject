@@ -21,7 +21,7 @@ pub const Variant = struct {
         const T = @TypeOf(contents);
         const type_info = @typeInfo(T);
         if (T == bool) {
-            return Self.newBoolean(@boolToInt(contents));
+            return Self.newBoolean(@intFromBool(contents));
         } else if (T == u8) {
             return Self.newByte(contents);
         } else if (T == i16) {

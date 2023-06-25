@@ -9,8 +9,8 @@ const gobject = @import("gobject");
 pub fn main() void {
     const app = gtk.Application.new("org.gtk.example", .{});
     _ = app.connectActivate(?*anyopaque, &activate, null, .{});
-    const status = app.run(@intCast(c_int, std.os.argv.len), std.os.argv.ptr);
-    std.os.exit(@intCast(u8, status));
+    const status = app.run(@intCast(std.os.argv.len), std.os.argv.ptr);
+    std.os.exit(@intCast(status));
 }
 
 fn activate(app: *gtk.Application, _: ?*anyopaque) callconv(.C) void {
