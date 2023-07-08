@@ -37,6 +37,7 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
     exe_tests.linkLibC();
+    exe_tests.addModule("xml", xml);
 
     const test_exe_step = b.step("test-exe", "Run tests for the binding generator");
     test_exe_step.dependOn(&b.addRunArtifact(exe_tests).step);

@@ -2051,12 +2051,13 @@ pub fn createBuildFile(repositories: *Repositories, out_dir: fs.Dir) !void {
     var bw = io.bufferedWriter(file.writer());
     var out = zigWriter(bw.writer());
 
-    try out.print(
-        \\const std = @import("std");
-        \\
-        \\pub fn build(b: *std.Build) !void ${
-        \\
-    , .{});
+    try out.print("const std = @import(\"std\");\n\n", .{});
+
+    // This is the ideal way to do things, but it is blocked on these issues:
+    // https://github.com/ziglang/zig/issues/14719 (to allow linking C libs directly to modules)
+    // Equivalently: https://github.com/ziglang/zig/issues/16206
+    // https://github.com/ziglang/zig/issues/14339 (to make the generated package usable)
+    try out.print("pub fn build(b: *std.Build) !void ${\n\n", .{});
 
     // Declare all modules (without dependencies, so order won't matter)
     for (repositories.repositories) |repo| {
@@ -2099,6 +2100,63 @@ pub fn createBuildFile(repositories: *Repositories, out_dir: fs.Dir) !void {
         try out.print("try $I.dependencies.put($S, $I);\n", .{ module_name, module_name, module_name });
     }
 
+    try out.print("$}\n\n", .{});
+
+    // This is the suboptimal binding API which is actually possible with current Zig.
+    // This is ugly and I'm looking forward to removing it when the issues above
+    // have been fixed.
+    try out.print("pub fn addBindingModule(b: *std.Build, step: *std.Build.Step.Compile, module_name: []const u8) *std.Build.Module ${\n", .{});
+    for (repositories.repositories) |repo| {
+        const module_name = try moduleNameAlloc(allocator, repo.namespace.name, repo.namespace.version);
+        defer allocator.free(module_name);
+
+        try out.print("if (std.mem.eql(u8, module_name, $S)) ${", .{module_name});
+        try out.print(
+            \\const module = b.modules.get($S) orelse b.addModule($S, .{
+            \\    .source_file = .{ .path = comptime blk: {
+            \\        @setEvalBranchQuota(10_000);
+            \\        break :blk std.fs.path.dirname(@src().file).? ++ "/src/" ++ $S ++ ".zig";
+            \\    } },
+            \\});
+            \\
+        , .{ module_name, module_name, module_name });
+
+        try out.print("step.linkLibC();\n", .{});
+        for (repo.packages) |package| {
+            try out.print("step.linkSystemLibrary($S);\n", .{package.name});
+        }
+
+        var seen = RepositorySet{};
+        defer seen.deinit(allocator);
+        var needed_deps = ArrayListUnmanaged(gir.Include){};
+        defer needed_deps.deinit(allocator);
+        if (repository_map.get(.{ .name = repo.namespace.name, .version = repo.namespace.version })) |dep_repo| {
+            try needed_deps.appendSlice(allocator, dep_repo.includes);
+        }
+        while (needed_deps.popOrNull()) |needed_dep| {
+            if (!seen.contains(needed_dep)) {
+                const dep_module_name = try moduleNameAlloc(allocator, needed_dep.name, needed_dep.version);
+                defer allocator.free(dep_module_name);
+                try out.print("module.dependencies.put($S, addBindingModule(b, step, $S)) catch @panic(\"OOM\");\n", .{ dep_module_name, dep_module_name });
+
+                try seen.put(allocator, needed_dep, {});
+                if (repository_map.get(needed_dep)) |dep_repo| {
+                    try needed_deps.appendSlice(allocator, dep_repo.includes);
+                }
+            }
+        }
+        // The self-dependency is useful for extras files to be able to import their own module by name
+        try out.print("module.dependencies.put($S, module) catch @panic(\"OOM\");\n", .{module_name});
+
+        try out.print("return module;\n", .{});
+        try out.print("$} else ", .{});
+    }
+    try out.print(
+        \\{
+        \\    std.debug.panic("module not available: {s}", .{module_name});
+        \\}
+        \\
+    , .{});
     try out.print("$}\n", .{});
 
     try bw.flush();

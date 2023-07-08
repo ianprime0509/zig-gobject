@@ -1,4 +1,5 @@
 const std = @import("std");
+const zig_gobject = @import("lib/zig-gobject/build.zig");
 
 const modules = [_][]const u8{
     "adw-1",
@@ -115,8 +116,6 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const bindings = b.dependency("zig-gobject", .{});
-
     const test_step = b.step("test", "Run binding tests");
 
     for (modules) |module| {
@@ -127,7 +126,7 @@ pub fn build(b: *std.Build) !void {
             .target = target,
             .optimize = optimize,
         });
-        tests.addModule(local_name, bindings.module(module));
+        tests.addModule(local_name, zig_gobject.addBindingModule(b, tests, module));
         test_step.dependOn(&b.addRunArtifact(tests).step);
     }
 }

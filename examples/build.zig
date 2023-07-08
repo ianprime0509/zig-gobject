@@ -1,10 +1,9 @@
 const std = @import("std");
+const zig_gobject = @import("lib/zig-gobject/build.zig");
 
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-
-    const bindings = b.dependency("zig-gobject", .{});
 
     const exe = b.addExecutable(.{
         .name = "zig-gobject-examples",
@@ -12,14 +11,14 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     });
-    exe.addModule("glib", bindings.module("glib-2.0"));
-    exe.addModule("gobject", bindings.module("gobject-2.0"));
-    exe.addModule("gio", bindings.module("gio-2.0"));
-    exe.addModule("cairo", bindings.module("cairo-1.0"));
-    exe.addModule("pango", bindings.module("pango-1.0"));
-    exe.addModule("pangocairo", bindings.module("pangocairo-1.0"));
-    exe.addModule("gdk", bindings.module("gdk-4.0"));
-    exe.addModule("gtk", bindings.module("gtk-4.0"));
+    exe.addModule("glib", zig_gobject.addBindingModule(b, exe, "glib-2.0"));
+    exe.addModule("gobject", zig_gobject.addBindingModule(b, exe, "gobject-2.0"));
+    exe.addModule("gio", zig_gobject.addBindingModule(b, exe, "gio-2.0"));
+    exe.addModule("cairo", zig_gobject.addBindingModule(b, exe, "cairo-1.0"));
+    exe.addModule("pango", zig_gobject.addBindingModule(b, exe, "pango-1.0"));
+    exe.addModule("pangocairo", zig_gobject.addBindingModule(b, exe, "pangocairo-1.0"));
+    exe.addModule("gdk", zig_gobject.addBindingModule(b, exe, "gdk-4.0"));
+    exe.addModule("gtk", zig_gobject.addBindingModule(b, exe, "gtk-4.0"));
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);

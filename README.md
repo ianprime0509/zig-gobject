@@ -1,19 +1,5 @@
 # zig-gobject
 
-**Note:** this project is largely on hold until the following two PRs are merged
-(or equivalent functionality is added):
-
-- https://github.com/ziglang/zig/pull/14603 - to support dependencies specified
-  as paths
-- https://github.com/ziglang/zig/pull/14731 - to support additional `Module`
-  APIs
-
-Without these changes, the main codegen step still works, and the bindings can
-be used, but it is overly tedious to consume them from other modules/projects.
-The tests and examples do not work without these changes.
-
----
-
 Early work-in-progress bindings for GObject-based libraries (such as GTK)
 generated using GObject introspection data.
 
@@ -31,6 +17,27 @@ example.
 ```sh
 zig build run -- lib/gir-files extras src/gir-out Gtk-4.0
 ```
+
+## Usage
+
+The ideal way of using this library would be through the Zig package manager.
+Unfortunately, the package manager has some limitations which make this
+impossible right now (https://github.com/ziglang/zig/issues/14719). There is
+still vestigial code present in the generated `build.zig` for the bindings from
+a time when certain PRs were used to provide this functionality (on my own fork
+of Zig); it is intended for this to be adapted to whatever solution is
+eventually adopted in the package manager for this issue.
+
+For now, the best way to use the bindings is to add them as a submodule (using
+the `bindings` branch of this repository) and use the `addBindingModule`
+function exposed by `build.zig`:
+
+```zig
+// exe is the compilation step for your applicaton
+exe.addModule("gtk", zig_gobject.addBindingModule(b, exe, "gtk-4.0"));
+```
+
+There are examples of this pattern in the `examples` and `test` subprojects.
 
 ## Examples
 
