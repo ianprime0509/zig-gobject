@@ -1,6 +1,3 @@
-[submodule "lib/zig-libxml2"]
-	path = lib/zig-libxml2
-	url = https://github.com/mitchellh/zig-libxml2.git
 [submodule "lib/gir-files"]
 	path = lib/gir-files
 	url = https://github.com/gtk-rs/gir-files.git
