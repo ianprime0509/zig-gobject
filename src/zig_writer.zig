@@ -44,10 +44,10 @@ pub fn ZigWriter(comptime Writer: type) type {
                         if (self.needs_indent) {
                             try self.writeIndent();
                         }
-                        _ = try self.out.write(fmt[start..i]);
+                        try self.out.writeAll(fmt[start..i]);
                     }
                     // Need to include indentation after the newline
-                    _ = try self.out.write("\n");
+                    try self.out.writeAll("\n");
                     start = i + 1;
                     self.needs_indent = true;
                     continue;
@@ -64,7 +64,7 @@ pub fn ZigWriter(comptime Writer: type) type {
                         try self.writeIndent();
                         self.needs_indent = false;
                     }
-                    _ = try self.out.write(fmt[start..i]);
+                    try self.out.writeAll(fmt[start..i]);
                 }
 
                 start = i + 2;
@@ -129,7 +129,7 @@ pub fn ZigWriter(comptime Writer: type) type {
                     try self.writeIndent();
                     self.needs_indent = false;
                 }
-                _ = try self.out.write(fmt[start..i]);
+                try self.out.writeAll(fmt[start..i]);
             }
 
             if (current_arg != arg_fields.len) {
@@ -139,7 +139,7 @@ pub fn ZigWriter(comptime Writer: type) type {
 
         fn writeIndent(self: *Self) Error!void {
             for (0..self.indent) |_| {
-                _ = try self.out.write("    ");
+                try self.out.writeAll("    ");
             }
         }
     };

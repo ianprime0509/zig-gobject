@@ -16,13 +16,13 @@ pub fn main() !void {
     const stdin = std.io.getStdIn().reader();
     const stdout = std.io.getStdOut().writer();
 
-    _ = try stdout.write("Available examples:\n");
+    try stdout.writeAll("Available examples:\n");
     var i: usize = 0;
     for (examples) |example| {
         try stdout.print("{} - {s}\n", .{ i, example.name });
         i += 1;
     }
-    _ = try stdout.write("Choose an example: ");
+    try stdout.writeAll("Choose an example: ");
 
     var buf: [16]u8 = undefined;
     const input = try stdin.readUntilDelimiter(&buf, '\n');
