@@ -28,10 +28,14 @@ pub const Repository = struct {
         defer r.deinit();
         return parseXml(allocator, &r) catch |err| switch (err) {
             error.CannotUndeclareNsPrefix,
+            error.DoctypeNotSupported,
             error.DuplicateAttribute,
-            error.InvalidNsPrefix,
+            error.InvalidCharacterReference,
+            error.InvalidNsBinding,
+            error.InvalidPiTarget,
             error.InvalidQName,
             error.MismatchedEndTag,
+            error.QNameNotAllowed,
             error.UndeclaredEntityReference,
             error.UndeclaredNsPrefix,
             error.InvalidEncoding,
