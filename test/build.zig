@@ -83,6 +83,7 @@ const modules = [_][]const u8{
     "javascriptcore-4.1",
     "javascriptcore-6.0",
     "json-1.0",
+    "libintl-0.0",
     "libxml2-2.0",
     "manette-0.2",
     "nice-0.1",

@@ -166,6 +166,7 @@ fn addCodegenStep(b: *std.Build, codegen_exe: *std.Build.CompileStep) !*std.Buil
 
     const gir_overrides = [_][]const u8{
         "freetype2-2.0.gir",
+        "libintl-0.0.gir",
     };
 
     const extras = [_][]const u8{
@@ -173,6 +174,7 @@ fn addCodegenStep(b: *std.Build, codegen_exe: *std.Build.CompileStep) !*std.Buil
         "glib-2.0.extras.zig",
         "gtk-4.0.extras.zig",
         "gobject-2.0.extras.zig",
+        "libintl-0.0.extras.zig",
     };
 
     const codegen_cmd = b.addRunArtifact(codegen_exe);
@@ -183,6 +185,7 @@ fn addCodegenStep(b: *std.Build, codegen_exe: *std.Build.CompileStep) !*std.Buil
         try file_deps.append(try b.build_root.join(b.allocator, &.{ "lib", "gir-files", file }));
     }
     for (gir_overrides) |file| {
+        try repo_names.append(file[0 .. file.len - ".gir".len]);
         try file_deps.append(try b.build_root.join(b.allocator, &.{ "gir-overrides", file }));
     }
     for (extras) |file| {
