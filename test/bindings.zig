@@ -6,15 +6,13 @@ pub fn refAllBindings(comptime T: type) void {
     @setEvalBranchQuota(100000);
 
     inline for (comptime std.meta.declarations(T)) |decl| {
-        if (decl.is_pub) {
-            if (@TypeOf(@field(T, decl.name)) == type) {
-                switch (@typeInfo(@field(T, decl.name))) {
-                    .Struct, .Enum, .Union, .Opaque => refAllTypeBindings(@field(T, decl.name)),
-                    else => {},
-                }
+        if (@TypeOf(@field(T, decl.name)) == type) {
+            switch (@typeInfo(@field(T, decl.name))) {
+                .Struct, .Enum, .Union, .Opaque => refAllTypeBindings(@field(T, decl.name)),
+                else => {},
             }
-            _ = @field(T, decl.name);
         }
+        _ = @field(T, decl.name);
     }
 }
 
@@ -56,7 +54,7 @@ fn refAllTypeBindings(comptime T: type) void {
 
 fn refAllDeclsExcluding(comptime T: type, exclusions: anytype) void {
     inline for (comptime std.meta.declarations(T)) |decl| {
-        if (decl.is_pub and comptime exclusions.get(decl.name) == null) {
+        if (comptime exclusions.get(decl.name) == null) {
             _ = @field(T, decl.name);
         }
     }
