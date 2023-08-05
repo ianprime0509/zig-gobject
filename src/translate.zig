@@ -737,45 +737,50 @@ fn translateUnion(allocator: Allocator, @"union": gir.Union, ctx: TranslationCon
 }
 
 fn translateLinearFields(allocator: Allocator, fields: []const gir.Field, ctx: TranslationContext, out: anytype) !void {
-    // The handling of bit fields aligns with what a "normal" C compiler should
-    // do: pack adjacent bit fields next to each other, padding out to the next
-    // byte after the last bit field in a sequence. This is not guaranteed by
-    // the standard, but GObject stuff seems to assume it.
-    var in_bit_fields = false;
-    var bit_fields_bits: u16 = 0;
+    // This handling of bit fields makes no attempt to be general, so it can
+    // avoid a lot of complexity present for bit fields in general. It only
+    // handles bit fields backed by guint, and it assumes guint is 32 bits.
+    var bit_field_offset: usize = 0;
     var n_bit_fields: usize = 0;
     for (fields) |field| {
         if (field.bits) |bits| {
-            if (!in_bit_fields) {
-                try out.print("bitfields$L: packed struct ${\n", .{n_bit_fields});
-                in_bit_fields = true;
-            }
-            try out.print("$I: u$L,\n", .{ field.name, bits });
-            bit_fields_bits += bits;
-        } else {
-            if (in_bit_fields) {
-                const total_bits = @max(math.ceilPowerOfTwoPromote(u16, bit_fields_bits), 8);
-                const padding_bits = total_bits - bit_fields_bits;
-                if (padding_bits > 0) {
-                    try out.print("padding: u$L,\n", .{padding_bits});
+            if (field.type == .simple and field.type.simple.name != null and mem.eql(u8, field.type.simple.name.?.local, "guint")) {
+                if (bit_field_offset == 0) {
+                    try out.print("bitfields$L: packed struct(c_uint) ${\n", .{n_bit_fields});
                 }
+                try translateDocumentation(field.documentation, out);
+                try out.print("$I: u$L,\n", .{ field.name, bits });
+                bit_field_offset += bits;
+                // This implementation does not handle bit fields with members
+                // crossing storage boundaries, since this does not appear in
+                // any GIR I'm aware of. Such occurrences will result in invalid
+                // Zig code.
+                if (bit_field_offset >= 32) {
+                    try out.print("$},\n", .{});
+                    bit_field_offset = 0;
+                    n_bit_fields += 1;
+                }
+            } else {
+                try translateDocumentation(field.documentation, out);
+                try out.print("$I: @compileError(\"can't translate bitfields unless backed by guint\"),\n", .{field.name});
+            }
+        } else {
+            if (bit_field_offset > 0) {
+                // Pad out to 32 bits
+                try out.print("_: u$L,\n", .{32 - bit_field_offset});
                 try out.print("$},\n", .{});
-                in_bit_fields = false;
-                bit_fields_bits = 0;
+                bit_field_offset = 0;
                 n_bit_fields += 1;
             }
+            try translateDocumentation(field.documentation, out);
             try out.print("$I: ", .{field.name});
             try translateFieldType(allocator, field.type, ctx, out);
             try out.print(",\n", .{});
         }
     }
     // Handle trailing bit fields
-    if (in_bit_fields) {
-        const total_bits = @max(math.ceilPowerOfTwoPromote(u16, bit_fields_bits), 8);
-        const padding_bits = total_bits - bit_fields_bits;
-        if (padding_bits > 0) {
-            try out.print("padding: u$L,\n", .{padding_bits});
-        }
+    if (bit_field_offset > 0) {
+        try out.print("_: u$L,\n", .{32 - bit_field_offset});
         try out.print("$},\n", .{});
     }
 }
