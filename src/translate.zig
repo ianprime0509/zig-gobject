@@ -117,8 +117,6 @@ pub fn translate(allocator: Allocator, repositories: []const gir.Repository, ext
     }
 
     for (repositories) |repo| {
-        const source_name = try fmt.allocPrint(allocator, "{s}-{s}", .{ repo.namespace.name, repo.namespace.version });
-        defer allocator.free(source_name);
         const extras_file = try copyExtrasFile(allocator, repo.namespace.name, repo.namespace.version, extras_path, output_dir);
         defer allocator.free(extras_file);
         var ctx = TranslationContext.init(allocator);
