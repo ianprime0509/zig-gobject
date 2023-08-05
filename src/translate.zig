@@ -279,8 +279,8 @@ fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContex
     }
     try out.print("const _Self = @This();\n\n", .{});
 
-    try translateLinearFields(allocator, class.fields, ctx, out);
-    if (class.fields.len > 0) {
+    try translateLayoutElements(allocator, class.layout_elements, ctx, out);
+    if (class.layout_elements.len > 0) {
         try out.print("\n", .{});
     }
 
@@ -525,8 +525,8 @@ fn translateRecord(allocator: Allocator, record: gir.Record, ctx: TranslationCon
     }
     try out.print("const _Self = @This();\n\n", .{});
 
-    try translateLinearFields(allocator, record.fields, ctx, out);
-    if (record.fields.len > 0) {
+    try translateLayoutElements(allocator, record.layout_elements, ctx, out);
+    if (record.layout_elements.len > 0) {
         try out.print("\n", .{});
     }
 
@@ -601,8 +601,8 @@ fn translateUnion(allocator: Allocator, @"union": gir.Union, ctx: TranslationCon
     try out.print("pub const $I = extern union ${\n", .{escapeTypeName(@"union".name)});
     try out.print("const _Self = @This();\n\n", .{});
 
-    try translateUnionFields(allocator, @"union".fields, ctx, out);
-    if (@"union".fields.len > 0) {
+    try translateLayoutElements(allocator, @"union".layout_elements, ctx, out);
+    if (@"union".layout_elements.len > 0) {
         try out.print("\n", .{});
     }
 
@@ -657,14 +657,17 @@ fn translateUnion(allocator: Allocator, @"union": gir.Union, ctx: TranslationCon
     try out.print("$}\n\n", .{});
 }
 
-fn translateLinearFields(allocator: Allocator, fields: []const gir.Field, ctx: TranslationContext, out: anytype) !void {
+fn translateLayoutElements(allocator: Allocator, layout_elements: []const gir.LayoutElement, ctx: TranslationContext, out: anytype) !void {
     // This handling of bit fields makes no attempt to be general, so it can
     // avoid a lot of complexity present for bit fields in general. It only
     // handles bit fields backed by guint, and it assumes guint is 32 bits.
     var bit_field_offset: usize = 0;
     var n_bit_fields: usize = 0;
-    for (fields) |field| {
-        if (field.bits) |bits| {
+    var n_anon_fields: usize = 0;
+    for (layout_elements) |layout_element| {
+        if (layout_element == .field and layout_element.field.bits != null) {
+            const field = layout_element.field;
+            const bits = field.bits.?;
             if (field.type == .simple and field.type.simple.name != null and mem.eql(u8, field.type.simple.name.?.local, "guint")) {
                 if (bit_field_offset == 0) {
                     try out.print("bitfields$L: packed struct(c_uint) ${\n", .{n_bit_fields});
@@ -693,29 +696,32 @@ fn translateLinearFields(allocator: Allocator, fields: []const gir.Field, ctx: T
                 bit_field_offset = 0;
                 n_bit_fields += 1;
             }
-            try translateDocumentation(field.documentation, out);
-            try out.print("$I: ", .{field.name});
-            try translateFieldType(allocator, field.type, ctx, out);
-            try out.print(",\n", .{});
+            switch (layout_element) {
+                .field => |field| {
+                    try translateDocumentation(field.documentation, out);
+                    try out.print("$I: ", .{field.name});
+                    try translateFieldType(allocator, field.type, ctx, out);
+                    try out.print(",\n", .{});
+                },
+                .record => |record| {
+                    try out.print("anon$L: extern struct ${\n", .{n_anon_fields});
+                    try translateLayoutElements(allocator, record.layout_elements, ctx, out);
+                    try out.print("$},\n", .{});
+                    n_anon_fields += 1;
+                },
+                .@"union" => |@"union"| {
+                    try out.print("anon$L: extern union ${\n", .{n_anon_fields});
+                    try translateLayoutElements(allocator, @"union".layout_elements, ctx, out);
+                    try out.print("$},\n", .{});
+                    n_anon_fields += 1;
+                },
+            }
         }
     }
     // Handle trailing bit fields
     if (bit_field_offset > 0) {
         try out.print("_: u$L,\n", .{32 - bit_field_offset});
         try out.print("$},\n", .{});
-    }
-}
-
-fn translateUnionFields(allocator: Allocator, fields: []const gir.Field, ctx: TranslationContext, out: anytype) !void {
-    for (fields) |field| {
-        try translateDocumentation(field.documentation, out);
-        try out.print("$I: ", .{field.name});
-        if (field.bits != null) {
-            try out.print("@compileError(\"can't use bit fields in a union\")", .{});
-        } else {
-            try translateFieldType(allocator, field.type, ctx, out);
-        }
-        try out.print(",\n", .{});
     }
 }
 

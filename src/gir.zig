@@ -340,7 +340,7 @@ pub const Class = struct {
     name: []const u8,
     parent: ?Name = null,
     implements: []const Implements = &.{},
-    fields: []const Field,
+    layout_elements: []const LayoutElement,
     functions: []const Function = &.{},
     constructors: []const Constructor = &.{},
     methods: []const Method = &.{},
@@ -361,7 +361,7 @@ pub const Class = struct {
         var name: ?[]const u8 = null;
         var parent: ?Name = null;
         var implements = ArrayListUnmanaged(Implements){};
-        var fields = ArrayListUnmanaged(Field){};
+        var layout_elements = ArrayListUnmanaged(LayoutElement){};
         var functions = ArrayListUnmanaged(Function){};
         var constructors = ArrayListUnmanaged(Constructor){};
         var methods = ArrayListUnmanaged(Method){};
@@ -395,7 +395,11 @@ pub const Class = struct {
                 .element_start => |child| if (child.name.is(ns.core, "implements")) {
                     try implements.append(allocator, try Implements.parse(allocator, child, children.children(), current_ns));
                 } else if (child.name.is(ns.core, "field")) {
-                    try fields.append(allocator, try Field.parse(allocator, child, children.children(), current_ns));
+                    try layout_elements.append(allocator, .{ .field = try Field.parse(allocator, child, children.children(), current_ns) });
+                } else if (child.name.is(ns.core, "record")) {
+                    try layout_elements.append(allocator, .{ .record = try AnonymousRecord.parse(allocator, children.children(), current_ns) });
+                } else if (child.name.is(ns.core, "union")) {
+                    try layout_elements.append(allocator, .{ .@"union" = try AnonymousUnion.parse(allocator, children.children(), current_ns) });
                 } else if (child.name.is(ns.core, "function")) {
                     try functions.append(allocator, try Function.parse(allocator, child, children.children(), current_ns));
                 } else if (child.name.is(ns.core, "constructor")) {
@@ -420,7 +424,7 @@ pub const Class = struct {
         // For some reason, the final attribute is very rarely used. A more
         // reliable indicator seems to be the number of fields in the class (0
         // means it's final).
-        if (fields.items.len == 0) {
+        if (layout_elements.items.len == 0) {
             final = true;
         }
 
@@ -428,7 +432,7 @@ pub const Class = struct {
             .name = name orelse return error.InvalidGir,
             .parent = parent,
             .implements = try implements.toOwnedSlice(allocator),
-            .fields = try fields.toOwnedSlice(allocator),
+            .layout_elements = try layout_elements.toOwnedSlice(allocator),
             .functions = try functions.toOwnedSlice(allocator),
             .constructors = try constructors.toOwnedSlice(allocator),
             .methods = try methods.toOwnedSlice(allocator),
@@ -532,7 +536,7 @@ pub const Interface = struct {
 
 pub const Record = struct {
     name: []const u8,
-    fields: []const Field,
+    layout_elements: []const LayoutElement,
     functions: []const Function = &.{},
     constructors: []const Constructor = &.{},
     methods: []const Method = &.{},
@@ -560,7 +564,7 @@ pub const Record = struct {
 
     fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Record {
         var name: ?[]const u8 = null;
-        var fields = ArrayListUnmanaged(Field){};
+        var layout_elements = ArrayListUnmanaged(LayoutElement){};
         var functions = ArrayListUnmanaged(Function){};
         var constructors = ArrayListUnmanaged(Constructor){};
         var methods = ArrayListUnmanaged(Method){};
@@ -593,7 +597,11 @@ pub const Record = struct {
         while (try children.next()) |event| {
             switch (event) {
                 .element_start => |child| if (child.name.is(ns.core, "field")) {
-                    try fields.append(allocator, try Field.parse(allocator, child, children.children(), current_ns));
+                    try layout_elements.append(allocator, .{ .field = try Field.parse(allocator, child, children.children(), current_ns) });
+                } else if (child.name.is(ns.core, "record")) {
+                    try layout_elements.append(allocator, .{ .record = try AnonymousRecord.parse(allocator, children.children(), current_ns) });
+                } else if (child.name.is(ns.core, "union")) {
+                    try layout_elements.append(allocator, .{ .@"union" = try AnonymousUnion.parse(allocator, children.children(), current_ns) });
                 } else if (child.name.is(ns.core, "function")) {
                     try functions.append(allocator, try Function.parse(allocator, child, children.children(), current_ns));
                 } else if (child.name.is(ns.core, "constructor")) {
@@ -611,7 +619,7 @@ pub const Record = struct {
 
         return .{
             .name = name orelse return error.InvalidGir,
-            .fields = try fields.toOwnedSlice(allocator),
+            .layout_elements = try layout_elements.toOwnedSlice(allocator),
             .functions = try functions.toOwnedSlice(allocator),
             .constructors = try constructors.toOwnedSlice(allocator),
             .methods = try methods.toOwnedSlice(allocator),
@@ -628,7 +636,7 @@ pub const Record = struct {
 
 pub const Union = struct {
     name: []const u8,
-    fields: []const Field,
+    layout_elements: []const LayoutElement,
     functions: []const Function = &.{},
     constructors: []const Constructor = &.{},
     methods: []const Method = &.{},
@@ -640,9 +648,10 @@ pub const Union = struct {
         return Function.forGetType(self, self.symbol_prefix, false);
     }
 
+    // Manual error type needed due to https://github.com/ziglang/zig/issues/2971
     fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Union {
         var name: ?[]const u8 = null;
-        var fields = ArrayListUnmanaged(Field){};
+        var layout_elements = ArrayListUnmanaged(LayoutElement){};
         var functions = ArrayListUnmanaged(Function){};
         var constructors = ArrayListUnmanaged(Constructor){};
         var methods = ArrayListUnmanaged(Method){};
@@ -663,7 +672,11 @@ pub const Union = struct {
         while (try children.next()) |event| {
             switch (event) {
                 .element_start => |child| if (child.name.is(ns.core, "field")) {
-                    try fields.append(allocator, try Field.parse(allocator, child, children.children(), current_ns));
+                    try layout_elements.append(allocator, .{ .field = try Field.parse(allocator, child, children.children(), current_ns) });
+                } else if (child.name.is(ns.core, "record")) {
+                    try layout_elements.append(allocator, .{ .record = try AnonymousRecord.parse(allocator, children.children(), current_ns) });
+                } else if (child.name.is(ns.core, "union")) {
+                    try layout_elements.append(allocator, .{ .@"union" = try AnonymousUnion.parse(allocator, children.children(), current_ns) });
                 } else if (child.name.is(ns.core, "function")) {
                     try functions.append(allocator, try Function.parse(allocator, child, children.children(), current_ns));
                 } else if (child.name.is(ns.core, "constructor")) {
@@ -681,7 +694,7 @@ pub const Union = struct {
 
         return .{
             .name = name orelse return error.InvalidGir,
-            .fields = try fields.toOwnedSlice(allocator),
+            .layout_elements = try layout_elements.toOwnedSlice(allocator),
             .functions = try functions.toOwnedSlice(allocator),
             .constructors = try constructors.toOwnedSlice(allocator),
             .methods = try methods.toOwnedSlice(allocator),
@@ -690,6 +703,16 @@ pub const Union = struct {
             .documentation = documentation,
         };
     }
+};
+
+/// A component of the layout of a class, record, or union.
+pub const LayoutElement = union(enum) {
+    /// A normal field.
+    field: Field,
+    /// An anonymous struct field.
+    record: AnonymousRecord,
+    /// An anonymous union field.
+    @"union": AnonymousUnion,
 };
 
 pub const Field = struct {
@@ -743,6 +766,49 @@ pub const FieldType = union(enum) {
     simple: Type,
     array: ArrayType,
     callback: Callback,
+};
+
+fn ParseError(comptime Children: type) type {
+    // WTF
+    const ReaderType = @typeInfo(std.meta.fieldInfo(Children, .reader).type).Pointer.child;
+    return error{InvalidGir} || ReaderType.Error || Allocator.Error;
+}
+
+pub const AnonymousRecord = struct {
+    layout_elements: []const LayoutElement,
+
+    // Explicit error type needed due to https://github.com/ziglang/zig/issues/2971
+    fn parse(allocator: Allocator, children: anytype, current_ns: []const u8) ParseError(@TypeOf(children))!AnonymousRecord {
+        var layout_elements = ArrayListUnmanaged(LayoutElement){};
+
+        while (try children.next()) |event| {
+            switch (event) {
+                .element_start => |child| if (child.name.is(ns.core, "field")) {
+                    try layout_elements.append(allocator, .{ .field = try Field.parse(allocator, child, children.children(), current_ns) });
+                } else if (child.name.is(ns.core, "record")) {
+                    try layout_elements.append(allocator, .{ .record = try AnonymousRecord.parse(allocator, children.children(), current_ns) });
+                } else if (child.name.is(ns.core, "union")) {
+                    try layout_elements.append(allocator, .{ .@"union" = try AnonymousUnion.parse(allocator, children.children(), current_ns) });
+                } else {
+                    try children.children().skip();
+                },
+                else => {},
+            }
+        }
+
+        return .{ .layout_elements = try layout_elements.toOwnedSlice(allocator) };
+    }
+};
+
+pub const AnonymousUnion = struct {
+    layout_elements: []const LayoutElement,
+
+    // Explicit error type needed due to https://github.com/ziglang/zig/issues/2971
+    fn parse(allocator: Allocator, children: anytype, current_ns: []const u8) ParseError(@TypeOf(children))!AnonymousUnion {
+        // AnonymousUnion has the same structure as AnonymousRecord
+        const record = try AnonymousRecord.parse(allocator, children, current_ns);
+        return .{ .layout_elements = record.layout_elements };
+    }
 };
 
 pub const BitField = struct {
