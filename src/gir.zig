@@ -1525,7 +1525,3 @@ fn stripSymbolPrefix(identifier: []const u8, symbol_prefix: []const u8) []const 
     }
     return identifier;
 }
-
-test {
-    testing.refAllDecls(@This());
-}

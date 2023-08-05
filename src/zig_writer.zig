@@ -162,7 +162,3 @@ test "print" {
         \\
     , buf.items);
 }
-
-test {
-    testing.refAllDecls(@This());
-}

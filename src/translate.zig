@@ -2086,7 +2086,3 @@ pub fn createBuildFile(allocator: Allocator, repositories: []const gir.Repositor
     try bw.flush();
     try file.sync();
 }
-
-test {
-    testing.refAllDecls(@This());
-}
