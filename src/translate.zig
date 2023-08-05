@@ -20,88 +20,13 @@ const StringHashMapUnmanaged = std.StringHashMapUnmanaged;
 
 const gir = @import("gir.zig");
 
-pub const Repositories = struct {
-    repositories: []const gir.Repository,
-    arena: ArenaAllocator,
-
-    pub fn deinit(self: Repositories) void {
-        self.arena.deinit();
-    }
-};
-
-pub const FindError = error{ InvalidGir, RepositoryNotFound } || Allocator.Error || fs.File.OpenError || fs.File.ReadError || error{
-    FileSystem,
-    InputOutput,
-    NotSupported,
-    Unseekable,
-};
-
-// Finds and parses all repositories for the given root libraries, transitively
-// including dependencies.
-pub fn findRepositories(parent_allocator: Allocator, search_path: []const fs.Dir, roots: []const []const u8) FindError!Repositories {
-    var arena = ArenaAllocator.init(parent_allocator);
-    const allocator = arena.allocator();
-
-    var repos = StringHashMapUnmanaged(gir.Repository){};
-    defer repos.deinit(allocator);
-    var needed_repos = ArrayListUnmanaged([]const u8){};
-    defer {
-        for (needed_repos.items) |repo| allocator.free(repo);
-        needed_repos.deinit(allocator);
-    }
-    try needed_repos.appendSlice(allocator, roots);
-    while (needed_repos.popOrNull()) |needed_repo| {
-        if (!repos.contains(needed_repo)) {
-            const repo = try findRepository(allocator, search_path, needed_repo);
-            try repos.put(allocator, needed_repo, repo);
-            for (repo.includes) |include| {
-                try needed_repos.append(allocator, try fmt.allocPrint(allocator, "{s}-{s}", .{ include.name, include.version }));
-            }
-        }
-    }
-
-    var repos_list = ArrayListUnmanaged(gir.Repository){};
-    var repos_iter = repos.valueIterator();
-    while (repos_iter.next()) |repo| {
-        try repos_list.append(allocator, repo.*);
-    }
-
-    return .{ .repositories = try repos_list.toOwnedSlice(allocator), .arena = arena };
-}
-
-fn findRepository(allocator: Allocator, search_path: []const fs.Dir, name: []const u8) !gir.Repository {
-    const repo_path = try fmt.allocPrintZ(allocator, "{s}.gir", .{name});
-    defer allocator.free(repo_path);
-    for (search_path) |dir| {
-        const file = dir.openFile(repo_path, .{}) catch |err| switch (err) {
-            error.FileNotFound => continue,
-            else => |other| return other,
-        };
-        defer file.close();
-        var reader = io.bufferedReader(file.reader());
-        return try gir.Repository.parse(allocator, reader.reader());
-    }
-    return error.RepositoryNotFound;
-}
-
 pub const TranslateError = Allocator.Error || fs.File.OpenError || fs.File.WriteError || fs.Dir.CopyFileError || error{
     FileSystem,
     NotSupported,
 };
 
-const RepositoryMap = HashMapUnmanaged(gir.Include, gir.Repository, IncludeContext, std.hash_map.default_max_load_percentage);
-const RepositorySet = HashMapUnmanaged(gir.Include, void, IncludeContext, std.hash_map.default_max_load_percentage);
-const IncludeContext = struct {
-    pub fn hash(_: IncludeContext, value: gir.Include) u64 {
-        var hasher = std.hash.Wyhash.init(0);
-        std.hash.autoHashStrat(&hasher, value, .Deep);
-        return hasher.final();
-    }
-
-    pub fn eql(_: IncludeContext, a: gir.Include, b: gir.Include) bool {
-        return mem.eql(u8, a.name, b.name) and mem.eql(u8, a.version, b.version);
-    }
-};
+const RepositoryMap = HashMapUnmanaged(gir.Include, gir.Repository, gir.Include.Context, std.hash_map.default_max_load_percentage);
+const RepositorySet = HashMapUnmanaged(gir.Include, void, gir.Include.Context, std.hash_map.default_max_load_percentage);
 
 const TranslationContext = struct {
     namespaces: StringHashMapUnmanaged(Namespace),
@@ -184,35 +109,37 @@ const TranslationContext = struct {
     };
 };
 
-pub fn translate(repositories: *Repositories, extras_dir: fs.Dir, out_dir: fs.Dir) TranslateError!void {
-    const allocator = repositories.arena.allocator();
-
+pub fn translate(allocator: Allocator, repositories: []const gir.Repository, extras_path: []const fs.Dir, output_dir: fs.Dir) TranslateError!void {
     var repository_map = RepositoryMap{};
     defer repository_map.deinit(allocator);
-    for (repositories.repositories) |repo| {
+    for (repositories) |repo| {
         try repository_map.put(allocator, .{ .name = repo.namespace.name, .version = repo.namespace.version }, repo);
     }
 
-    for (repositories.repositories) |repo| {
+    for (repositories) |repo| {
         const source_name = try fmt.allocPrint(allocator, "{s}-{s}", .{ repo.namespace.name, repo.namespace.version });
         defer allocator.free(source_name);
-        const extras_file = try copyExtrasFile(allocator, repo.namespace.name, repo.namespace.version, extras_dir, out_dir);
-        defer if (extras_file) |path| allocator.free(path);
+        const extras_file = try copyExtrasFile(allocator, repo.namespace.name, repo.namespace.version, extras_path, output_dir);
+        defer allocator.free(extras_file);
         var ctx = TranslationContext.init(allocator);
         defer ctx.deinit();
         try ctx.addRepositoryAndDependencies(repo, repository_map);
-        try translateRepository(allocator, repo, extras_file, repository_map, ctx, out_dir);
+        try translateRepository(allocator, repo, extras_file, repository_map, ctx, output_dir);
     }
 }
 
-fn copyExtrasFile(allocator: Allocator, name: []const u8, version: []const u8, extras_dir: fs.Dir, out_dir: fs.Dir) !?[]u8 {
+fn copyExtrasFile(allocator: Allocator, name: []const u8, version: []const u8, extras_path: []const fs.Dir, output_dir: fs.Dir) ![]u8 {
     const extras_name = try extrasFileNameAlloc(allocator, name, version);
-    defer allocator.free(extras_name);
-    extras_dir.copyFile(extras_name, out_dir, extras_name, .{}) catch |err| switch (err) {
-        error.FileNotFound => return null,
-        else => return err,
-    };
-    return try allocator.dupe(u8, extras_name);
+    errdefer allocator.free(extras_name);
+    for (extras_path) |extras_dir| {
+        extras_dir.copyFile(extras_name, output_dir, extras_name, .{}) catch |err| switch (err) {
+            error.FileNotFound => continue,
+            else => return err,
+        };
+        return extras_name;
+    }
+    try output_dir.writeFile(extras_name, "");
+    return extras_name;
 }
 
 fn extrasFileNameAlloc(allocator: Allocator, name: []const u8, version: []const u8) ![]u8 {
@@ -221,20 +148,16 @@ fn extrasFileNameAlloc(allocator: Allocator, name: []const u8, version: []const 
     return file_name;
 }
 
-fn translateRepository(allocator: Allocator, repo: gir.Repository, maybe_extras_path: ?[]const u8, repository_map: RepositoryMap, ctx: TranslationContext, out_dir: fs.Dir) !void {
+fn translateRepository(allocator: Allocator, repo: gir.Repository, extras_path: []const u8, repository_map: RepositoryMap, ctx: TranslationContext, output_dir: fs.Dir) !void {
     const ns = repo.namespace;
     const file_name = try fileNameAlloc(allocator, ns.name, ns.version);
     defer allocator.free(file_name);
-    const file = try out_dir.createFile(file_name, .{});
+    const file = try output_dir.createFile(file_name, .{});
     defer file.close();
     var bw = io.bufferedWriter(file.writer());
     var out = zigWriter(bw.writer());
 
-    if (maybe_extras_path) |path| {
-        try out.print("const extras = @import($S);\n", .{path});
-    } else {
-        try out.print("const extras = struct {};\n", .{});
-    }
+    try out.print("const extras = @import($S);\n", .{extras_path});
 
     try translateIncludes(allocator, ns, repository_map, &out);
     try translateNamespace(allocator, ns, ctx, &out);
@@ -2042,16 +1965,14 @@ pub const CreateBuildFileError = Allocator.Error || fs.File.OpenError || fs.File
     NotSupported,
 };
 
-pub fn createBuildFile(repositories: *Repositories, out_dir: fs.Dir) !void {
-    const allocator = repositories.arena.allocator();
-
+pub fn createBuildFile(allocator: Allocator, repositories: []const gir.Repository, output_dir: fs.Dir) !void {
     var repository_map = RepositoryMap{};
     defer repository_map.deinit(allocator);
-    for (repositories.repositories) |repo| {
+    for (repositories) |repo| {
         try repository_map.put(allocator, .{ .name = repo.namespace.name, .version = repo.namespace.version }, repo);
     }
 
-    const file = try out_dir.createFile("build.zig", .{});
+    const file = try output_dir.createFile("build.zig", .{});
     defer file.close();
     var bw = io.bufferedWriter(file.writer());
     var out = zigWriter(bw.writer());
@@ -2065,7 +1986,7 @@ pub fn createBuildFile(repositories: *Repositories, out_dir: fs.Dir) !void {
     try out.print("pub fn build(b: *std.Build) !void ${\n\n", .{});
 
     // Declare all modules (without dependencies, so order won't matter)
-    for (repositories.repositories) |repo| {
+    for (repositories) |repo| {
         const module_name = try moduleNameAlloc(allocator, repo.namespace.name, repo.namespace.version);
         defer allocator.free(module_name);
         try out.print("const $I = b.addModule($S, .{ .source_file = .{ .path = try b.build_root.join(b.allocator, &.{\"src\", \"$L.zig\"}) } });\n", .{ module_name, module_name, module_name });
@@ -2076,7 +1997,7 @@ pub fn createBuildFile(repositories: *Repositories, out_dir: fs.Dir) !void {
     }
 
     // Dependencies
-    for (repositories.repositories) |repo| {
+    for (repositories) |repo| {
         const module_name = try moduleNameAlloc(allocator, repo.namespace.name, repo.namespace.version);
         defer allocator.free(module_name);
 
@@ -2111,7 +2032,7 @@ pub fn createBuildFile(repositories: *Repositories, out_dir: fs.Dir) !void {
     // This is ugly and I'm looking forward to removing it when the issues above
     // have been fixed.
     try out.print("pub fn addBindingModule(b: *std.Build, step: *std.Build.Step.Compile, module_name: []const u8) *std.Build.Module ${\n", .{});
-    for (repositories.repositories) |repo| {
+    for (repositories) |repo| {
         const module_name = try moduleNameAlloc(allocator, repo.namespace.name, repo.namespace.version);
         defer allocator.free(module_name);
 

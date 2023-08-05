@@ -15,7 +15,7 @@ automatically, so it is not necessary to specify GLib, GObject, etc. in this
 example.
 
 ```sh
-zig build run -- lib/gir-files extras src/gir-out Gtk-4.0
+zig build run -- --gir-dir lib/gir-files --extras-dir extras --output-dir src/gir-out Gtk-4.0
 ```
 
 ## Usage

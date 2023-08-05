@@ -1,21 +1,64 @@
 const std = @import("std");
 const xml = @import("xml");
 const fmt = std.fmt;
+const fs = std.fs;
 const io = std.io;
 const mem = std.mem;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
+const ArrayHashMapUnmanaged = std.ArrayHashMapUnmanaged;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const ComptimeStringMap = std.ComptimeStringMap;
+
+pub const FindError = error{ InvalidGir, RepositoryNotFound } || Allocator.Error || fs.File.OpenError || fs.File.ReadError || error{
+    FileSystem,
+    InputOutput,
+    NotSupported,
+    Unseekable,
+};
+
+/// Finds and parses all repositories for the given root libraries, transitively
+/// including dependencies.
+pub fn findRepositories(allocator: Allocator, gir_path: []const fs.Dir, roots: []const Include) FindError![]Repository {
+    var repos = ArrayHashMapUnmanaged(Include, Repository, Include.ArrayContext, true){};
+    defer repos.deinit(allocator);
+    errdefer for (repos.values()) |*repo| repo.deinit();
+
+    var needed_repos = ArrayListUnmanaged(Include){};
+    defer needed_repos.deinit(allocator);
+    try needed_repos.appendSlice(allocator, roots);
+    while (needed_repos.popOrNull()) |needed_repo| {
+        if (!repos.contains(needed_repo)) {
+            const repo = try findRepository(allocator, gir_path, needed_repo);
+            try repos.put(allocator, needed_repo, repo);
+            try needed_repos.appendSlice(allocator, repo.includes);
+        }
+    }
+
+    return try allocator.dupe(Repository, repos.values());
+}
+
+fn findRepository(allocator: Allocator, gir_path: []const fs.Dir, include: Include) !Repository {
+    const repo_path = try fmt.allocPrintZ(allocator, "{s}-{s}.gir", .{ include.name, include.version });
+    defer allocator.free(repo_path);
+    for (gir_path) |dir| {
+        const file = dir.openFile(repo_path, .{}) catch |err| switch (err) {
+            error.FileNotFound => continue,
+            else => |other| return other,
+        };
+        defer file.close();
+        var reader = io.bufferedReader(file.reader());
+        return try Repository.parse(allocator, reader.reader());
+    }
+    return error.RepositoryNotFound;
+}
 
 const ns = struct {
     pub const core = "http://www.gtk.org/introspection/core/1.0";
     pub const c = "http://www.gtk.org/introspection/c/1.0";
     pub const glib = "http://www.gtk.org/introspection/glib/1.0";
 };
-
-pub const Error = error{InvalidGir} || Allocator.Error;
 
 pub const Repository = struct {
     includes: []const Include = &.{},
@@ -122,6 +165,32 @@ pub const Include = struct {
             .version = version orelse return error.InvalidGir,
         };
     }
+
+    /// A Context for use in a HashMap.
+    pub const Context = struct {
+        pub fn hash(_: Context, value: Include) u64 {
+            var hasher = std.hash.Wyhash.init(0);
+            hasher.update(value.name);
+            hasher.update("-");
+            hasher.update(value.version);
+            return hasher.final();
+        }
+
+        pub fn eql(_: Context, a: Include, b: Include) bool {
+            return mem.eql(u8, a.name, b.name) and mem.eql(u8, a.version, b.version);
+        }
+    };
+
+    /// A Context for use in an ArrayHashMap.
+    pub const ArrayContext = struct {
+        pub fn hash(_: ArrayContext, value: Include) u32 {
+            return @truncate(Context.hash(.{}, value));
+        }
+
+        pub fn eql(_: ArrayContext, a: Include, b: Include, _: usize) bool {
+            return Context.eql(.{}, a, b);
+        }
+    };
 };
 
 pub const Package = struct {

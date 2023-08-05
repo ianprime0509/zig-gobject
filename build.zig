@@ -178,29 +178,24 @@ fn addCodegenStep(b: *std.Build, codegen_exe: *std.Build.CompileStep) !*std.Buil
     };
 
     const codegen_cmd = b.addRunArtifact(codegen_exe);
-    var repo_names = std.ArrayList([]const u8).init(b.allocator);
+    codegen_cmd.addArgs(&.{ "--gir-dir", try b.build_root.join(b.allocator, &.{"gir-overrides"}) });
+    codegen_cmd.addArgs(&.{ "--gir-dir", try b.build_root.join(b.allocator, &.{ "lib", "gir-files" }) });
+    codegen_cmd.addArgs(&.{ "--extras-dir", try b.build_root.join(b.allocator, &.{"extras"}) });
+    codegen_cmd.addArgs(&.{ "--output-dir", try b.build_root.join(b.allocator, &.{"bindings"}) });
+
     var file_deps = std.ArrayList([]const u8).init(b.allocator);
     for (gir) |file| {
-        try repo_names.append(file[0 .. file.len - ".gir".len]);
+        codegen_cmd.addArg(file[0 .. file.len - ".gir".len]);
         try file_deps.append(try b.build_root.join(b.allocator, &.{ "lib", "gir-files", file }));
     }
     for (gir_overrides) |file| {
-        try repo_names.append(file[0 .. file.len - ".gir".len]);
+        codegen_cmd.addArg(file[0 .. file.len - ".gir".len]);
         try file_deps.append(try b.build_root.join(b.allocator, &.{ "gir-overrides", file }));
     }
     for (extras) |file| {
         try file_deps.append(try b.build_root.join(b.allocator, &.{ "extras", file }));
     }
     codegen_cmd.extra_file_dependencies = file_deps.items;
-
-    var search_path = ArrayListUnmanaged(u8){};
-    try search_path.appendSlice(b.allocator, try b.build_root.join(b.allocator, &.{"gir-overrides"}));
-    try search_path.append(b.allocator, std.fs.path.delimiter);
-    try search_path.appendSlice(b.allocator, try b.build_root.join(b.allocator, &.{ "lib", "gir-files" }));
-    codegen_cmd.addArg(search_path.items);
-    codegen_cmd.addArg(try b.build_root.join(b.allocator, &.{"extras"}));
-    codegen_cmd.addArg(try b.build_root.join(b.allocator, &.{"bindings"}));
-    codegen_cmd.addArgs(repo_names.items);
 
     const codegen_step = b.step("codegen", "Generate all bindings");
     codegen_step.dependOn(&codegen_cmd.step);
