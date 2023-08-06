@@ -649,7 +649,6 @@ pub const Union = struct {
         return self.layout_elements.len == 0;
     }
 
-    // Manual error type needed due to https://github.com/ziglang/zig/issues/2971
     fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Union {
         var name: ?[]const u8 = null;
         var layout_elements = ArrayListUnmanaged(LayoutElement){};
