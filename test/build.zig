@@ -188,6 +188,12 @@ const module_options = std.ComptimeStringMap(ModuleOptions, .{
         },
     },
     .{
+        "gsk-4.0", .{
+            // Needs more comprehensive checks to skip indirect bit field references
+            .test_abi = false,
+        },
+    },
+    .{
         "gst-1.0", .{
             // GstMemoryCopyFunction: https://github.com/ziglang/zig/issues/12325
             .test_abi = false,
@@ -302,7 +308,19 @@ const module_options = std.ComptimeStringMap(ModuleOptions, .{
         },
     },
     .{
+        "pangofc-1.0", .{
+            // Needs more comprehensive checks to skip indirect bit field references
+            .test_abi = false,
+        },
+    },
+    .{
         "pangoft2-1.0", .{
+            // Needs more comprehensive checks to skip indirect bit field references
+            .test_abi = false,
+        },
+    },
+    .{
+        "pangoot-1.0", .{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },

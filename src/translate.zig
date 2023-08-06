@@ -2142,29 +2142,123 @@ pub fn createAbiTests(allocator: Allocator, repositories: []const gir.Repository
 
         try out.print(
             \\fn checkCompatibility(comptime ExpectedType: type, comptime ActualType: type) !void {
+            \\    // translate-c doesn't seem to want to translate va_list to std.builtin.VaList
+            \\    if (ActualType == std.builtin.VaList) return;
+            \\
             \\    const expected_type_info = @typeInfo(ExpectedType);
             \\    const actual_type_info = @typeInfo(ActualType);
             \\    switch (expected_type_info) {
-            \\        inline .Void, .Bool, .Float, .Array, .Struct, .Union => |_, expected_tag| {
-            \\            try std.testing.expectEqual(expected_tag, actual_type_info);
-            \\            try std.testing.expectEqual(@sizeOf(ExpectedType), @sizeOf(ActualType));
-            \\            try std.testing.expectEqual(@alignOf(ExpectedType), @alignOf(ActualType));
+            \\        .Void => switch (actual_type_info) {
+            \\            .Void => {},
+            \\            else => {
+            \\                std.debug.print("incompatible types: expected {s}, actual {s}\n", .{@typeName(ExpectedType), @typeName(ActualType)});
+            \\                return error.TestUnexpectedType;
+            \\            },
             \\        },
-            \\        .Int => {}, // TODO: actual could be an int, enum, or packed struct
-            \\        .Pointer => {}, // TODO
-            \\        .Optional => {}, // TODO
-            \\        .Fn => {
-            \\            try std.testing.expect(actual_type_info == .Fn);
-            \\            try std.testing.expectEqual(expected_type_info.Fn.params.len, actual_type_info.Fn.params.len);
-            \\            try std.testing.expectEqual(expected_type_info.Fn.calling_convention, actual_type_info.Fn.calling_convention);
-            \\            try std.testing.expectEqual(expected_type_info.Fn.is_var_args, actual_type_info.Fn.is_var_args);
-            \\            try std.testing.expect(expected_type_info.Fn.return_type != null);
-            \\            try std.testing.expect(actual_type_info.Fn.return_type != null);
-            \\            try checkCompatibility(expected_type_info.Fn.return_type.?, actual_type_info.Fn.return_type.?);
-            \\            // TODO: more checks
+            \\        .Bool => switch (actual_type_info) {
+            \\            .Bool => {},
+            \\            else => {
+            \\                std.debug.print("incompatible types: expected {s}, actual {s}\n", .{@typeName(ExpectedType), @typeName(ActualType)});
+            \\                return error.TestUnexpectedType;
+            \\            },
+            \\        },
+            \\        .Float => |expected_float| switch (actual_type_info) {
+            \\            .Float => |actual_float| try std.testing.expectEqual(expected_float.bits, actual_float.bits),
+            \\            else => {
+            \\                std.debug.print("incompatible types: expected {s}, actual {s}\n", .{@typeName(ExpectedType), @typeName(ActualType)});
+            \\                return error.TestUnexpectedType;
+            \\            },
+            \\        },
+            \\        .Array => |expected_array| switch (actual_type_info) {
+            \\            .Array => |actual_array| {
+            \\                try std.testing.expectEqual(expected_array.len, actual_array.len);
+            \\                try checkCompatibility(expected_array.child, actual_array.child);
+            \\            },
+            \\            else => {
+            \\                std.debug.print("incompatible types: expected {s}, actual {s}\n", .{@typeName(ExpectedType), @typeName(ActualType)});
+            \\                return error.TestUnexpectedType;
+            \\            },
+            \\        },
+            \\        .Struct => switch (actual_type_info) {
+            \\            .Struct => {
+            \\                try std.testing.expectEqual(@sizeOf(ExpectedType), @sizeOf(ActualType));
+            \\                try std.testing.expectEqual(@alignOf(ExpectedType), @alignOf(ActualType));
+            \\            },
+            \\            else => {
+            \\                std.debug.print("incompatible types: expected {s}, actual {s}\n", .{@typeName(ExpectedType), @typeName(ActualType)});
+            \\                return error.TestUnexpectedType;
+            \\            },
+            \\        },
+            \\        .Union => switch (actual_type_info) {
+            \\            .Union => {
+            \\                try std.testing.expectEqual(@sizeOf(ExpectedType), @sizeOf(ActualType));
+            \\                try std.testing.expectEqual(@alignOf(ExpectedType), @alignOf(ActualType));
+            \\            },
+            \\            else => {
+            \\                std.debug.print("incompatible types: expected {s}, actual {s}\n", .{@typeName(ExpectedType), @typeName(ActualType)});
+            \\                return error.TestUnexpectedType;
+            \\            },
+            \\        },
+            \\        // Opaque types show up more frequently in translate-c output due to its
+            \\        // limitations. We'll just treat "opaque" as "I don't know" and accept any
+            \\        // translation from zig-gobject.
+            \\        .Opaque => {},
+            \\        .Int => |expected_int| switch (actual_type_info) {
+            \\            // Checking signedness here turns out to be too strict for many cases
+            \\            // and does not affect actual ABI compatibility.
+            \\            .Int => |actual_int| try std.testing.expectEqual(expected_int.bits, actual_int.bits),
+            \\            .Enum => |actual_enum| try checkCompatibility(ExpectedType, actual_enum.tag_type),
+            \\            .Struct => |actual_struct| {
+            \\                try std.testing.expect(actual_struct.layout == .Packed);
+            \\                try checkCompatibility(ExpectedType, actual_struct.backing_integer.?);
+            \\            },
+            \\            else => {
+            \\                std.debug.print("incompatible types: expected {s}, actual {s}\n", .{@typeName(ExpectedType), @typeName(ActualType)});
+            \\                return error.TestUnexpectedType;
+            \\            },
+            \\        },
+            \\        // Pointers are tricky to assert on, since we may translate some pointers
+            \\        // differently from how they appear in C (e.g. *GtkWindow rather than *GtkWidget)
+            \\        .Pointer => switch (actual_type_info) {
+            \\            .Pointer => {},
+            \\            .Optional => |actual_optional| try std.testing.expect(@typeInfo(actual_optional.child) == .Pointer),
+            \\            else => {
+            \\                std.debug.print("incompatible types: expected {s}, actual {s}\n", .{@typeName(ExpectedType), @typeName(ActualType)}) ;
+            \\                return error.TestUnexpectedType;
+            \\            }
+            \\        },
+            \\        .Optional => |expected_optional| switch (@typeInfo(expected_optional.child)) {
+            \\            .Pointer => try checkCompatibility(expected_optional.child, ActualType),
+            \\            else => {
+            \\                std.debug.print("unexpected C translated type: {s}\n", .{@typeName(ExpectedType)});
+            \\                return error.TestUnexpectedType;
+            \\            }
+            \\        },
+            \\        .Fn => |expected_fn| switch (actual_type_info) {
+            \\            .Fn => |actual_fn| {
+            \\                try std.testing.expectEqual(expected_fn.params.len, actual_fn.params.len);
+            \\                try std.testing.expectEqual(expected_fn.calling_convention, actual_fn.calling_convention);
+            \\                // The special casing of zero arguments here is because there are some
+            \\                // headers (specifically in IBus) which do not properly use the (void)
+            \\                // parameter list, so the function is translated as varargs even though
+            \\                // it wasn't intended to be.
+            \\                try std.testing.expect(expected_fn.is_var_args == actual_fn.is_var_args or (expected_fn.is_var_args and expected_fn.params.len == 0));
+            \\                try std.testing.expect(expected_fn.return_type != null);
+            \\                try std.testing.expect(actual_fn.return_type != null);
+            \\                try checkCompatibility(expected_fn.return_type.?, actual_fn.return_type.?);
+            \\                inline for (expected_fn.params, actual_fn.params) |expected_param, actual_param| {
+            \\                    try std.testing.expect(expected_param.type != null);
+            \\                    try std.testing.expect(actual_param.type != null);
+            \\                    try checkCompatibility(expected_param.type.?, actual_param.type.?);
+            \\                }
+            \\            },
+            \\            else => {
+            \\                std.debug.print("incompatible types: expected {s}, actual {s}\n", .{@typeName(ExpectedType), @typeName(ActualType)}) ;
+            \\                return error.TestUnexpectedType;
+            \\            }
             \\        },
             \\        else => {
-            \\            std.debug.print("unexpected C translated type: {s}\n", .{@tagName(expected_type_info)});
+            \\            std.debug.print("unexpected C translated type: {s}\n", .{@typeName(ExpectedType)});
             \\            return error.TestUnexpectedType;
             \\        },
             \\    }
@@ -2174,59 +2268,127 @@ pub fn createAbiTests(allocator: Allocator, repositories: []const gir.Repository
         , .{});
 
         for (ns.classes) |class| {
+            const class_name = escapeTypeName(class.name);
             // containsBitField: https://github.com/ziglang/zig/issues/1499
-            if (class.isOpaque() or containsBitField(class.layout_elements)) continue;
-            if (class.c_type) |c_type| {
-                const class_name = escapeTypeName(class.name);
-                try out.print("test $S ${\n", .{class_name});
-                try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_type});
-                try out.print(
-                    \\const ExpectedType = c.$I;
-                    \\const ActualType = $I.$I;
-                    \\try std.testing.expect(@typeInfo(ExpectedType) == .Struct);
-                    \\try checkCompatibility(ExpectedType, ActualType);
-                    \\
-                , .{ c_type, pkg, class_name });
-                try out.print("$}\n\n", .{});
+            if (!class.isOpaque() and !containsBitField(class.layout_elements)) {
+                if (class.c_type) |c_type| {
+                    try out.print("test $S ${\n", .{class_name});
+                    try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_type});
+                    try out.print(
+                        \\const ExpectedType = c.$I;
+                        \\const ActualType = $I.$I;
+                        \\try std.testing.expect(@typeInfo(ExpectedType) == .Struct);
+                        \\try checkCompatibility(ExpectedType, ActualType);
+                        \\
+                    , .{ c_type, pkg, class_name });
+                    try out.print("$}\n\n", .{});
+                }
+            }
+            for (class.constructors) |constructor| {
+                if (isConstructorTranslatable(constructor)) {
+                    const constructor_name = try toCamelCase(allocator, constructor.name, "_");
+                    defer allocator.free(constructor_name);
+                    try createFunctionTest(constructor.c_identifier, pkg, class_name, constructor_name, &out);
+                }
+            }
+            for (class.functions) |function| {
+                if (isFunctionTranslatable(function)) {
+                    const function_name = try toCamelCase(allocator, function.name, "_");
+                    defer allocator.free(function_name);
+                    try createFunctionTest(function.c_identifier, pkg, class_name, function_name, &out);
+                }
+            }
+            for (class.methods) |method| {
+                if (isMethodTranslatable(method)) {
+                    const method_name = try toCamelCase(allocator, method.name, "_");
+                    defer allocator.free(method_name);
+                    try createMethodTest(method.c_identifier, pkg, class_name, method_name, &out);
+                }
             }
         }
 
         for (ns.records) |record| {
+            const record_name = escapeTypeName(record.name);
             // containsBitField: https://github.com/ziglang/zig/issues/1499
-            if (record.isOpaque() or containsBitField(record.layout_elements)) continue;
-            if (record.c_type) |c_type| {
-                const record_name = escapeTypeName(record.name);
-                try out.print("test $S ${\n", .{record_name});
-                try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_type});
-                try out.print(
-                    \\const ExpectedType = c.$I;
-                    \\const ActualType = $I.$I;
-                    \\
-                , .{ c_type, pkg, record_name });
-                if (record.isPointer()) {
-                    try out.print("try std.testing.expect(@typeInfo(ExpectedType) == .Pointer);\n", .{});
-                } else {
-                    try out.print("try std.testing.expect(@typeInfo(ExpectedType) == .Struct);\n", .{});
+            if (!record.isOpaque() and !containsBitField(record.layout_elements)) {
+                if (record.c_type) |c_type| {
+                    try out.print("test $S ${\n", .{record_name});
+                    try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_type});
+                    try out.print(
+                        \\const ExpectedType = c.$I;
+                        \\const ActualType = $I.$I;
+                        \\
+                    , .{ c_type, pkg, record_name });
+                    if (record.isPointer()) {
+                        try out.print("try std.testing.expect(@typeInfo(ExpectedType) == .Pointer);\n", .{});
+                    } else {
+                        try out.print("try std.testing.expect(@typeInfo(ExpectedType) == .Struct);\n", .{});
+                    }
+                    try out.print("try checkCompatibility(ExpectedType, ActualType);\n", .{});
+                    try out.print("$}\n\n", .{});
                 }
-                try out.print("try checkCompatibility(ExpectedType, ActualType);\n", .{});
-                try out.print("$}\n\n", .{});
+            }
+            if (!record.isPointer()) {
+                for (record.constructors) |constructor| {
+                    if (isConstructorTranslatable(constructor)) {
+                        const constructor_name = try toCamelCase(allocator, constructor.name, "_");
+                        defer allocator.free(constructor_name);
+                        try createFunctionTest(constructor.c_identifier, pkg, record_name, constructor_name, &out);
+                    }
+                }
+                for (record.functions) |function| {
+                    if (isFunctionTranslatable(function)) {
+                        const function_name = try toCamelCase(allocator, function.name, "_");
+                        defer allocator.free(function_name);
+                        try createFunctionTest(function.c_identifier, pkg, record_name, function_name, &out);
+                    }
+                }
+                for (record.methods) |method| {
+                    if (isMethodTranslatable(method)) {
+                        const method_name = try toCamelCase(allocator, method.name, "_");
+                        defer allocator.free(method_name);
+                        try createMethodTest(method.c_identifier, pkg, record_name, method_name, &out);
+                    }
+                }
             }
         }
 
         for (ns.unions) |@"union"| {
-            if (@"union".isOpaque()) continue;
-            if (@"union".c_type) |c_type| {
-                const union_name = escapeTypeName(@"union".name);
-                try out.print("test $S ${\n", .{union_name});
-                try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_type});
-                try out.print(
-                    \\const ExpectedType = c.$I;
-                    \\const ActualType = $I.$I;
-                    \\try std.testing.expect(@typeInfo(ExpectedType) == .Union);
-                    \\try checkCompatibility(ExpectedType, ActualType);
-                    \\
-                , .{ c_type, pkg, union_name });
-                try out.print("$}\n\n", .{});
+            const union_name = escapeTypeName(@"union".name);
+            if (!@"union".isOpaque()) {
+                if (@"union".c_type) |c_type| {
+                    try out.print("test $S ${\n", .{union_name});
+                    try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_type});
+                    try out.print(
+                        \\const ExpectedType = c.$I;
+                        \\const ActualType = $I.$I;
+                        \\try std.testing.expect(@typeInfo(ExpectedType) == .Union);
+                        \\try checkCompatibility(ExpectedType, ActualType);
+                        \\
+                    , .{ c_type, pkg, union_name });
+                    try out.print("$}\n\n", .{});
+                }
+            }
+            for (@"union".constructors) |constructor| {
+                if (isConstructorTranslatable(constructor)) {
+                    const constructor_name = try toCamelCase(allocator, constructor.name, "_");
+                    defer allocator.free(constructor_name);
+                    try createFunctionTest(constructor.c_identifier, pkg, union_name, constructor_name, &out);
+                }
+            }
+            for (@"union".functions) |function| {
+                if (isFunctionTranslatable(function)) {
+                    const function_name = try toCamelCase(allocator, function.name, "_");
+                    defer allocator.free(function_name);
+                    try createFunctionTest(function.c_identifier, pkg, union_name, function_name, &out);
+                }
+            }
+            for (@"union".methods) |method| {
+                if (isMethodTranslatable(method)) {
+                    const method_name = try toCamelCase(allocator, method.name, "_");
+                    defer allocator.free(method_name);
+                    try createMethodTest(method.c_identifier, pkg, union_name, method_name, &out);
+                }
             }
         }
 
@@ -2249,6 +2411,45 @@ pub fn createAbiTests(allocator: Allocator, repositories: []const gir.Repository
         try bw.flush();
         try output_file.sync();
     }
+}
+
+fn createFunctionTest(
+    c_name: []const u8,
+    pkg_name: []const u8,
+    container_name: []const u8,
+    function_name: []const u8,
+    out: anytype,
+) !void {
+    try out.print("test \"$L.$L\" ${\n", .{ container_name, function_name });
+    try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_name});
+    try out.print(
+        \\const ExpectedFnType = @TypeOf(c.$I);
+        \\const ActualFnType = @TypeOf($I.$I.Own.$I);
+        \\try std.testing.expect(@typeInfo(ExpectedFnType) == .Fn);
+        \\try checkCompatibility(ExpectedFnType, ActualFnType);
+        \\
+    , .{ c_name, pkg_name, container_name, function_name });
+    try out.print("$}\n\n", .{});
+}
+
+fn createMethodTest(
+    c_name: []const u8,
+    pkg_name: []const u8,
+    container_name: []const u8,
+    function_name: []const u8,
+    out: anytype,
+) !void {
+    try out.print("test \"$L.$L\" ${\n", .{ container_name, function_name });
+    try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_name});
+    try out.print(
+        \\const ExpectedFnType = @TypeOf(c.$I);
+        \\const ActualType = $I.$I;
+        \\const ActualFnType = @TypeOf(ActualType.OwnMethods(ActualType).$I);
+        \\try std.testing.expect(@typeInfo(ExpectedFnType) == .Fn);
+        \\try checkCompatibility(ExpectedFnType, ActualFnType);
+        \\
+    , .{ c_name, pkg_name, container_name, function_name });
+    try out.print("$}\n\n", .{});
 }
 
 fn containsBitField(layout_elements: []const gir.LayoutElement) bool {
