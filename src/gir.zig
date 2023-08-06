@@ -357,6 +357,10 @@ pub const Class = struct {
         return Function.forGetType(self, self.symbol_prefix, true);
     }
 
+    pub fn isOpaque(self: Class) bool {
+        return self.final or self.layout_elements.len == 0;
+    }
+
     fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Class {
         var name: ?[]const u8 = null;
         var parent: ?Name = null;
@@ -419,13 +423,6 @@ pub const Class = struct {
                 },
                 else => {},
             }
-        }
-
-        // For some reason, the final attribute is very rarely used. A more
-        // reliable indicator seems to be the number of fields in the class (0
-        // means it's final).
-        if (layout_elements.items.len == 0) {
-            final = true;
         }
 
         return .{
@@ -559,7 +556,7 @@ pub const Record = struct {
     }
 
     pub fn isOpaque(self: Record) bool {
-        return self.@"opaque" or (self.disguised and !self.pointer);
+        return self.@"opaque" or (self.disguised and !self.pointer) or self.layout_elements.len == 0;
     }
 
     fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Record {
@@ -646,6 +643,10 @@ pub const Union = struct {
 
     pub fn getTypeFunction(self: Union) ?Function {
         return Function.forGetType(self, self.symbol_prefix, false);
+    }
+
+    pub fn isOpaque(self: Union) bool {
+        return self.layout_elements.len == 0;
     }
 
     // Manual error type needed due to https://github.com/ziglang/zig/issues/2971

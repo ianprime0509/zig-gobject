@@ -20,11 +20,6 @@ const StringHashMapUnmanaged = std.StringHashMapUnmanaged;
 
 const gir = @import("gir.zig");
 
-pub const TranslateError = Allocator.Error || fs.File.OpenError || fs.File.WriteError || fs.Dir.CopyFileError || error{
-    FileSystem,
-    NotSupported,
-};
-
 const RepositoryMap = HashMapUnmanaged(gir.Include, gir.Repository, gir.Include.Context, std.hash_map.default_max_load_percentage);
 const RepositorySet = HashMapUnmanaged(gir.Include, void, gir.Include.Context, std.hash_map.default_max_load_percentage);
 
@@ -78,6 +73,9 @@ const TranslationContext = struct {
                 try pointer_types.put(allocator, record.name, {});
             }
         }
+        for (repository.namespace.unions) |@"union"| {
+            try object_types.put(allocator, @"union".name, {});
+        }
         for (repository.namespace.callbacks) |callback| {
             try pointer_types.put(allocator, callback.name, {});
         }
@@ -87,6 +85,9 @@ const TranslationContext = struct {
         });
     }
 
+    /// Returns whether the type with the given name is "object-like" in a
+    /// GObject context. See the comment in `TranslateTypeOptions` for what
+    /// "GObject context" means.
     fn isObjectType(self: TranslationContext, name: gir.Name) bool {
         if (name.ns) |ns| {
             const namespace = self.namespaces.get(ns) orelse return false;
@@ -95,6 +96,9 @@ const TranslationContext = struct {
         return false;
     }
 
+    /// Returns whether the type with the given name is actually a pointer
+    /// (for example, a typedefed pointer). This mostly affects the translation
+    /// of nullability (explicit or implied) for the type.
     fn isPointerType(self: TranslationContext, name: gir.Name) bool {
         if (name.ns) |ns| {
             const namespace = self.namespaces.get(ns) orelse return false;
@@ -109,7 +113,12 @@ const TranslationContext = struct {
     };
 };
 
-pub fn translate(allocator: Allocator, repositories: []const gir.Repository, extras_path: []const fs.Dir, output_dir: fs.Dir) TranslateError!void {
+pub const CreateBindingsError = Allocator.Error || fs.File.OpenError || fs.File.WriteError || fs.Dir.CopyFileError || error{
+    FileSystem,
+    NotSupported,
+};
+
+pub fn createBindings(allocator: Allocator, repositories: []const gir.Repository, extras_path: []const fs.Dir, output_dir: fs.Dir) CreateBindingsError!void {
     var repository_map = RepositoryMap{};
     defer repository_map.deinit(allocator);
     for (repositories) |repo| {
@@ -254,7 +263,7 @@ fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContex
     // class type
     try translateDocumentation(class.documentation, out);
     try out.print("pub const $I = ", .{escapeTypeName(class.name)});
-    if (class.final) {
+    if (class.isOpaque()) {
         try out.print("opaque ${\n", .{});
     } else {
         try out.print("extern struct ${\n", .{});
@@ -279,8 +288,8 @@ fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContex
     }
     try out.print("const _Self = @This();\n\n", .{});
 
-    try translateLayoutElements(allocator, class.layout_elements, ctx, out);
-    if (class.layout_elements.len > 0) {
+    if (!class.isOpaque()) {
+        try translateLayoutElements(allocator, class.layout_elements, ctx, out);
         try out.print("\n", .{});
     }
 
@@ -525,8 +534,8 @@ fn translateRecord(allocator: Allocator, record: gir.Record, ctx: TranslationCon
     }
     try out.print("const _Self = @This();\n\n", .{});
 
-    try translateLayoutElements(allocator, record.layout_elements, ctx, out);
-    if (record.layout_elements.len > 0) {
+    if (!record.isOpaque()) {
+        try translateLayoutElements(allocator, record.layout_elements, ctx, out);
         try out.print("\n", .{});
     }
 
@@ -598,11 +607,16 @@ fn translateRecord(allocator: Allocator, record: gir.Record, ctx: TranslationCon
 
 fn translateUnion(allocator: Allocator, @"union": gir.Union, ctx: TranslationContext, out: anytype) !void {
     try translateDocumentation(@"union".documentation, out);
-    try out.print("pub const $I = extern union ${\n", .{escapeTypeName(@"union".name)});
+    try out.print("pub const $I = ", .{escapeTypeName(@"union".name)});
+    if (@"union".isOpaque()) {
+        try out.print("opaque ${\n", .{});
+    } else {
+        try out.print("extern union ${\n", .{});
+    }
     try out.print("const _Self = @This();\n\n", .{});
 
-    try translateLayoutElements(allocator, @"union".layout_elements, ctx, out);
-    if (@"union".layout_elements.len > 0) {
+    if (!@"union".isOpaque()) {
+        try translateLayoutElements(allocator, @"union".layout_elements, ctx, out);
         try out.print("\n", .{});
     }
 
@@ -1132,7 +1146,7 @@ fn typeIsPointer(@"type": gir.Type, gobject_context: bool, ctx: TranslationConte
     return gobject_context and ctx.isObjectType(name);
 }
 
-fn translateType(allocator: Allocator, @"type": gir.Type, options: TranslateTypeOptions, ctx: TranslationContext, out: anytype) TranslateError!void {
+fn translateType(allocator: Allocator, @"type": gir.Type, options: TranslateTypeOptions, ctx: TranslationContext, out: anytype) CreateBindingsError!void {
     if (options.nullable) {
         try out.print("?", .{});
     }
@@ -2040,7 +2054,7 @@ pub fn createBuildFile(allocator: Allocator, repositories: []const gir.Repositor
         const module_name = try moduleNameAlloc(allocator, repo.namespace.name, repo.namespace.version);
         defer allocator.free(module_name);
 
-        try out.print("if (std.mem.eql(u8, module_name, $S)) ${", .{module_name});
+        try out.print("if (std.mem.eql(u8, module_name, $S)) ${\n", .{module_name});
         try out.print(
             \\const module = b.modules.get($S) orelse b.addModule($S, .{
             \\    .source_file = .{ .path = comptime blk: {

@@ -96,6 +96,6 @@ fn mainInner() !void {
     defer src_out_dir.close();
 
     const repositories = try gir.findRepositories(allocator, gir_path.items, roots.items);
-    try translate.translate(allocator, repositories, extras_path.items, src_out_dir);
+    try translate.createBindings(allocator, repositories, extras_path.items, src_out_dir);
     try translate.createBuildFile(allocator, repositories, output_dir.?);
 }

@@ -67,8 +67,10 @@ const modules = [_][]const u8{
     "gsttag-1.0",
     "gsttranscoder-1.0",
     "gstvideo-1.0",
-    "gstvulkan-1.0",
-    "gstvulkanwayland-1.0",
+    // TODO: Vulkan-1.0.gir is incorrect; all records should have pointer="1"
+    // "gstvulkan-1.0",
+    // TODO: Vulkan-1.0.gir is incorrect; all records should have pointer="1"
+    // "gstvulkanwayland-1.0",
     // TODO: can't find the package to install to link this
     // "gstvulkanxcb-1.0",
     "gstwebrtc-1.0",
