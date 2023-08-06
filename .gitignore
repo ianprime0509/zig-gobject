@@ -1,3 +1,4 @@
 bindings
+test/abi
 zig-cache
 zig-out

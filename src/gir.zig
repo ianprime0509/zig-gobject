@@ -63,6 +63,7 @@ const ns = struct {
 pub const Repository = struct {
     includes: []const Include = &.{},
     packages: []const Package = &.{},
+    c_includes: []const []const u8 = &.{},
     namespace: Namespace,
     arena: ArenaAllocator,
 
@@ -116,6 +117,7 @@ pub const Repository = struct {
 
         var includes = ArrayListUnmanaged(Include){};
         var packages = ArrayListUnmanaged(Package){};
+        var c_includes = ArrayListUnmanaged([]const u8){};
         var namespace: ?Namespace = null;
 
         while (try children.next()) |event| {
@@ -124,6 +126,11 @@ pub const Repository = struct {
                     try includes.append(allocator, try Include.parse(allocator, child, children.children()));
                 } else if (child.name.is(ns.core, "package")) {
                     try packages.append(allocator, try Package.parse(allocator, child, children.children()));
+                } else if (child.name.is(ns.c, "include")) {
+                    const c_include = for (child.attributes) |attr| {
+                        if (attr.name.is(null, "name")) break attr.value;
+                    } else return error.InvalidGir;
+                    try c_includes.append(allocator, try allocator.dupe(u8, c_include));
                 } else if (child.name.is(ns.core, "namespace")) {
                     namespace = try Namespace.parse(allocator, child, children.children());
                 } else {
@@ -136,6 +143,7 @@ pub const Repository = struct {
         return .{
             .includes = try includes.toOwnedSlice(allocator),
             .packages = try packages.toOwnedSlice(allocator),
+            .c_includes = try c_includes.toOwnedSlice(allocator),
             .namespace = namespace orelse return error.InvalidGir,
             .arena = arena,
         };
@@ -338,6 +346,7 @@ pub const Alias = struct {
 
 pub const Class = struct {
     name: []const u8,
+    c_type: ?[]const u8 = null,
     parent: ?Name = null,
     implements: []const Implements = &.{},
     layout_elements: []const LayoutElement,
@@ -363,6 +372,7 @@ pub const Class = struct {
 
     fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Class {
         var name: ?[]const u8 = null;
+        var c_type: ?[]const u8 = null;
         var parent: ?Name = null;
         var implements = ArrayListUnmanaged(Implements){};
         var layout_elements = ArrayListUnmanaged(LayoutElement){};
@@ -381,6 +391,8 @@ pub const Class = struct {
         for (start.attributes) |attr| {
             if (attr.name.is(null, "name")) {
                 name = try allocator.dupe(u8, attr.value);
+            } else if (attr.name.is(ns.c, "type")) {
+                c_type = try allocator.dupe(u8, attr.value);
             } else if (attr.name.is(null, "parent")) {
                 parent = try Name.parse(allocator, attr.value, current_ns);
             } else if (attr.name.is(ns.glib, "get-type")) {
@@ -427,6 +439,7 @@ pub const Class = struct {
 
         return .{
             .name = name orelse return error.InvalidGir,
+            .c_type = c_type,
             .parent = parent,
             .implements = try implements.toOwnedSlice(allocator),
             .layout_elements = try layout_elements.toOwnedSlice(allocator),
@@ -533,6 +546,7 @@ pub const Interface = struct {
 
 pub const Record = struct {
     name: []const u8,
+    c_type: ?[]const u8 = null,
     layout_elements: []const LayoutElement,
     functions: []const Function = &.{},
     constructors: []const Constructor = &.{},
@@ -561,6 +575,7 @@ pub const Record = struct {
 
     fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Record {
         var name: ?[]const u8 = null;
+        var c_type: ?[]const u8 = null;
         var layout_elements = ArrayListUnmanaged(LayoutElement){};
         var functions = ArrayListUnmanaged(Function){};
         var constructors = ArrayListUnmanaged(Constructor){};
@@ -576,6 +591,8 @@ pub const Record = struct {
         for (start.attributes) |attr| {
             if (attr.name.is(null, "name")) {
                 name = try allocator.dupe(u8, attr.value);
+            } else if (attr.name.is(ns.c, "type")) {
+                c_type = try allocator.dupe(u8, attr.value);
             } else if (attr.name.is(ns.glib, "get-type")) {
                 get_type = try allocator.dupe(u8, attr.value);
             } else if (attr.name.is(null, "disguised")) {
@@ -616,6 +633,7 @@ pub const Record = struct {
 
         return .{
             .name = name orelse return error.InvalidGir,
+            .c_type = c_type,
             .layout_elements = try layout_elements.toOwnedSlice(allocator),
             .functions = try functions.toOwnedSlice(allocator),
             .constructors = try constructors.toOwnedSlice(allocator),
@@ -633,6 +651,7 @@ pub const Record = struct {
 
 pub const Union = struct {
     name: []const u8,
+    c_type: ?[]const u8 = null,
     layout_elements: []const LayoutElement,
     functions: []const Function = &.{},
     constructors: []const Constructor = &.{},
@@ -651,6 +670,7 @@ pub const Union = struct {
 
     fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Union {
         var name: ?[]const u8 = null;
+        var c_type: ?[]const u8 = null;
         var layout_elements = ArrayListUnmanaged(LayoutElement){};
         var functions = ArrayListUnmanaged(Function){};
         var constructors = ArrayListUnmanaged(Constructor){};
@@ -662,6 +682,8 @@ pub const Union = struct {
         for (start.attributes) |attr| {
             if (attr.name.is(null, "name")) {
                 name = try allocator.dupe(u8, attr.value);
+            } else if (attr.name.is(ns.c, "type")) {
+                c_type = try allocator.dupe(u8, attr.value);
             } else if (attr.name.is(ns.glib, "get-type")) {
                 get_type = try allocator.dupe(u8, attr.value);
             } else if (attr.name.is(ns.c, "symbol-prefix")) {
@@ -694,6 +716,7 @@ pub const Union = struct {
 
         return .{
             .name = name orelse return error.InvalidGir,
+            .c_type = c_type,
             .layout_elements = try layout_elements.toOwnedSlice(allocator),
             .functions = try functions.toOwnedSlice(allocator),
             .constructors = try constructors.toOwnedSlice(allocator),

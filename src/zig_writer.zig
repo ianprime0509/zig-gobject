@@ -32,6 +32,7 @@ pub fn ZigWriter(comptime Writer: type) type {
         /// function and could use better design and error handling if it's ever
         /// made into its own project.
         pub fn print(self: *Self, comptime fmt: []const u8, args: anytype) Error!void {
+            @setEvalBranchQuota(100_000);
             const arg_fields = @typeInfo(@TypeOf(args)).Struct.fields;
 
             comptime var current_arg = 0;

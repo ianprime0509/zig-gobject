@@ -2106,3 +2106,159 @@ pub fn createBuildFile(allocator: Allocator, repositories: []const gir.Repositor
     try bw.flush();
     try file.sync();
 }
+
+pub const CreateAbiTestsError = Allocator.Error || fs.File.OpenError || fs.File.WriteError || error{
+    FileSystem,
+    NotSupported,
+};
+
+pub fn createAbiTests(allocator: Allocator, repositories: []const gir.Repository, output_dir: fs.Dir) CreateAbiTestsError!void {
+    for (repositories) |repo| {
+        var output_file = output_file: {
+            var name = try fmt.allocPrint(allocator, "{s}-{s}.abi.zig", .{ repo.namespace.name, repo.namespace.version });
+            defer allocator.free(name);
+            _ = ascii.lowerString(name, name);
+            break :output_file try output_dir.createFile(name, .{});
+        };
+        defer output_file.close();
+        var bw = io.bufferedWriter(output_file.writer());
+        var out = zigWriter(bw.writer());
+
+        const ns = repo.namespace;
+        var pkg = try ascii.allocLowerString(allocator, ns.name);
+        defer allocator.free(pkg);
+
+        try out.print("const c = @cImport(${\n", .{});
+        for (repo.c_includes) |c_include| {
+            try out.print("@cInclude($S);\n", .{c_include});
+        }
+        try out.print("$});\n", .{});
+        try out.print("const std = @import(\"std\");\n", .{});
+        {
+            var import_name = try moduleNameAlloc(allocator, ns.name, ns.version);
+            defer allocator.free(import_name);
+            try out.print("const $I = @import($S);\n\n", .{ pkg, import_name });
+        }
+
+        try out.print(
+            \\fn checkCompatibility(comptime ExpectedType: type, comptime ActualType: type) !void {
+            \\    const expected_type_info = @typeInfo(ExpectedType);
+            \\    const actual_type_info = @typeInfo(ActualType);
+            \\    switch (expected_type_info) {
+            \\        inline .Void, .Bool, .Float, .Array, .Struct, .Union => |_, expected_tag| {
+            \\            try std.testing.expectEqual(expected_tag, actual_type_info);
+            \\            try std.testing.expectEqual(@sizeOf(ExpectedType), @sizeOf(ActualType));
+            \\            try std.testing.expectEqual(@alignOf(ExpectedType), @alignOf(ActualType));
+            \\        },
+            \\        .Int => {}, // TODO: actual could be an int, enum, or packed struct
+            \\        .Pointer => {}, // TODO
+            \\        .Optional => {}, // TODO
+            \\        .Fn => {
+            \\            try std.testing.expect(actual_type_info == .Fn);
+            \\            try std.testing.expectEqual(expected_type_info.Fn.params.len, actual_type_info.Fn.params.len);
+            \\            try std.testing.expectEqual(expected_type_info.Fn.calling_convention, actual_type_info.Fn.calling_convention);
+            \\            try std.testing.expectEqual(expected_type_info.Fn.is_var_args, actual_type_info.Fn.is_var_args);
+            \\            try std.testing.expect(expected_type_info.Fn.return_type != null);
+            \\            try std.testing.expect(actual_type_info.Fn.return_type != null);
+            \\            try checkCompatibility(expected_type_info.Fn.return_type.?, actual_type_info.Fn.return_type.?);
+            \\            // TODO: more checks
+            \\        },
+            \\        else => {
+            \\            std.debug.print("unexpected C translated type: {s}\n", .{@tagName(expected_type_info)});
+            \\            return error.TestUnexpectedType;
+            \\        },
+            \\    }
+            \\}
+            \\
+            \\
+        , .{});
+
+        for (ns.classes) |class| {
+            // containsBitField: https://github.com/ziglang/zig/issues/1499
+            if (class.isOpaque() or containsBitField(class.layout_elements)) continue;
+            if (class.c_type) |c_type| {
+                const class_name = escapeTypeName(class.name);
+                try out.print("test $S ${\n", .{class_name});
+                try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_type});
+                try out.print(
+                    \\const ExpectedType = c.$I;
+                    \\const ActualType = $I.$I;
+                    \\try std.testing.expect(@typeInfo(ExpectedType) == .Struct);
+                    \\try checkCompatibility(ExpectedType, ActualType);
+                    \\
+                , .{ c_type, pkg, class_name });
+                try out.print("$}\n\n", .{});
+            }
+        }
+
+        for (ns.records) |record| {
+            // containsBitField: https://github.com/ziglang/zig/issues/1499
+            if (record.isOpaque() or containsBitField(record.layout_elements)) continue;
+            if (record.c_type) |c_type| {
+                const record_name = escapeTypeName(record.name);
+                try out.print("test $S ${\n", .{record_name});
+                try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_type});
+                try out.print(
+                    \\const ExpectedType = c.$I;
+                    \\const ActualType = $I.$I;
+                    \\
+                , .{ c_type, pkg, record_name });
+                if (record.isPointer()) {
+                    try out.print("try std.testing.expect(@typeInfo(ExpectedType) == .Pointer);\n", .{});
+                } else {
+                    try out.print("try std.testing.expect(@typeInfo(ExpectedType) == .Struct);\n", .{});
+                }
+                try out.print("try checkCompatibility(ExpectedType, ActualType);\n", .{});
+                try out.print("$}\n\n", .{});
+            }
+        }
+
+        for (ns.unions) |@"union"| {
+            if (@"union".isOpaque()) continue;
+            if (@"union".c_type) |c_type| {
+                const union_name = escapeTypeName(@"union".name);
+                try out.print("test $S ${\n", .{union_name});
+                try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_type});
+                try out.print(
+                    \\const ExpectedType = c.$I;
+                    \\const ActualType = $I.$I;
+                    \\try std.testing.expect(@typeInfo(ExpectedType) == .Union);
+                    \\try checkCompatibility(ExpectedType, ActualType);
+                    \\
+                , .{ c_type, pkg, union_name });
+                try out.print("$}\n\n", .{});
+            }
+        }
+
+        for (ns.functions) |function| {
+            if (!isFunctionTranslatable(function)) continue;
+            const function_name = try toCamelCase(allocator, function.name, "_");
+            defer allocator.free(function_name);
+            try out.print("test $S ${\n", .{function_name});
+            try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{function.c_identifier});
+            try out.print(
+                \\const ExpectedFnType = @TypeOf(c.$I);
+                \\const ActualFnType = @TypeOf($I.$I);
+                \\try std.testing.expect(@typeInfo(ExpectedFnType) == .Fn);
+                \\try checkCompatibility(ExpectedFnType, ActualFnType);
+                \\
+            , .{ function.c_identifier, pkg, function_name });
+            try out.print("$}\n\n", .{});
+        }
+
+        try bw.flush();
+        try output_file.sync();
+    }
+}
+
+fn containsBitField(layout_elements: []const gir.LayoutElement) bool {
+    return for (layout_elements) |layout_element| {
+        if (layout_element == .field and layout_element.field.bits != null) break true;
+    } else false;
+}
+
+fn containsAnonymousField(layout_elements: []const gir.LayoutElement) bool {
+    return for (layout_elements) |layout_element| {
+        if (layout_element != .field) break true;
+    } else false;
+}

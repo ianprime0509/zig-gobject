@@ -16,10 +16,11 @@ const usage =
     \\Generates bindings for the given root namespaces and their dependencies.
     \\
     \\Options:
-    \\  -h, --help            Show this help
-    \\      --extras-dir DIR  Add a directory to the extras search path
-    \\      --gir-dir DIR     Add a directory to the GIR search path
-    \\      --output-dir DIR  Set the output directory
+    \\  -h, --help                          Show this help
+    \\      --extras-dir DIR                Add a directory to the extras search path
+    \\      --gir-dir DIR                   Add a directory to the GIR search path
+    \\      --output-dir DIR                Set the output directory
+    \\      --abi-test-output-dir DIR       Set the output directory for ABI tests
 ;
 
 pub fn main() u8 {
@@ -50,6 +51,8 @@ fn mainInner() !void {
     defer for (extras_path.items) |*dir| dir.close();
     var output_dir: ?fs.Dir = null;
     defer if (output_dir) |*dir| dir.close();
+    var abi_test_output_dir: ?fs.Dir = null;
+    defer if (abi_test_output_dir) |*dir| dir.close();
     var roots = ArrayListUnmanaged(gir.Include){};
 
     var processing_options = true;
@@ -77,6 +80,13 @@ fn mainInner() !void {
                 };
                 if (output_dir) |*dir| dir.close();
                 output_dir = try fs.cwd().makeOpenPath(output_dir_path, .{});
+            } else if (mem.eql(u8, arg, "--abi-test-output-dir")) {
+                const abi_test_output_dir_path = args.next() orelse {
+                    log.err("Expected directory after --abi-test-output-dir", .{});
+                    return error.InvalidArguments;
+                };
+                if (abi_test_output_dir) |*dir| dir.close();
+                abi_test_output_dir = try fs.cwd().makeOpenPath(abi_test_output_dir_path, .{});
             } else if (mem.eql(u8, arg, "--")) {
                 processing_options = false;
             } else {
@@ -104,4 +114,7 @@ fn mainInner() !void {
     const repositories = try gir.findRepositories(allocator, gir_path.items, roots.items);
     try translate.createBindings(allocator, repositories, extras_path.items, src_out_dir);
     try translate.createBuildFile(allocator, repositories, output_dir.?);
+    if (abi_test_output_dir) |dir| {
+        try translate.createAbiTests(allocator, repositories, dir);
+    }
 }

@@ -47,6 +47,11 @@ pub fn build(b: *std.Build) !void {
     if (!skip_binding_tests) {
         const test_bindings_cmd = b.addSystemCommand(&.{ b.zig_exe, "build", "test" });
         test_bindings_cmd.cwd = try b.build_root.join(b.allocator, &.{"test"});
+        if (b.option([]const []const u8, "binding-test-modules", "Binding modules to test")) |binding_test_modules| {
+            for (binding_test_modules) |module| {
+                test_bindings_cmd.addArg(b.fmt("-Dmodules={s}", .{module}));
+            }
+        }
         test_bindings_cmd.step.dependOn(codegen_step);
 
         const test_bindings_step = b.step("test-bindings", "Run binding tests");
@@ -182,6 +187,7 @@ fn addCodegenStep(b: *std.Build, codegen_exe: *std.Build.CompileStep) !*std.Buil
     codegen_cmd.addArgs(&.{ "--gir-dir", try b.build_root.join(b.allocator, &.{ "lib", "gir-files" }) });
     codegen_cmd.addArgs(&.{ "--extras-dir", try b.build_root.join(b.allocator, &.{"extras"}) });
     codegen_cmd.addArgs(&.{ "--output-dir", try b.build_root.join(b.allocator, &.{"bindings"}) });
+    codegen_cmd.addArgs(&.{ "--abi-test-output-dir", try b.build_root.join(b.allocator, &.{ "test", "abi" }) });
 
     var file_deps = std.ArrayList([]const u8).init(b.allocator);
     for (gir) |file| {
