@@ -25,7 +25,13 @@ const usage =
 pub fn main() u8 {
     mainInner() catch |e| switch (e) {
         error.InvalidArguments => return 1,
-        else => log.err("Unexpected error: {}", .{e}),
+        else => {
+            const error_return_trace = @errorReturnTrace();
+            log.err("Unexpected error: {}", .{e});
+            if (error_return_trace) |trace| {
+                std.debug.dumpStackTrace(trace.*);
+            }
+        },
     };
     return 0;
 }
