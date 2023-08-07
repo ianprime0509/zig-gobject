@@ -309,17 +309,21 @@ pub const Namespace = struct {
 
 pub const Alias = struct {
     name: []const u8,
+    c_type: ?[]const u8 = null,
     type: Type,
     documentation: ?Documentation = null,
 
     fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Alias {
         var name: ?[]const u8 = null;
+        var c_type: ?[]const u8 = null;
         var @"type": ?Type = null;
         var documentation: ?Documentation = null;
 
         for (start.attributes) |attr| {
             if (attr.name.is(null, "name")) {
                 name = try allocator.dupe(u8, attr.value);
+            } else if (attr.name.is(ns.c, "type")) {
+                c_type = try allocator.dupe(u8, attr.value);
             }
         }
 
@@ -338,6 +342,7 @@ pub const Alias = struct {
 
         return .{
             .name = name orelse return error.InvalidGir,
+            .c_type = c_type,
             .type = @"type" orelse return error.InvalidGir,
             .documentation = documentation,
         };
@@ -836,6 +841,7 @@ pub const AnonymousUnion = struct {
 
 pub const BitField = struct {
     name: []const u8,
+    c_type: ?[]const u8 = null,
     members: []const Member,
     functions: []const Function = &.{},
     get_type: ?[]const u8 = null,
@@ -847,6 +853,7 @@ pub const BitField = struct {
 
     fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !BitField {
         var name: ?[]const u8 = null;
+        var c_type: ?[]const u8 = null;
         var members = ArrayListUnmanaged(Member){};
         var functions = ArrayListUnmanaged(Function){};
         var get_type: ?[]const u8 = null;
@@ -855,6 +862,8 @@ pub const BitField = struct {
         for (start.attributes) |attr| {
             if (attr.name.is(null, "name")) {
                 name = try allocator.dupe(u8, attr.value);
+            } else if (attr.name.is(ns.c, "type")) {
+                c_type = try allocator.dupe(u8, attr.value);
             } else if (attr.name.is(ns.glib, "get-type")) {
                 get_type = try allocator.dupe(u8, attr.value);
             }
@@ -877,6 +886,7 @@ pub const BitField = struct {
 
         return .{
             .name = name orelse return error.InvalidGir,
+            .c_type = c_type,
             .members = try members.toOwnedSlice(allocator),
             .functions = try functions.toOwnedSlice(allocator),
             .get_type = get_type,
@@ -887,6 +897,7 @@ pub const BitField = struct {
 
 pub const Enum = struct {
     name: []const u8,
+    c_type: ?[]const u8 = null,
     members: []const Member = &.{},
     functions: []const Function = &.{},
     get_type: ?[]const u8 = null,
@@ -898,6 +909,7 @@ pub const Enum = struct {
 
     fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Enum {
         var name: ?[]const u8 = null;
+        var c_type: ?[]const u8 = null;
         var members = ArrayListUnmanaged(Member){};
         var functions = ArrayListUnmanaged(Function){};
         var get_type: ?[]const u8 = null;
@@ -906,6 +918,8 @@ pub const Enum = struct {
         for (start.attributes) |attr| {
             if (attr.name.is(null, "name")) {
                 name = try allocator.dupe(u8, attr.value);
+            } else if (attr.name.is(ns.c, "type")) {
+                c_type = try allocator.dupe(u8, attr.value);
             } else if (attr.name.is(ns.glib, "get-type")) {
                 get_type = try allocator.dupe(u8, attr.value);
             }
@@ -928,6 +942,7 @@ pub const Enum = struct {
 
         return .{
             .name = name orelse return error.InvalidGir,
+            .c_type = c_type,
             .members = try members.toOwnedSlice(allocator),
             .functions = try functions.toOwnedSlice(allocator),
             .get_type = get_type,

@@ -2267,6 +2267,21 @@ pub fn createAbiTests(allocator: Allocator, repositories: []const gir.Repository
             \\
         , .{});
 
+        for (ns.aliases) |alias| {
+            const alias_name = escapeTypeName(alias.name);
+            if (alias.c_type) |c_type| {
+                try out.print("test $S ${\n", .{alias_name});
+                try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_type});
+                try out.print(
+                    \\const ExpectedType = c.$I;
+                    \\const ActualType = $I.$I;
+                    \\try checkCompatibility(ExpectedType, ActualType);
+                    \\
+                , .{ c_type, pkg, alias_name });
+                try out.print("$}\n\n", .{});
+            }
+        }
+
         for (ns.classes) |class| {
             const class_name = escapeTypeName(class.name);
             // containsBitField: https://github.com/ziglang/zig/issues/1499
@@ -2388,6 +2403,52 @@ pub fn createAbiTests(allocator: Allocator, repositories: []const gir.Repository
                     const method_name = try toCamelCase(allocator, method.name, "_");
                     defer allocator.free(method_name);
                     try createMethodTest(method.c_identifier, pkg, union_name, method_name, &out);
+                }
+            }
+        }
+
+        for (ns.bit_fields) |bit_field| {
+            const bit_field_name = escapeTypeName(bit_field.name);
+            if (bit_field.c_type) |c_type| {
+                try out.print("test $S ${\n", .{bit_field_name});
+                try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_type});
+                try out.print(
+                    \\const ExpectedType = c.$I;
+                    \\const ActualType = $I.$I;
+                    \\try std.testing.expect(@typeInfo(ExpectedType) == .Int);
+                    \\try checkCompatibility(ExpectedType, ActualType);
+                    \\
+                , .{ c_type, pkg, bit_field_name });
+                try out.print("$}\n\n", .{});
+            }
+            for (bit_field.functions) |function| {
+                if (isFunctionTranslatable(function)) {
+                    const function_name = try toCamelCase(allocator, function.name, "_");
+                    defer allocator.free(function_name);
+                    try createFunctionTest(function.c_identifier, pkg, bit_field_name, function_name, &out);
+                }
+            }
+        }
+
+        for (ns.enums) |@"enum"| {
+            const enum_name = escapeTypeName(@"enum".name);
+            if (@"enum".c_type) |c_type| {
+                try out.print("test $S ${\n", .{enum_name});
+                try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_type});
+                try out.print(
+                    \\const ExpectedType = c.$I;
+                    \\const ActualType = $I.$I;
+                    \\try std.testing.expect(@typeInfo(ExpectedType) == .Int);
+                    \\try checkCompatibility(ExpectedType, ActualType);
+                    \\
+                , .{ c_type, pkg, enum_name });
+                try out.print("$}\n\n", .{});
+            }
+            for (@"enum".functions) |function| {
+                if (isFunctionTranslatable(function)) {
+                    const function_name = try toCamelCase(allocator, function.name, "_");
+                    defer allocator.free(function_name);
+                    try createFunctionTest(function.c_identifier, pkg, enum_name, function_name, &out);
                 }
             }
         }
