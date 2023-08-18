@@ -8,6 +8,7 @@ const io = std.io;
 const math = std.math;
 const mem = std.mem;
 const testing = std.testing;
+const zig = std.zig;
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
@@ -156,21 +157,23 @@ fn extrasFileNameAlloc(allocator: Allocator, name: []const u8, version: []const 
 }
 
 fn translateRepository(allocator: Allocator, repo: gir.Repository, extras_path: []const u8, repository_map: RepositoryMap, ctx: TranslationContext, output_dir: fs.Dir) !void {
-    const ns = repo.namespace;
-    const file_name = try fileNameAlloc(allocator, ns.name, ns.version);
-    defer allocator.free(file_name);
-    const file = try output_dir.createFile(file_name, .{});
-    defer file.close();
-    var bw = io.bufferedWriter(file.writer());
-    var out = zigWriter(bw.writer());
+    var raw_source = ArrayListUnmanaged(u8){};
+    defer raw_source.deinit(allocator);
+    var out = zigWriter(raw_source.writer(allocator));
 
     try out.print("const extras = @import($S);\n", .{extras_path});
 
-    try translateIncludes(allocator, ns, repository_map, &out);
-    try translateNamespace(allocator, ns, ctx, &out);
+    try translateIncludes(allocator, repo.namespace, repository_map, &out);
+    try translateNamespace(allocator, repo.namespace, ctx, &out);
 
-    try bw.flush();
-    try file.sync();
+    try raw_source.append(allocator, 0);
+    var ast = try zig.Ast.parse(allocator, raw_source.items[0 .. raw_source.items.len - 1 :0], .zig);
+    defer ast.deinit(allocator);
+    const fmt_source = try ast.render(allocator);
+    defer allocator.free(fmt_source);
+    const file_name = try fileNameAlloc(allocator, repo.namespace.name, repo.namespace.version);
+    defer allocator.free(file_name);
+    try output_dir.writeFile(file_name, fmt_source);
 }
 
 fn translateIncludes(allocator: Allocator, ns: gir.Namespace, repository_map: RepositoryMap, out: anytype) !void {
@@ -264,9 +267,9 @@ fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContex
     try translateDocumentation(class.documentation, out);
     try out.print("pub const $I = ", .{escapeTypeName(class.name)});
     if (class.isOpaque()) {
-        try out.print("opaque ${\n", .{});
+        try out.print("opaque {\n", .{});
     } else {
-        try out.print("extern struct ${\n", .{});
+        try out.print("extern struct {\n", .{});
     }
 
     const parent = class.parent orelse gir.Name{ .ns = "GObject", .local = "TypeInstance" };
@@ -293,7 +296,7 @@ fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContex
         try out.print("\n", .{});
     }
 
-    try out.print("pub const Own = struct${\n", .{});
+    try out.print("pub const Own = struct{\n", .{});
     const get_type_function = class.getTypeFunction();
     if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
         try translateFunction(allocator, get_type_function, .{ .self_type = "_Self" }, ctx, out);
@@ -307,7 +310,7 @@ fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContex
     for (class.constants) |constant| {
         try translateConstant(constant, out);
     }
-    try out.print("$};\n\n", .{});
+    try out.print("};\n\n", .{});
 
     try out.print("pub const OwnMethods = $LOwnMethods;\n", .{class.name});
     try out.print("pub const Methods = $LMethods;\n", .{class.name});
@@ -323,27 +326,27 @@ fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContex
     try out.print("pub usingnamespace Methods(_Self);\n", .{});
     try out.print("pub usingnamespace Extras;\n", .{});
 
-    try out.print("$};\n\n", .{});
+    try out.print("};\n\n", .{});
 
     // methods mixins
-    try out.print("fn $LOwnMethods(comptime _Self: type) type ${\n", .{class.name});
+    try out.print("fn $LOwnMethods(comptime _Self: type) type {\n", .{class.name});
     try out.print(
         \\const _i_dont_care_if_Self_is_unused = _Self;
         \\_ = _i_dont_care_if_Self_is_unused;
         \\
     , .{});
-    try out.print("return struct${\n", .{});
+    try out.print("return struct{\n", .{});
     for (class.methods) |method| {
         try translateMethod(allocator, method, .{ .self_type = "_Self" }, ctx, out);
     }
     for (class.signals) |signal| {
         try translateSignal(allocator, signal, ctx, out);
     }
-    try out.print("$};\n", .{});
-    try out.print("$}\n\n", .{});
+    try out.print("};\n", .{});
+    try out.print("}\n\n", .{});
 
-    try out.print("fn $LMethods(comptime _Self: type) type ${\n", .{class.name});
-    try out.print("return struct${\n", .{});
+    try out.print("fn $LMethods(comptime _Self: type) type {\n", .{class.name});
+    try out.print("return struct{\n", .{});
     try out.print("pub usingnamespace $LOwnMethods(_Self);\n", .{class.name});
     try out.print("pub usingnamespace $I.Parent.Methods(_Self);\n", .{escapeTypeName(class.name)});
     for (class.implements) |implements| {
@@ -352,16 +355,16 @@ fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContex
         try out.print(".Methods(_Self);\n", .{});
     }
     try out.print("pub usingnamespace $LExtraMethods(_Self);\n", .{class.name});
-    try out.print("$};\n", .{});
-    try out.print("$}\n\n", .{});
+    try out.print("};\n", .{});
+    try out.print("}\n\n", .{});
 
-    try out.print("fn $LExtraMethods(comptime _Self: type) type ${\n", .{class.name});
+    try out.print("fn $LExtraMethods(comptime _Self: type) type {\n", .{class.name});
     try out.print("return if (@hasDecl(extras, \"$LMethods\")) extras.$LMethods(_Self) else struct {};\n", .{ class.name, class.name });
-    try out.print("$}\n\n", .{});
+    try out.print("}\n\n", .{});
 
     // virtual methods mixins
     if (class.type_struct) |type_struct| {
-        try out.print("fn $LOwnVirtualMethods(comptime _Class: type, comptime _Instance: type) type ${\n", .{class.name});
+        try out.print("fn $LOwnVirtualMethods(comptime _Class: type, comptime _Instance: type) type {\n", .{class.name});
         try out.print(
             \\const _i_dont_care_if_Class_is_unused = _Class;
             \\_ = _i_dont_care_if_Class_is_unused;
@@ -369,33 +372,33 @@ fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContex
             \\_ = _i_dont_care_if_Instance_is_unused;
             \\
         , .{});
-        try out.print("return struct${\n", .{});
+        try out.print("return struct{\n", .{});
         for (class.virtual_methods) |virtual_method| {
             try translateVirtualMethod(allocator, virtual_method, "_Class", type_struct, class.name, ctx, out);
         }
-        try out.print("$};\n", .{});
-        try out.print("$}\n\n", .{});
+        try out.print("};\n", .{});
+        try out.print("}\n\n", .{});
 
-        try out.print("fn $LVirtualMethods(comptime _Class: type, comptime _Instance: type) type ${\n", .{class.name});
-        try out.print("return struct${\n", .{});
+        try out.print("fn $LVirtualMethods(comptime _Class: type, comptime _Instance: type) type {\n", .{class.name});
+        try out.print("return struct{\n", .{});
         try out.print("pub usingnamespace $LOwnVirtualMethods(_Class, _Instance);\n", .{class.name});
         if (class.parent != null) {
             try out.print("pub usingnamespace if (@hasDecl($I.Parent, \"VirtualMethods\")) $I.Parent.VirtualMethods(_Class, _Instance) else struct {};\n", .{ escapeTypeName(class.name), escapeTypeName(class.name) });
         }
         try out.print("pub usingnamespace $LExtraVirtualMethods(_Class, _Instance);\n", .{class.name});
-        try out.print("$};\n", .{});
-        try out.print("$}\n\n", .{});
+        try out.print("};\n", .{});
+        try out.print("}\n\n", .{});
 
-        try out.print("fn $LExtraVirtualMethods(comptime _Class: type, comptime _Instance: type) type ${\n", .{class.name});
+        try out.print("fn $LExtraVirtualMethods(comptime _Class: type, comptime _Instance: type) type {\n", .{class.name});
         try out.print("return if (@hasDecl(extras, \"$LVirtualMethods\")) extras.$LVirtualMethods(_Class, _Instance) else struct {};\n", .{ class.name, class.name });
-        try out.print("$}\n\n", .{});
+        try out.print("}\n\n", .{});
     }
 }
 
 fn translateInterface(allocator: Allocator, interface: gir.Interface, ctx: TranslationContext, out: anytype) !void {
     // interface type
     try translateDocumentation(interface.documentation, out);
-    try out.print("pub const $I = opaque ${\n", .{escapeTypeName(interface.name)});
+    try out.print("pub const $I = opaque {\n", .{escapeTypeName(interface.name)});
 
     try out.print("pub const Prerequisites = [_]type{", .{});
     // This doesn't seem to be correct (since it seems to be possible to create
@@ -417,7 +420,7 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, ctx: Trans
     }
     try out.print("const _Self = @This();\n\n", .{});
 
-    try out.print("pub const Own = struct${\n", .{});
+    try out.print("pub const Own = struct{\n", .{});
     const get_type_function = interface.getTypeFunction();
     if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
         try translateFunction(allocator, get_type_function, .{ .self_type = "_Self" }, ctx, out);
@@ -431,7 +434,7 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, ctx: Trans
     for (interface.constants) |constant| {
         try translateConstant(constant, out);
     }
-    try out.print("$};\n\n", .{});
+    try out.print("};\n\n", .{});
 
     try out.print("pub const OwnMethods = $LOwnMethods;\n", .{interface.name});
     try out.print("pub const Methods = $LMethods;\n", .{interface.name});
@@ -447,27 +450,27 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, ctx: Trans
     try out.print("pub usingnamespace Methods(_Self);\n", .{});
     try out.print("pub usingnamespace Extras;\n", .{});
 
-    try out.print("$};\n\n", .{});
+    try out.print("};\n\n", .{});
 
     // methods mixins
-    try out.print("fn $LOwnMethods(comptime _Self: type) type ${\n", .{interface.name});
+    try out.print("fn $LOwnMethods(comptime _Self: type) type {\n", .{interface.name});
     try out.print(
         \\const _i_dont_care_if_Self_is_unused = _Self;
         \\_ = _i_dont_care_if_Self_is_unused;
         \\
     , .{});
-    try out.print("return struct${\n", .{});
+    try out.print("return struct{\n", .{});
     for (interface.methods) |method| {
         try translateMethod(allocator, method, .{ .self_type = "_Self" }, ctx, out);
     }
     for (interface.signals) |signal| {
         try translateSignal(allocator, signal, ctx, out);
     }
-    try out.print("$};\n", .{});
-    try out.print("$}\n\n", .{});
+    try out.print("};\n", .{});
+    try out.print("}\n\n", .{});
 
-    try out.print("fn $LMethods(comptime _Self: type) type ${\n", .{interface.name});
-    try out.print("return struct ${\n", .{});
+    try out.print("fn $LMethods(comptime _Self: type) type {\n", .{interface.name});
+    try out.print("return struct {\n", .{});
     try out.print("pub usingnamespace $LOwnMethods(_Self);\n", .{interface.name});
     // See the note above on this implicit prerequisite
     if (interface.prerequisites.len == 0) {
@@ -479,16 +482,16 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, ctx: Trans
         try out.print(".Methods(_Self);\n", .{});
     }
     try out.print("pub usingnamespace $LExtraMethods(_Self);\n", .{interface.name});
-    try out.print("$};\n", .{});
-    try out.print("$}\n\n", .{});
+    try out.print("};\n", .{});
+    try out.print("}\n\n", .{});
 
-    try out.print("fn $LExtraMethods(comptime _Self: type) type ${\n", .{interface.name});
+    try out.print("fn $LExtraMethods(comptime _Self: type) type {\n", .{interface.name});
     try out.print("return if (@hasDecl(extras, \"$LMethods\")) extras.$LMethods(_Self) else struct {};\n", .{ interface.name, interface.name });
-    try out.print("$}\n\n", .{});
+    try out.print("}\n\n", .{});
 
     // virtual methods mixins
     if (interface.type_struct) |type_struct| {
-        try out.print("fn $LOwnVirtualMethods(comptime _Iface: type, comptime _Instance: type) type ${\n", .{interface.name});
+        try out.print("fn $LOwnVirtualMethods(comptime _Iface: type, comptime _Instance: type) type {\n", .{interface.name});
         try out.print(
             \\const _i_dont_care_if_Iface_is_unused = _Iface;
             \\_ = _i_dont_care_if_Iface_is_unused;
@@ -496,23 +499,23 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, ctx: Trans
             \\_ = _i_dont_care_if_Instance_is_unused;
             \\
         , .{});
-        try out.print("return struct${\n", .{});
+        try out.print("return struct{\n", .{});
         for (interface.virtual_methods) |virtual_method| {
             try translateVirtualMethod(allocator, virtual_method, "_Iface", type_struct, interface.name, ctx, out);
         }
-        try out.print("$};\n", .{});
-        try out.print("$}\n\n", .{});
+        try out.print("};\n", .{});
+        try out.print("}\n\n", .{});
 
-        try out.print("fn $LVirtualMethods(comptime _Iface: type, comptime _Instance: type) type ${\n", .{interface.name});
-        try out.print("return struct${\n", .{});
+        try out.print("fn $LVirtualMethods(comptime _Iface: type, comptime _Instance: type) type {\n", .{interface.name});
+        try out.print("return struct{\n", .{});
         try out.print("pub usingnamespace $LOwnVirtualMethods(_Iface, _Instance);\n", .{interface.name});
         try out.print("pub usingnamespace $LExtraVirtualMethods(_Iface, _Instance);\n", .{interface.name});
-        try out.print("$};\n", .{});
-        try out.print("$}\n\n", .{});
+        try out.print("};\n", .{});
+        try out.print("}\n\n", .{});
 
-        try out.print("fn $LExtraVirtualMethods(comptime _Iface: type, comptime _Instance: type) type ${\n", .{interface.name});
+        try out.print("fn $LExtraVirtualMethods(comptime _Iface: type, comptime _Instance: type) type {\n", .{interface.name});
         try out.print("return if (@hasDecl(extras, \"$LVirtualMethods\")) extras.$LVirtualMethods(_Iface, _Instance) else struct {};\n", .{ interface.name, interface.name });
-        try out.print("$}\n\n", .{});
+        try out.print("}\n\n", .{});
     }
 }
 
@@ -524,9 +527,9 @@ fn translateRecord(allocator: Allocator, record: gir.Record, ctx: TranslationCon
         try out.print("*", .{});
     }
     if (record.isOpaque()) {
-        try out.print("opaque ${\n", .{});
+        try out.print("opaque {\n", .{});
     } else {
-        try out.print("extern struct ${\n", .{});
+        try out.print("extern struct {\n", .{});
     }
 
     if (record.is_gtype_struct_for) |is_gtype_struct_for| {
@@ -539,7 +542,7 @@ fn translateRecord(allocator: Allocator, record: gir.Record, ctx: TranslationCon
         try out.print("\n", .{});
     }
 
-    try out.print("pub const Own = struct${\n", .{});
+    try out.print("pub const Own = struct{\n", .{});
     if (record.getTypeFunction()) |get_type_function| {
         if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
             try translateFunction(allocator, get_type_function, .{ .self_type = "_Self" }, ctx, out);
@@ -551,7 +554,7 @@ fn translateRecord(allocator: Allocator, record: gir.Record, ctx: TranslationCon
     for (record.constructors) |constructor| {
         try translateConstructor(allocator, constructor, .{ .self_type = "_Self" }, ctx, out);
     }
-    try out.print("$};\n\n", .{});
+    try out.print("};\n\n", .{});
 
     try out.print("pub const OwnMethods = $LOwnMethods;\n", .{record.name});
     try out.print("pub const Methods = $LMethods;\n", .{record.name});
@@ -565,24 +568,24 @@ fn translateRecord(allocator: Allocator, record: gir.Record, ctx: TranslationCon
     }
     try out.print("pub usingnamespace Extras;\n", .{});
 
-    try out.print("$};\n\n", .{});
+    try out.print("};\n\n", .{});
 
     // methods mixins
-    try out.print("fn $LOwnMethods(comptime _Self: type) type ${\n", .{record.name});
+    try out.print("fn $LOwnMethods(comptime _Self: type) type {\n", .{record.name});
     try out.print(
         \\const _i_dont_care_if_Self_is_unused = _Self;
         \\_ = _i_dont_care_if_Self_is_unused;
         \\
     , .{});
-    try out.print("return struct${\n", .{});
+    try out.print("return struct{\n", .{});
     for (record.methods) |method| {
         try translateMethod(allocator, method, .{ .self_type = "_Self" }, ctx, out);
     }
-    try out.print("$};\n", .{});
-    try out.print("$}\n\n", .{});
+    try out.print("};\n", .{});
+    try out.print("}\n\n", .{});
 
-    try out.print("fn $LMethods(comptime _Self: type) type ${\n", .{record.name});
-    try out.print("return struct${\n", .{});
+    try out.print("fn $LMethods(comptime _Self: type) type {\n", .{record.name});
+    try out.print("return struct{\n", .{});
     try out.print("pub usingnamespace $LOwnMethods(_Self);\n", .{record.name});
     if (record.is_gtype_struct_for) |is_gtype_struct_for| {
         try out.print(
@@ -597,21 +600,21 @@ fn translateRecord(allocator: Allocator, record: gir.Record, ctx: TranslationCon
         , .{ escapeTypeName(is_gtype_struct_for), escapeTypeName(is_gtype_struct_for), escapeTypeName(is_gtype_struct_for), escapeTypeName(is_gtype_struct_for) });
     }
     try out.print("pub usingnamespace $LExtraMethods(_Self);\n", .{record.name});
-    try out.print("$};\n", .{});
-    try out.print("$}\n\n", .{});
+    try out.print("};\n", .{});
+    try out.print("}\n\n", .{});
 
-    try out.print("fn $LExtraMethods(comptime _Self: type) type ${\n", .{record.name});
+    try out.print("fn $LExtraMethods(comptime _Self: type) type {\n", .{record.name});
     try out.print("return if (@hasDecl(extras, \"$LMethods\")) extras.$LMethods(_Self) else struct {};\n", .{ record.name, record.name });
-    try out.print("$}\n\n", .{});
+    try out.print("}\n\n", .{});
 }
 
 fn translateUnion(allocator: Allocator, @"union": gir.Union, ctx: TranslationContext, out: anytype) !void {
     try translateDocumentation(@"union".documentation, out);
     try out.print("pub const $I = ", .{escapeTypeName(@"union".name)});
     if (@"union".isOpaque()) {
-        try out.print("opaque ${\n", .{});
+        try out.print("opaque {\n", .{});
     } else {
-        try out.print("extern union ${\n", .{});
+        try out.print("extern union {\n", .{});
     }
     try out.print("const _Self = @This();\n\n", .{});
 
@@ -620,7 +623,7 @@ fn translateUnion(allocator: Allocator, @"union": gir.Union, ctx: TranslationCon
         try out.print("\n", .{});
     }
 
-    try out.print("pub const Own = struct${\n", .{});
+    try out.print("pub const Own = struct{\n", .{});
     if (@"union".getTypeFunction()) |get_type_function| {
         if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
             try translateFunction(allocator, get_type_function, .{ .self_type = "_Self" }, ctx, out);
@@ -632,7 +635,7 @@ fn translateUnion(allocator: Allocator, @"union": gir.Union, ctx: TranslationCon
     for (@"union".constructors) |constructor| {
         try translateConstructor(allocator, constructor, .{ .self_type = "_Self" }, ctx, out);
     }
-    try out.print("$};\n\n", .{});
+    try out.print("};\n\n", .{});
 
     try out.print("pub const OwnMethods = $LOwnMethods;\n", .{@"union".name});
     try out.print("pub const Methods = $LMethods;\n", .{@"union".name});
@@ -643,32 +646,32 @@ fn translateUnion(allocator: Allocator, @"union": gir.Union, ctx: TranslationCon
     try out.print("pub usingnamespace Methods(_Self);\n", .{});
     try out.print("pub usingnamespace Extras;\n", .{});
 
-    try out.print("$};\n\n", .{});
+    try out.print("};\n\n", .{});
 
     // methods mixins
-    try out.print("fn $LOwnMethods(comptime _Self: type) type ${\n", .{@"union".name});
+    try out.print("fn $LOwnMethods(comptime _Self: type) type {\n", .{@"union".name});
     try out.print(
         \\const _i_dont_care_if_Self_is_unused = _Self;
         \\_ = _i_dont_care_if_Self_is_unused;
         \\
     , .{});
-    try out.print("return struct${\n", .{});
+    try out.print("return struct{\n", .{});
     for (@"union".methods) |method| {
         try translateMethod(allocator, method, .{ .self_type = "_Self" }, ctx, out);
     }
-    try out.print("$};\n", .{});
-    try out.print("$}\n\n", .{});
+    try out.print("};\n", .{});
+    try out.print("}\n\n", .{});
 
-    try out.print("fn $LMethods(comptime _Self: type) type ${\n", .{@"union".name});
-    try out.print("return struct${\n", .{});
+    try out.print("fn $LMethods(comptime _Self: type) type {\n", .{@"union".name});
+    try out.print("return struct{\n", .{});
     try out.print("pub usingnamespace $LOwnMethods(_Self);\n", .{@"union".name});
     try out.print("pub usingnamespace $LExtraMethods(_Self);\n", .{@"union".name});
-    try out.print("$};\n", .{});
-    try out.print("$}\n\n", .{});
+    try out.print("};\n", .{});
+    try out.print("}\n\n", .{});
 
-    try out.print("fn $LExtraMethods(comptime _Self: type) type ${\n", .{@"union".name});
+    try out.print("fn $LExtraMethods(comptime _Self: type) type {\n", .{@"union".name});
     try out.print("return if (@hasDecl(extras, \"$LMethods\")) extras.$LMethods(_Self) else struct {};\n", .{ @"union".name, @"union".name });
-    try out.print("$}\n\n", .{});
+    try out.print("}\n\n", .{});
 }
 
 fn translateLayoutElements(allocator: Allocator, layout_elements: []const gir.LayoutElement, ctx: TranslationContext, out: anytype) !void {
@@ -684,7 +687,7 @@ fn translateLayoutElements(allocator: Allocator, layout_elements: []const gir.La
             const bits = field.bits.?;
             if (field.type == .simple and field.type.simple.name != null and mem.eql(u8, field.type.simple.name.?.local, "guint")) {
                 if (bit_field_offset == 0) {
-                    try out.print("bitfields$L: packed struct(c_uint) ${\n", .{n_bit_fields});
+                    try out.print("bitfields$L: packed struct(c_uint) {\n", .{n_bit_fields});
                 }
                 try translateDocumentation(field.documentation, out);
                 try out.print("$I: u$L,\n", .{ field.name, bits });
@@ -694,7 +697,7 @@ fn translateLayoutElements(allocator: Allocator, layout_elements: []const gir.La
                 // any GIR I'm aware of. Such occurrences will result in invalid
                 // Zig code.
                 if (bit_field_offset >= 32) {
-                    try out.print("$},\n", .{});
+                    try out.print("},\n", .{});
                     bit_field_offset = 0;
                     n_bit_fields += 1;
                 }
@@ -706,7 +709,7 @@ fn translateLayoutElements(allocator: Allocator, layout_elements: []const gir.La
             if (bit_field_offset > 0) {
                 // Pad out to 32 bits
                 try out.print("_: u$L,\n", .{32 - bit_field_offset});
-                try out.print("$},\n", .{});
+                try out.print("},\n", .{});
                 bit_field_offset = 0;
                 n_bit_fields += 1;
             }
@@ -718,15 +721,15 @@ fn translateLayoutElements(allocator: Allocator, layout_elements: []const gir.La
                     try out.print(",\n", .{});
                 },
                 .record => |record| {
-                    try out.print("anon$L: extern struct ${\n", .{n_anon_fields});
+                    try out.print("anon$L: extern struct {\n", .{n_anon_fields});
                     try translateLayoutElements(allocator, record.layout_elements, ctx, out);
-                    try out.print("$},\n", .{});
+                    try out.print("},\n", .{});
                     n_anon_fields += 1;
                 },
                 .@"union" => |@"union"| {
-                    try out.print("anon$L: extern union ${\n", .{n_anon_fields});
+                    try out.print("anon$L: extern union {\n", .{n_anon_fields});
                     try translateLayoutElements(allocator, @"union".layout_elements, ctx, out);
-                    try out.print("$},\n", .{});
+                    try out.print("},\n", .{});
                     n_anon_fields += 1;
                 },
             }
@@ -735,7 +738,7 @@ fn translateLayoutElements(allocator: Allocator, layout_elements: []const gir.La
     // Handle trailing bit fields
     if (bit_field_offset > 0) {
         try out.print("_: u$L,\n", .{32 - bit_field_offset});
-        try out.print("$},\n", .{});
+        try out.print("},\n", .{});
     }
 }
 
@@ -777,7 +780,7 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: Transla
     const backing_int = if (needs_u64) "u64" else "c_uint";
 
     try translateDocumentation(bit_field.documentation, out);
-    try out.print("pub const $I = packed struct($L) ${\n", .{ escapeTypeName(bit_field.name), backing_int });
+    try out.print("pub const $I = packed struct($L) {\n", .{ escapeTypeName(bit_field.name), backing_int });
     for (members, 0..) |maybe_member, i| {
         if (maybe_member) |member| {
             try out.print("$I: bool = false,\n", .{member.name});
@@ -804,7 +807,7 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: Transla
         try seen.put(allocator, member.name, {});
     }
 
-    try out.print("\npub const Own = struct${\n", .{});
+    try out.print("\npub const Own = struct{\n", .{});
     if (bit_field.getTypeFunction()) |get_type_function| {
         if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
             try translateFunction(allocator, get_type_function, .{ .self_type = "_Self" }, ctx, out);
@@ -813,19 +816,19 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: Transla
     for (bit_field.functions) |function| {
         try translateFunction(allocator, function, .{ .self_type = "_Self" }, ctx, out);
     }
-    try out.print("$};\n\n", .{});
+    try out.print("};\n\n", .{});
 
     try out.print("pub const Extras = if (@hasDecl(extras, $S)) extras.$I else struct {};\n\n", .{ bit_field.name, bit_field.name });
 
     try out.print("pub usingnamespace Own;\n", .{});
     try out.print("pub usingnamespace Extras;\n", .{});
 
-    try out.print("$};\n\n", .{});
+    try out.print("};\n\n", .{});
 }
 
 fn translateEnum(allocator: Allocator, @"enum": gir.Enum, ctx: TranslationContext, out: anytype) !void {
     try translateDocumentation(@"enum".documentation, out);
-    try out.print("pub const $I = enum(c_int) ${\n", .{escapeTypeName(@"enum".name)});
+    try out.print("pub const $I = enum(c_int) {\n", .{escapeTypeName(@"enum".name)});
 
     // Zig does not allow enums to have multiple fields with the same value, so
     // we must translate any duplicate values as constants referencing the
@@ -849,7 +852,7 @@ fn translateEnum(allocator: Allocator, @"enum": gir.Enum, ctx: TranslationContex
         try out.print("pub const $I = _Self.$I;\n", .{ member.name, seen_values.get(member.value).?.name });
     }
 
-    try out.print("pub const Own = struct${\n", .{});
+    try out.print("pub const Own = struct{\n", .{});
     if (@"enum".getTypeFunction()) |get_type_function| {
         if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
             try translateFunction(allocator, get_type_function, .{ .self_type = "_Self" }, ctx, out);
@@ -858,14 +861,14 @@ fn translateEnum(allocator: Allocator, @"enum": gir.Enum, ctx: TranslationContex
     for (@"enum".functions) |function| {
         try translateFunction(allocator, function, .{ .self_type = "_Self" }, ctx, out);
     }
-    try out.print("$};\n\n", .{});
+    try out.print("};\n\n", .{});
 
     try out.print("pub const Extras = if (@hasDecl(extras, $S)) extras.$I else struct {};\n\n", .{ @"enum".name, @"enum".name });
 
     try out.print("pub usingnamespace Own;\n", .{});
     try out.print("pub usingnamespace Extras;\n", .{});
 
-    try out.print("$};\n\n", .{});
+    try out.print("};\n\n", .{});
 }
 
 const TranslateFunctionOptions = struct {
@@ -964,9 +967,9 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
     try translateDocumentation(virtual_method.documentation, out);
     try out.print("pub fn implement$L(p_class: *$I, p_implementation: ", .{ upper_method_name, container_name });
     try translateVirtualMethodImplementationType(allocator, virtual_method, "_Instance", ctx, out);
-    try out.print(") void ${\n", .{});
+    try out.print(") void {\n", .{});
     try out.print("@as(*$I, @ptrCast(@alignCast(p_class))).$I = @ptrCast(p_implementation);\n", .{ container_type, virtual_method.name });
-    try out.print("$}\n\n", .{});
+    try out.print("}\n\n", .{});
 
     // call
     try out.print("pub fn call$L(p_class: *$I, ", .{ upper_method_name, container_name });
@@ -978,11 +981,11 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
     try translateReturnValue(allocator, virtual_method.return_value, .{
         .force_nullable = virtual_method.throws and anyTypeIsPointer(virtual_method.return_value.type, false, ctx),
     }, ctx, out);
-    try out.print(" ${\n", .{});
+    try out.print(" {\n", .{});
     try out.print("return @as(*$I, @ptrCast(@alignCast(p_class))).$I.?(", .{ container_type, virtual_method.name });
     try translateParameterNames(allocator, virtual_method.parameters, .{ .throws = virtual_method.throws }, out);
     try out.print(");\n", .{});
-    try out.print("$}\n\n", .{});
+    try out.print("}\n\n", .{});
 }
 
 fn translateVirtualMethodImplementationType(allocator: Allocator, virtual_method: gir.VirtualMethod, instance_type: []const u8, ctx: TranslationContext, out: anytype) !void {
@@ -1009,9 +1012,9 @@ fn translateSignal(allocator: Allocator, signal: gir.Signal, ctx: TranslationCon
     try out.print("pub fn connect$L(p_self: *_Self, comptime P_T: type, p_callback: ", .{upper_signal_name});
     // TODO: verify that P_T is a pointer type or compatible
     try translateSignalCallbackType(allocator, signal, ctx, out);
-    try out.print(", p_data: P_T, p_options: struct { after: bool = false }) c_ulong ${\n", .{});
+    try out.print(", p_data: P_T, p_options: struct { after: bool = false }) c_ulong {\n", .{});
     try out.print("return gobject.signalConnectData(p_self.as(gobject.Object), $S, @ptrCast(p_callback), p_data, null, .{ .after = p_options.after });\n", .{signal.name});
-    try out.print("$}\n\n", .{});
+    try out.print("}\n\n", .{});
 }
 
 fn translateSignalCallbackType(allocator: Allocator, signal: gir.Signal, ctx: TranslationContext, out: anytype) !void {
@@ -1990,10 +1993,9 @@ pub fn createBuildFile(allocator: Allocator, repositories: []const gir.Repositor
         try repository_map.put(allocator, .{ .name = repo.namespace.name, .version = repo.namespace.version }, repo);
     }
 
-    const file = try output_dir.createFile("build.zig", .{});
-    defer file.close();
-    var bw = io.bufferedWriter(file.writer());
-    var out = zigWriter(bw.writer());
+    var raw_source = ArrayListUnmanaged(u8){};
+    defer raw_source.deinit(allocator);
+    var out = zigWriter(raw_source.writer(allocator));
 
     try out.print("const std = @import(\"std\");\n\n", .{});
 
@@ -2001,7 +2003,7 @@ pub fn createBuildFile(allocator: Allocator, repositories: []const gir.Repositor
     // https://github.com/ziglang/zig/issues/14719 (to allow linking C libs directly to modules)
     // Equivalently: https://github.com/ziglang/zig/issues/16206
     // https://github.com/ziglang/zig/issues/14339 (to make the generated package usable)
-    try out.print("pub fn build(b: *std.Build) !void ${\n\n", .{});
+    try out.print("pub fn build(b: *std.Build) !void {\n", .{});
 
     // Declare all modules (without dependencies, so order won't matter)
     for (repositories) |repo| {
@@ -2044,17 +2046,17 @@ pub fn createBuildFile(allocator: Allocator, repositories: []const gir.Repositor
         try out.print("try $I.dependencies.put($S, $I);\n", .{ module_name, module_name, module_name });
     }
 
-    try out.print("$}\n\n", .{});
+    try out.print("}\n\n", .{});
 
     // This is the suboptimal binding API which is actually possible with current Zig.
     // This is ugly and I'm looking forward to removing it when the issues above
     // have been fixed.
-    try out.print("pub fn addBindingModule(b: *std.Build, step: *std.Build.Step.Compile, module_name: []const u8) *std.Build.Module ${\n", .{});
+    try out.print("pub fn addBindingModule(b: *std.Build, step: *std.Build.Step.Compile, module_name: []const u8) *std.Build.Module {\n", .{});
     for (repositories) |repo| {
         const module_name = try moduleNameAlloc(allocator, repo.namespace.name, repo.namespace.version);
         defer allocator.free(module_name);
 
-        try out.print("if (std.mem.eql(u8, module_name, $S)) ${\n", .{module_name});
+        try out.print("if (std.mem.eql(u8, module_name, $S)) {\n", .{module_name});
         try out.print(
             \\const module = b.modules.get($S) orelse b.addModule($S, .{
             \\    .source_file = .{ .path = comptime blk: {
@@ -2093,7 +2095,7 @@ pub fn createBuildFile(allocator: Allocator, repositories: []const gir.Repositor
         try out.print("module.dependencies.put($S, module) catch @panic(\"OOM\");\n", .{module_name});
 
         try out.print("return module;\n", .{});
-        try out.print("$} else ", .{});
+        try out.print("} else ", .{});
     }
     try out.print(
         \\{
@@ -2101,10 +2103,14 @@ pub fn createBuildFile(allocator: Allocator, repositories: []const gir.Repositor
         \\}
         \\
     , .{});
-    try out.print("$}\n", .{});
+    try out.print("}\n", .{});
 
-    try bw.flush();
-    try file.sync();
+    try raw_source.append(allocator, 0);
+    var ast = try zig.Ast.parse(allocator, raw_source.items[0 .. raw_source.items.len - 1 :0], .zig);
+    defer ast.deinit(allocator);
+    const fmt_source = try ast.render(allocator);
+    defer allocator.free(fmt_source);
+    try output_dir.writeFile("build.zig", fmt_source);
 }
 
 pub const CreateAbiTestsError = Allocator.Error || fs.File.OpenError || fs.File.WriteError || error{
@@ -2128,11 +2134,11 @@ pub fn createAbiTests(allocator: Allocator, repositories: []const gir.Repository
         var pkg = try ascii.allocLowerString(allocator, ns.name);
         defer allocator.free(pkg);
 
-        try out.print("const c = @cImport(${\n", .{});
+        try out.print("const c = @cImport({\n", .{});
         for (repo.c_includes) |c_include| {
             try out.print("@cInclude($S);\n", .{c_include});
         }
-        try out.print("$});\n", .{});
+        try out.print("});\n", .{});
         try out.print("const std = @import(\"std\");\n", .{});
         {
             var import_name = try moduleNameAlloc(allocator, ns.name, ns.version);
@@ -2270,7 +2276,7 @@ pub fn createAbiTests(allocator: Allocator, repositories: []const gir.Repository
         for (ns.aliases) |alias| {
             const alias_name = escapeTypeName(alias.name);
             if (alias.c_type) |c_type| {
-                try out.print("test $S ${\n", .{alias_name});
+                try out.print("test $S {\n", .{alias_name});
                 try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_type});
                 try out.print(
                     \\const ExpectedType = c.$I;
@@ -2278,7 +2284,7 @@ pub fn createAbiTests(allocator: Allocator, repositories: []const gir.Repository
                     \\try checkCompatibility(ExpectedType, ActualType);
                     \\
                 , .{ c_type, pkg, alias_name });
-                try out.print("$}\n\n", .{});
+                try out.print("}\n\n", .{});
             }
         }
 
@@ -2287,7 +2293,7 @@ pub fn createAbiTests(allocator: Allocator, repositories: []const gir.Repository
             // containsBitField: https://github.com/ziglang/zig/issues/1499
             if (!class.isOpaque() and !containsBitField(class.layout_elements)) {
                 if (class.c_type) |c_type| {
-                    try out.print("test $S ${\n", .{class_name});
+                    try out.print("test $S {\n", .{class_name});
                     try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_type});
                     try out.print(
                         \\const ExpectedType = c.$I;
@@ -2296,7 +2302,7 @@ pub fn createAbiTests(allocator: Allocator, repositories: []const gir.Repository
                         \\try checkCompatibility(ExpectedType, ActualType);
                         \\
                     , .{ c_type, pkg, class_name });
-                    try out.print("$}\n\n", .{});
+                    try out.print("}\n\n", .{});
                 }
             }
             for (class.constructors) |constructor| {
@@ -2327,7 +2333,7 @@ pub fn createAbiTests(allocator: Allocator, repositories: []const gir.Repository
             // containsBitField: https://github.com/ziglang/zig/issues/1499
             if (!record.isOpaque() and !containsBitField(record.layout_elements)) {
                 if (record.c_type) |c_type| {
-                    try out.print("test $S ${\n", .{record_name});
+                    try out.print("test $S {\n", .{record_name});
                     try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_type});
                     try out.print(
                         \\const ExpectedType = c.$I;
@@ -2340,7 +2346,7 @@ pub fn createAbiTests(allocator: Allocator, repositories: []const gir.Repository
                         try out.print("try std.testing.expect(@typeInfo(ExpectedType) == .Struct);\n", .{});
                     }
                     try out.print("try checkCompatibility(ExpectedType, ActualType);\n", .{});
-                    try out.print("$}\n\n", .{});
+                    try out.print("}\n\n", .{});
                 }
             }
             if (!record.isPointer()) {
@@ -2372,7 +2378,7 @@ pub fn createAbiTests(allocator: Allocator, repositories: []const gir.Repository
             const union_name = escapeTypeName(@"union".name);
             if (!@"union".isOpaque()) {
                 if (@"union".c_type) |c_type| {
-                    try out.print("test $S ${\n", .{union_name});
+                    try out.print("test $S {\n", .{union_name});
                     try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_type});
                     try out.print(
                         \\const ExpectedType = c.$I;
@@ -2381,7 +2387,7 @@ pub fn createAbiTests(allocator: Allocator, repositories: []const gir.Repository
                         \\try checkCompatibility(ExpectedType, ActualType);
                         \\
                     , .{ c_type, pkg, union_name });
-                    try out.print("$}\n\n", .{});
+                    try out.print("}\n\n", .{});
                 }
             }
             for (@"union".constructors) |constructor| {
@@ -2410,7 +2416,7 @@ pub fn createAbiTests(allocator: Allocator, repositories: []const gir.Repository
         for (ns.bit_fields) |bit_field| {
             const bit_field_name = escapeTypeName(bit_field.name);
             if (bit_field.c_type) |c_type| {
-                try out.print("test $S ${\n", .{bit_field_name});
+                try out.print("test $S {\n", .{bit_field_name});
                 try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_type});
                 try out.print(
                     \\const ExpectedType = c.$I;
@@ -2419,7 +2425,7 @@ pub fn createAbiTests(allocator: Allocator, repositories: []const gir.Repository
                     \\try checkCompatibility(ExpectedType, ActualType);
                     \\
                 , .{ c_type, pkg, bit_field_name });
-                try out.print("$}\n\n", .{});
+                try out.print("}\n\n", .{});
             }
             for (bit_field.functions) |function| {
                 if (isFunctionTranslatable(function)) {
@@ -2433,7 +2439,7 @@ pub fn createAbiTests(allocator: Allocator, repositories: []const gir.Repository
         for (ns.enums) |@"enum"| {
             const enum_name = escapeTypeName(@"enum".name);
             if (@"enum".c_type) |c_type| {
-                try out.print("test $S ${\n", .{enum_name});
+                try out.print("test $S {\n", .{enum_name});
                 try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_type});
                 try out.print(
                     \\const ExpectedType = c.$I;
@@ -2442,7 +2448,7 @@ pub fn createAbiTests(allocator: Allocator, repositories: []const gir.Repository
                     \\try checkCompatibility(ExpectedType, ActualType);
                     \\
                 , .{ c_type, pkg, enum_name });
-                try out.print("$}\n\n", .{});
+                try out.print("}\n\n", .{});
             }
             for (@"enum".functions) |function| {
                 if (isFunctionTranslatable(function)) {
@@ -2457,7 +2463,7 @@ pub fn createAbiTests(allocator: Allocator, repositories: []const gir.Repository
             if (!isFunctionTranslatable(function)) continue;
             const function_name = try toCamelCase(allocator, function.name, "_");
             defer allocator.free(function_name);
-            try out.print("test $S ${\n", .{function_name});
+            try out.print("test $S {\n", .{function_name});
             try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{function.c_identifier});
             try out.print(
                 \\const ExpectedFnType = @TypeOf(c.$I);
@@ -2466,7 +2472,7 @@ pub fn createAbiTests(allocator: Allocator, repositories: []const gir.Repository
                 \\try checkCompatibility(ExpectedFnType, ActualFnType);
                 \\
             , .{ function.c_identifier, pkg, function_name });
-            try out.print("$}\n\n", .{});
+            try out.print("}\n\n", .{});
         }
 
         try bw.flush();
@@ -2481,7 +2487,7 @@ fn createFunctionTest(
     function_name: []const u8,
     out: anytype,
 ) !void {
-    try out.print("test \"$L.$L\" ${\n", .{ container_name, function_name });
+    try out.print("test \"$L.$L\" {\n", .{ container_name, function_name });
     try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_name});
     try out.print(
         \\const ExpectedFnType = @TypeOf(c.$I);
@@ -2490,7 +2496,7 @@ fn createFunctionTest(
         \\try checkCompatibility(ExpectedFnType, ActualFnType);
         \\
     , .{ c_name, pkg_name, container_name, function_name });
-    try out.print("$}\n\n", .{});
+    try out.print("}\n\n", .{});
 }
 
 fn createMethodTest(
@@ -2500,7 +2506,7 @@ fn createMethodTest(
     function_name: []const u8,
     out: anytype,
 ) !void {
-    try out.print("test \"$L.$L\" ${\n", .{ container_name, function_name });
+    try out.print("test \"$L.$L\" {\n", .{ container_name, function_name });
     try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_name});
     try out.print(
         \\const ExpectedFnType = @TypeOf(c.$I);
@@ -2510,7 +2516,7 @@ fn createMethodTest(
         \\try checkCompatibility(ExpectedFnType, ActualFnType);
         \\
     , .{ c_name, pkg_name, container_name, function_name });
-    try out.print("$}\n\n", .{});
+    try out.print("}\n\n", .{});
 }
 
 fn containsBitField(layout_elements: []const gir.LayoutElement) bool {

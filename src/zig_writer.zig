@@ -9,8 +9,6 @@ pub fn zigWriter(out: anytype) ZigWriter(@TypeOf(out)) {
 pub fn ZigWriter(comptime Writer: type) type {
     return struct {
         out: Writer,
-        indent: usize = 0,
-        needs_indent: bool = true,
 
         const Self = @This();
         pub const Error = Writer.Error;
@@ -20,18 +18,18 @@ pub fn ZigWriter(comptime Writer: type) type {
         ///
         /// Placeholders in the format string look like `$?`, where `?` may be
         /// any of the following:
+        ///
         /// - `$`: a literal `$` character
         /// - `L`: the literal value of the argument (no escaping)
         /// - `S`: a string literal with the argument as its text
         /// - `I`: an identifier, escaped using raw identifier syntax if needed
-        /// - `{`: a literal `{`, but increases the indent level by one
-        /// - `}`: a literal `}`, but decreases the indent level by one
+        ///
         /// The syntax here is inspired by JavaPoet.
         ///
         /// This is a much simpler implementation than Zig's usual format
         /// function and could use better design and error handling if it's ever
         /// made into its own project.
-        pub fn print(self: *Self, comptime fmt: []const u8, args: anytype) Error!void {
+        pub fn print(self: Self, comptime fmt: []const u8, args: anytype) Error!void {
             @setEvalBranchQuota(100_000);
             const arg_fields = @typeInfo(@TypeOf(args)).Struct.fields;
 
@@ -40,19 +38,6 @@ pub fn ZigWriter(comptime Writer: type) type {
             comptime var start = 0;
 
             inline while (i < fmt.len) : (i += 1) {
-                if (fmt[i] == '\n') {
-                    if (i > start) {
-                        if (self.needs_indent) {
-                            try self.writeIndent();
-                        }
-                        try self.out.writeAll(fmt[start..i]);
-                    }
-                    // Need to include indentation after the newline
-                    try self.out.writeAll("\n");
-                    start = i + 1;
-                    self.needs_indent = true;
-                    continue;
-                }
                 if (fmt[i] != '$') {
                     // Normal literal content
                     continue;
@@ -61,10 +46,6 @@ pub fn ZigWriter(comptime Writer: type) type {
                     @compileError("unterminated placeholder");
                 }
                 if (i > start) {
-                    if (self.needs_indent) {
-                        try self.writeIndent();
-                        self.needs_indent = false;
-                    }
                     try self.out.writeAll(fmt[start..i]);
                 }
 
@@ -75,10 +56,6 @@ pub fn ZigWriter(comptime Writer: type) type {
                         start = i + 1;
                     },
                     'L' => {
-                        if (self.needs_indent) {
-                            try self.writeIndent();
-                            self.needs_indent = false;
-                        }
                         const arg = @field(args, arg_fields[current_arg].name);
                         const arg_type_info = @typeInfo(@TypeOf(arg));
                         if (arg_type_info == .Pointer and arg_type_info.Pointer.size == .Slice and arg_type_info.Pointer.child == u8) {
@@ -89,19 +66,11 @@ pub fn ZigWriter(comptime Writer: type) type {
                         current_arg += 1;
                     },
                     'S' => {
-                        if (self.needs_indent) {
-                            try self.writeIndent();
-                            self.needs_indent = false;
-                        }
                         const arg = @field(args, arg_fields[current_arg].name);
                         try self.out.print("\"{}\"", .{zig.fmtEscapes(arg)});
                         current_arg += 1;
                     },
                     'I' => {
-                        if (self.needs_indent) {
-                            try self.writeIndent();
-                            self.needs_indent = false;
-                        }
                         const arg = @field(args, arg_fields[current_arg].name);
                         // zig.fmtId does not escape primitive type names
                         if (zig.isValidId(arg) and !zig.primitives.isPrimitive(arg)) {
@@ -111,36 +80,16 @@ pub fn ZigWriter(comptime Writer: type) type {
                         }
                         current_arg += 1;
                     },
-                    '{' => {
-                        // Use the { as the beginning of literal content
-                        start = i + 1;
-                        self.indent += 1;
-                    },
-                    '}' => {
-                        // Use the } as the beginning of literal content
-                        start = i + 1;
-                        self.indent -|= 1;
-                    },
                     else => @compileError("illegal format character: " ++ &[_]u8{fmt[i + 1]}),
                 }
             }
 
             if (i > start) {
-                if (self.needs_indent) {
-                    try self.writeIndent();
-                    self.needs_indent = false;
-                }
                 try self.out.writeAll(fmt[start..i]);
             }
 
             if (current_arg != arg_fields.len) {
                 @compileError("unused arguments remaining");
-            }
-        }
-
-        fn writeIndent(self: *Self) Error!void {
-            for (0..self.indent) |_| {
-                try self.out.writeAll("    ");
             }
         }
     };
@@ -151,14 +100,14 @@ test "print" {
     defer buf.deinit();
     var w = zigWriter(buf.writer());
     try w.print("const std = @import($S);\n\n", .{"std"});
-    try w.print("pub fn $I() void ${\n", .{"main"});
+    try w.print("pub fn $I() void {\n", .{"main"});
     try w.print("std.debug.print($S, .{$S});\n", .{ "Hello, {}!", "world" });
-    try w.print("$}\n", .{});
+    try w.print("}\n", .{});
     try testing.expectEqualStrings(
         \\const std = @import("std");
         \\
         \\pub fn main() void {
-        \\    std.debug.print("Hello, {}!", .{"world"});
+        \\std.debug.print("Hello, {}!", .{"world"});
         \\}
         \\
     , buf.items);
