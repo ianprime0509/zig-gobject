@@ -20,17 +20,18 @@ zig build run -- --gir-dir lib/gir-files --extras-dir extras --output-dir src/gi
 
 ## Usage
 
-The ideal way of using this library would be through the Zig package manager.
-Unfortunately, the package manager has some limitations which make this
-impossible right now (https://github.com/ziglang/zig/issues/14719). There is
-still vestigial code present in the generated `build.zig` for the bindings from
-a time when certain PRs were used to provide this functionality (on my own fork
-of Zig); it is intended for this to be adapted to whatever solution is
-eventually adopted in the package manager for this issue.
+The ideal way of using this library would be through the Zig package manager,
+with bindings to a single library exposed as a module.  Unfortunately, the
+package manager has some limitations which make this impossible right now
+(https://github.com/ziglang/zig/issues/14719). There is still vestigial code
+present in the generated `build.zig` for the bindings from a time when certain
+PRs were used to provide this functionality (on my own fork of Zig); it is
+intended for this to be adapted to whatever solution is eventually adopted in
+the package manager for this issue.
 
-For now, the best way to use the bindings is to add them as a submodule (using
-the `bindings` branch of this repository) and use the `addBindingModule`
-function exposed by `build.zig`:
+For now, the best way to use the bindings is to add the `bindings` branch of
+this repository to `build.zig.zon` and use the `addBindingModule` function
+exposed by `build.zig`:
 
 ```zig
 // exe is the compilation step for your applicaton

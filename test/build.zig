@@ -1,5 +1,5 @@
 const std = @import("std");
-const zig_gobject = @import("lib/zig-gobject/build.zig");
+const zig_gobject = @import("zig-gobject");
 
 const modules = [_][]const u8{
     "adw-1",
