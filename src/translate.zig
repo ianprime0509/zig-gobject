@@ -1999,58 +1999,8 @@ pub fn createBuildFile(allocator: Allocator, repositories: []const gir.Repositor
 
     try out.print("const std = @import(\"std\");\n\n", .{});
 
-    // This is the ideal way to do things, but it is blocked on these issues:
-    // https://github.com/ziglang/zig/issues/14719 (to allow linking C libs directly to modules)
-    // Equivalently: https://github.com/ziglang/zig/issues/16206
-    // https://github.com/ziglang/zig/issues/14339 (to make the generated package usable)
-    try out.print("pub fn build(b: *std.Build) !void {\n", .{});
+    try out.print("pub fn build(_: *std.Build) void {}\n\n", .{});
 
-    // Declare all modules (without dependencies, so order won't matter)
-    for (repositories) |repo| {
-        const module_name = try moduleNameAlloc(allocator, repo.namespace.name, repo.namespace.version);
-        defer allocator.free(module_name);
-        try out.print("const $I = b.addModule($S, .{ .source_file = .{ .path = try b.build_root.join(b.allocator, &.{\"src\", \"$L.zig\"}) } });\n", .{ module_name, module_name, module_name });
-        try out.print("$I.linkLibC();\n", .{module_name});
-        for (repo.packages) |package| {
-            try out.print("$I.linkSystemLibrary($S);\n", .{ module_name, package.name });
-        }
-    }
-
-    // Dependencies
-    for (repositories) |repo| {
-        const module_name = try moduleNameAlloc(allocator, repo.namespace.name, repo.namespace.version);
-        defer allocator.free(module_name);
-
-        var seen = RepositorySet{};
-        defer seen.deinit(allocator);
-        var needed_deps = ArrayListUnmanaged(gir.Include){};
-        defer needed_deps.deinit(allocator);
-        if (repository_map.get(.{ .name = repo.namespace.name, .version = repo.namespace.version })) |dep_repo| {
-            try needed_deps.appendSlice(allocator, dep_repo.includes);
-        }
-        while (needed_deps.popOrNull()) |needed_dep| {
-            if (!seen.contains(needed_dep)) {
-                const dep_module_name = try moduleNameAlloc(allocator, needed_dep.name, needed_dep.version);
-                defer allocator.free(dep_module_name);
-                const alias = try ascii.allocLowerString(allocator, needed_dep.name);
-                defer allocator.free(alias);
-                try out.print("try $I.dependencies.put($S, $I);\n", .{ module_name, dep_module_name, dep_module_name });
-
-                try seen.put(allocator, needed_dep, {});
-                if (repository_map.get(needed_dep)) |dep_repo| {
-                    try needed_deps.appendSlice(allocator, dep_repo.includes);
-                }
-            }
-        }
-        // The self-dependency is useful for extras files to be able to import their own module by name
-        try out.print("try $I.dependencies.put($S, $I);\n", .{ module_name, module_name, module_name });
-    }
-
-    try out.print("}\n\n", .{});
-
-    // This is the suboptimal binding API which is actually possible with current Zig.
-    // This is ugly and I'm looking forward to removing it when the issues above
-    // have been fixed.
     try out.print("pub fn addBindingModule(b: *std.Build, step: *std.Build.Step.Compile, module_name: []const u8) *std.Build.Module {\n", .{});
     for (repositories) |repo| {
         const module_name = try moduleNameAlloc(allocator, repo.namespace.name, repo.namespace.version);

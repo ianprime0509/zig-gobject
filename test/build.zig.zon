@@ -2,7 +2,7 @@
     .name = "zig-gobject-tests",
     .version = "0.0.0",
     .dependencies = .{
-        .@"zig-gobject" = .{
+        .gobject = .{
             .path = "../bindings",
         },
     },

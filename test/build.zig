@@ -1,5 +1,5 @@
 const std = @import("std");
-const zig_gobject = @import("zig-gobject");
+const gobject = @import("gobject");
 
 const modules = [_][]const u8{
     "adw-1",
@@ -344,7 +344,7 @@ pub fn build(b: *std.Build) !void {
             .target = target,
             .optimize = optimize,
         });
-        tests.addModule(local_name, zig_gobject.addBindingModule(b, tests, module));
+        tests.addModule(local_name, gobject.addBindingModule(b, tests, module));
         test_step.dependOn(&b.addRunArtifact(tests).step);
 
         if (options.test_abi) {
@@ -353,7 +353,7 @@ pub fn build(b: *std.Build) !void {
                 .target = target,
                 .optimize = optimize,
             });
-            abi_tests.addModule(module, zig_gobject.addBindingModule(b, abi_tests, module));
+            abi_tests.addModule(module, gobject.addBindingModule(b, abi_tests, module));
             test_step.dependOn(&b.addRunArtifact(abi_tests).step);
         }
     }
