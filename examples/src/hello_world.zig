@@ -27,8 +27,6 @@ fn activate(app: *gtk.Application, _: ?*anyopaque) callconv(.C) void {
     var button = gtk.Button.newWithLabel("Hello World");
 
     _ = button.connectClicked(?*anyopaque, &printHello, null, .{});
-    // TODO: https://github.com/ziglang/zig/issues/14610
-    // _ = gobject.signalConnectData(button, "clicked", gobject.callback(&gtk.Window.destroy), window, null, .{ .swapped = true });
     _ = button.connectClicked(*gtk.ApplicationWindow, &closeWindow, window, .{});
 
     box.append(button.as(gtk.Widget));
