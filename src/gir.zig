@@ -63,7 +63,7 @@ const ns = struct {
 pub const Repository = struct {
     includes: []const Include = &.{},
     packages: []const Package = &.{},
-    c_includes: []const []const u8 = &.{},
+    c_includes: []const CInclude = &.{},
     namespace: Namespace,
     arena: ArenaAllocator,
 
@@ -117,7 +117,7 @@ pub const Repository = struct {
 
         var includes = ArrayListUnmanaged(Include){};
         var packages = ArrayListUnmanaged(Package){};
-        var c_includes = ArrayListUnmanaged([]const u8){};
+        var c_includes = ArrayListUnmanaged(CInclude){};
         var namespace: ?Namespace = null;
 
         while (try children.next()) |event| {
@@ -127,10 +127,7 @@ pub const Repository = struct {
                 } else if (child.name.is(ns.core, "package")) {
                     try packages.append(allocator, try Package.parse(allocator, child, children.children()));
                 } else if (child.name.is(ns.c, "include")) {
-                    const c_include = for (child.attributes) |attr| {
-                        if (attr.name.is(null, "name")) break attr.value;
-                    } else return error.InvalidGir;
-                    try c_includes.append(allocator, try allocator.dupe(u8, c_include));
+                    try c_includes.append(allocator, try CInclude.parse(allocator, child, children.children()));
                 } else if (child.name.is(ns.core, "namespace")) {
                     namespace = try Namespace.parse(allocator, child, children.children());
                 } else {
@@ -205,6 +202,26 @@ pub const Package = struct {
     name: []const u8,
 
     fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype) !Package {
+        var name: ?[]const u8 = null;
+
+        for (start.attributes) |attr| {
+            if (attr.name.is(null, "name")) {
+                name = try allocator.dupe(u8, attr.value);
+            }
+        }
+
+        try children.skip();
+
+        return .{
+            .name = name orelse return error.InvalidGir,
+        };
+    }
+};
+
+pub const CInclude = struct {
+    name: []const u8,
+
+    fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype) !CInclude {
         var name: ?[]const u8 = null;
 
         for (start.attributes) |attr| {
