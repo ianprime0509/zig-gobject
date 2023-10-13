@@ -1986,7 +1986,7 @@ pub const CreateBuildFileError = Allocator.Error || fs.File.OpenError || fs.File
     NotSupported,
 };
 
-pub fn createBuildFile(allocator: Allocator, repositories: []const gir.Repository, output_dir: fs.Dir) !void {
+pub fn createBuildFile(allocator: Allocator, repositories: []const gir.Repository, output_dir: fs.Dir) CreateBuildFileError!void {
     var repository_map = RepositoryMap{};
     defer repository_map.deinit(allocator);
     for (repositories) |repo| {
@@ -2086,7 +2086,7 @@ pub fn createAbiTests(allocator: Allocator, repositories: []const gir.Repository
 
         try out.print("const c = @cImport({\n", .{});
         for (repo.c_includes) |c_include| {
-            try out.print("@cInclude($S);\n", .{c_include});
+            try out.print("@cInclude($S);\n", .{c_include.name});
         }
         try out.print("});\n", .{});
         try out.print("const std = @import(\"std\");\n", .{});

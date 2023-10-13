@@ -46,7 +46,7 @@ pub fn build(b: *std.Build) !void {
     const skip_binding_tests = b.option(bool, "skip-binding-tests", "Skip tests for generated bindings") orelse false;
     if (!skip_binding_tests) {
         const test_bindings_cmd = b.addSystemCommand(&.{ b.zig_exe, "build", "test" });
-        test_bindings_cmd.cwd = try b.build_root.join(b.allocator, &.{"test"});
+        test_bindings_cmd.cwd = .{ .path = "test" };
         if (b.option([]const []const u8, "binding-test-modules", "Binding modules to test")) |binding_test_modules| {
             for (binding_test_modules) |module| {
                 test_bindings_cmd.addArg(b.fmt("-Dmodules={s}", .{module}));
@@ -61,7 +61,7 @@ pub fn build(b: *std.Build) !void {
 
     // Examples
     const run_example_cmd = b.addSystemCommand(&.{ b.zig_exe, "build", "run" });
-    run_example_cmd.cwd = try b.build_root.join(b.allocator, &.{"examples"});
+    run_example_cmd.cwd = .{ .path = "examples" };
     run_example_cmd.step.dependOn(codegen_step);
 
     const run_example_step = b.step("run-example", "Run the example launcher");
