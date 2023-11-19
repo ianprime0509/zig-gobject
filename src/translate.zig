@@ -29,7 +29,7 @@ const TranslationContext = struct {
     arena: ArenaAllocator,
 
     fn init(allocator: Allocator) TranslationContext {
-        var arena = ArenaAllocator.init(allocator);
+        const arena = ArenaAllocator.init(allocator);
         return .{
             .namespaces = StringHashMapUnmanaged(Namespace){},
             .arena = arena,
@@ -884,7 +884,7 @@ fn translateFunction(allocator: Allocator, function: gir.Function, options: Tran
         return;
     }
 
-    var fnName = try toCamelCase(allocator, function.name, "_");
+    const fnName = try toCamelCase(allocator, function.name, "_");
     defer allocator.free(fnName);
     // There is a function named `dummy` declared in libxml2-2.0.gir which has
     // the same name and c_identifier. I don't know why it's there, or even if
@@ -1873,7 +1873,7 @@ fn translateParameterNames(allocator: Allocator, parameters: []const gir.Paramet
 }
 
 fn translateParameterName(allocator: Allocator, parameter_name: []const u8, out: anytype) !void {
-    var translated_name = try fmt.allocPrint(allocator, "p_{s}", .{parameter_name});
+    const translated_name = try fmt.allocPrint(allocator, "p_{s}", .{parameter_name});
     defer allocator.free(translated_name);
     try out.print("$I", .{translated_name});
 }
@@ -2071,7 +2071,7 @@ pub const CreateAbiTestsError = Allocator.Error || fs.File.OpenError || fs.File.
 pub fn createAbiTests(allocator: Allocator, repositories: []const gir.Repository, output_dir: fs.Dir) CreateAbiTestsError!void {
     for (repositories) |repo| {
         var output_file = output_file: {
-            var name = try fmt.allocPrint(allocator, "{s}-{s}.abi.zig", .{ repo.namespace.name, repo.namespace.version });
+            const name = try fmt.allocPrint(allocator, "{s}-{s}.abi.zig", .{ repo.namespace.name, repo.namespace.version });
             defer allocator.free(name);
             _ = ascii.lowerString(name, name);
             break :output_file try output_dir.createFile(name, .{});
@@ -2081,7 +2081,7 @@ pub fn createAbiTests(allocator: Allocator, repositories: []const gir.Repository
         var out = zigWriter(bw.writer());
 
         const ns = repo.namespace;
-        var pkg = try ascii.allocLowerString(allocator, ns.name);
+        const pkg = try ascii.allocLowerString(allocator, ns.name);
         defer allocator.free(pkg);
 
         try out.print("const c = @cImport({\n", .{});
@@ -2091,7 +2091,7 @@ pub fn createAbiTests(allocator: Allocator, repositories: []const gir.Repository
         try out.print("});\n", .{});
         try out.print("const std = @import(\"std\");\n", .{});
         {
-            var import_name = try moduleNameAlloc(allocator, ns.name, ns.version);
+            const import_name = try moduleNameAlloc(allocator, ns.name, ns.version);
             defer allocator.free(import_name);
             try out.print("const $I = @import($S);\n\n", .{ pkg, import_name });
         }

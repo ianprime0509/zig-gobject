@@ -458,7 +458,7 @@ pub const Value = struct {
     ///
     /// This does not take ownership of the value (if applicable).
     pub fn newFrom(contents: anytype) Self {
-        comptime var T = @TypeOf(contents);
+        const T = @TypeOf(contents);
         const typeInfo = @typeInfo(T);
         var value: Self = undefined;
         if (typeInfo == .Pointer and comptime isRegisteredType(typeInfo.Pointer.child)) {
