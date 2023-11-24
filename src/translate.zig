@@ -60,29 +60,61 @@ const TranslationContext = struct {
 
     fn addRepository(self: *TranslationContext, repository: gir.Repository) !void {
         const allocator = self.arena.allocator();
-        var object_types = StringHashMapUnmanaged(void){};
-        var pointer_types = StringHashMapUnmanaged(void){};
+
+        var aliases: StringHashMapUnmanaged(gir.Alias) = .{};
+        for (repository.namespace.aliases) |alias| {
+            try aliases.put(allocator, alias.name, alias);
+        }
+        var classes: StringHashMapUnmanaged(gir.Class) = .{};
         for (repository.namespace.classes) |class| {
-            try object_types.put(allocator, class.name, {});
+            try classes.put(allocator, class.name, class);
         }
+        var interfaces: StringHashMapUnmanaged(gir.Interface) = .{};
         for (repository.namespace.interfaces) |interface| {
-            try object_types.put(allocator, interface.name, {});
+            try interfaces.put(allocator, interface.name, interface);
         }
+        var records: StringHashMapUnmanaged(gir.Record) = .{};
         for (repository.namespace.records) |record| {
-            try object_types.put(allocator, record.name, {});
-            if (record.isPointer()) {
-                try pointer_types.put(allocator, record.name, {});
-            }
+            try records.put(allocator, record.name, record);
         }
+        var unions: StringHashMapUnmanaged(gir.Union) = .{};
         for (repository.namespace.unions) |@"union"| {
-            try object_types.put(allocator, @"union".name, {});
+            try unions.put(allocator, @"union".name, @"union");
         }
+        var bit_fields: StringHashMapUnmanaged(gir.BitField) = .{};
+        for (repository.namespace.bit_fields) |bit_field| {
+            try bit_fields.put(allocator, bit_field.name, bit_field);
+        }
+        var enums: StringHashMapUnmanaged(gir.Enum) = .{};
+        for (repository.namespace.enums) |@"enum"| {
+            try enums.put(allocator, @"enum".name, @"enum");
+        }
+        var functions: StringHashMapUnmanaged(gir.Function) = .{};
+        for (repository.namespace.functions) |function| {
+            try functions.put(allocator, function.name, function);
+        }
+        var callbacks: StringHashMapUnmanaged(gir.Callback) = .{};
         for (repository.namespace.callbacks) |callback| {
-            try pointer_types.put(allocator, callback.name, {});
+            try callbacks.put(allocator, callback.name, callback);
         }
+        var constants: StringHashMapUnmanaged(gir.Constant) = .{};
+        for (repository.namespace.constants) |constant| {
+            try constants.put(allocator, constant.name, constant);
+        }
+
         try self.namespaces.put(allocator, repository.namespace.name, .{
-            .object_types = object_types,
-            .pointer_types = pointer_types,
+            .name = repository.namespace.name,
+            .version = repository.namespace.version,
+            .aliases = aliases,
+            .classes = classes,
+            .interfaces = interfaces,
+            .records = records,
+            .unions = unions,
+            .bit_fields = bit_fields,
+            .enums = enums,
+            .functions = functions,
+            .callbacks = callbacks,
+            .constants = constants,
         });
     }
 
@@ -92,7 +124,10 @@ const TranslationContext = struct {
     fn isObjectType(self: TranslationContext, name: gir.Name) bool {
         if (name.ns) |ns| {
             const namespace = self.namespaces.get(ns) orelse return false;
-            return namespace.object_types.get(name.local) != null;
+            return namespace.classes.get(name.local) != null or
+                namespace.interfaces.get(name.local) != null or
+                namespace.records.get(name.local) != null or
+                namespace.unions.get(name.local) != null;
         }
         return false;
     }
@@ -103,14 +138,25 @@ const TranslationContext = struct {
     fn isPointerType(self: TranslationContext, name: gir.Name) bool {
         if (name.ns) |ns| {
             const namespace = self.namespaces.get(ns) orelse return false;
-            return namespace.pointer_types.get(name.local) != null;
+            return (if (namespace.records.get(name.local)) |record| record.isPointer() else false) or
+                namespace.callbacks.get(name.local) != null;
         }
         return false;
     }
 
     const Namespace = struct {
-        object_types: StringHashMapUnmanaged(void),
-        pointer_types: StringHashMapUnmanaged(void),
+        name: []const u8,
+        version: []const u8,
+        aliases: StringHashMapUnmanaged(gir.Alias),
+        classes: StringHashMapUnmanaged(gir.Class),
+        interfaces: StringHashMapUnmanaged(gir.Interface),
+        records: StringHashMapUnmanaged(gir.Record),
+        unions: StringHashMapUnmanaged(gir.Union),
+        bit_fields: StringHashMapUnmanaged(gir.BitField),
+        enums: StringHashMapUnmanaged(gir.Enum),
+        functions: StringHashMapUnmanaged(gir.Function),
+        callbacks: StringHashMapUnmanaged(gir.Callback),
+        constants: StringHashMapUnmanaged(gir.Constant),
     };
 };
 
@@ -1342,8 +1388,8 @@ test "translateType" {
     try testTranslateType("gdk.Event", .{ .name = .{ .ns = "Gdk", .local = "Event" }, .c_type = "GdkEvent" }, .{});
     try testTranslateType("gdk.Event", .{ .name = .{ .ns = "Gdk", .local = "Event" } }, .{});
     try testTranslateType("gdk.Event", .{ .name = .{ .ns = "Gdk", .local = "Event" } }, .{ .gobject_context = true });
-    try testTranslateType("*gdk.Event", .{ .name = .{ .ns = "Gdk", .local = "Event" } }, .{ .gobject_context = true, .object_types = &.{"Gdk.Event"} });
-    try testTranslateType("?*gdk.Event", .{ .name = .{ .ns = "Gdk", .local = "Event" } }, .{ .gobject_context = true, .nullable = true, .object_types = &.{"Gdk.Event"} });
+    try testTranslateType("*gdk.Event", .{ .name = .{ .ns = "Gdk", .local = "Event" } }, .{ .gobject_context = true, .class_names = &.{"Gdk.Event"} });
+    try testTranslateType("?*gdk.Event", .{ .name = .{ .ns = "Gdk", .local = "Event" } }, .{ .gobject_context = true, .nullable = true, .class_names = &.{"Gdk.Event"} });
     try testTranslateType("*anyopaque", .{ .name = .{ .ns = null, .local = "gpointer" }, .c_type = "gpointer" }, .{});
     try testTranslateType("?*anyopaque", .{ .name = .{ .ns = null, .local = "gpointer" }, .c_type = "gpointer" }, .{ .nullable = true });
     try testTranslateType("*const anyopaque", .{ .name = .{ .ns = null, .local = "gpointer" }, .c_type = "gconstpointer" }, .{});
@@ -1393,8 +1439,8 @@ test "translateType" {
     try testTranslateType("[*:0]const u8", .{ .name = .{ .ns = null, .local = "filename" }, .c_type = "gconstpointer" }, .{});
     try testTranslateType("?[*:0]const u8", .{ .name = .{ .ns = null, .local = "filename" }, .c_type = "gconstpointer" }, .{ .nullable = true });
     // Callback types behave as disguised pointer types
-    try testTranslateType("gobject.InstanceInitFunc", .{ .name = .{ .ns = "GObject", .local = "InstanceInitFunc" }, .c_type = "GInstanceInitFunc" }, .{ .is_pointer = true, .pointer_types = &.{"GObject.InstanceInitFunc"} });
-    try testTranslateType("?gobject.InstanceInitFunc", .{ .name = .{ .ns = "GObject", .local = "InstanceInitFunc" }, .c_type = "GInstanceInitFunc" }, .{ .nullable = true, .is_pointer = true, .pointer_types = &.{"GObject.InstanceInitFunc"} });
+    try testTranslateType("gobject.InstanceInitFunc", .{ .name = .{ .ns = "GObject", .local = "InstanceInitFunc" }, .c_type = "GInstanceInitFunc" }, .{ .is_pointer = true, .callback_names = &.{"GObject.InstanceInitFunc"} });
+    try testTranslateType("?gobject.InstanceInitFunc", .{ .name = .{ .ns = "GObject", .local = "InstanceInitFunc" }, .c_type = "GInstanceInitFunc" }, .{ .nullable = true, .is_pointer = true, .callback_names = &.{"GObject.InstanceInitFunc"} });
     // TODO: why is this not an array type in GIR? This inhibits a good translation here.
     // See the invalidated_properties parameter in Gio and similar.
     try testTranslateType("*const [*:0]const u8", .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = "const gchar* const*" }, .{});
@@ -1430,37 +1476,65 @@ const TestTranslateTypeOptions = struct {
     nullable: bool = false,
     gobject_context: bool = false,
     is_pointer: ?bool = null,
-    object_types: []const []const u8 = &.{},
-    pointer_types: []const []const u8 = &.{},
+    class_names: []const []const u8 = &.{},
+    callback_names: []const []const u8 = &.{},
 
     fn initTranslationContext(self: TestTranslateTypeOptions, base_allocator: Allocator) !TranslationContext {
         var ctx = TranslationContext.init(base_allocator);
         const allocator = ctx.arena.allocator();
-        for (self.object_types) |object_types| {
-            const ns_sep = mem.indexOfScalar(u8, object_types, '.').?;
-            const ns_name = object_types[0..ns_sep];
-            const local_name = object_types[ns_sep + 1 ..];
+        for (self.class_names) |class_name| {
+            const ns_sep = mem.indexOfScalar(u8, class_name, '.').?;
+            const ns_name = class_name[0..ns_sep];
+            const local_name = class_name[ns_sep + 1 ..];
             const ns_map = try ctx.namespaces.getOrPut(allocator, ns_name);
             if (!ns_map.found_existing) {
                 ns_map.value_ptr.* = .{
-                    .object_types = StringHashMapUnmanaged(void){},
-                    .pointer_types = StringHashMapUnmanaged(void){},
+                    .name = ns_name,
+                    .version = "0",
+                    .aliases = .{},
+                    .classes = .{},
+                    .interfaces = .{},
+                    .records = .{},
+                    .unions = .{},
+                    .bit_fields = .{},
+                    .enums = .{},
+                    .functions = .{},
+                    .callbacks = .{},
+                    .constants = .{},
                 };
             }
-            try ns_map.value_ptr.object_types.put(allocator, local_name, {});
+            try ns_map.value_ptr.classes.put(allocator, local_name, .{
+                .name = local_name,
+                .layout_elements = undefined,
+                .get_type = undefined,
+            });
         }
-        for (self.pointer_types) |pointer_types| {
-            const ns_sep = mem.indexOfScalar(u8, pointer_types, '.').?;
-            const ns_name = pointer_types[0..ns_sep];
-            const local_name = pointer_types[ns_sep + 1 ..];
+        for (self.callback_names) |callback_name| {
+            const ns_sep = mem.indexOfScalar(u8, callback_name, '.').?;
+            const ns_name = callback_name[0..ns_sep];
+            const local_name = callback_name[ns_sep + 1 ..];
             const ns_map = try ctx.namespaces.getOrPut(allocator, ns_name);
             if (!ns_map.found_existing) {
                 ns_map.value_ptr.* = .{
-                    .object_types = StringHashMapUnmanaged(void){},
-                    .pointer_types = StringHashMapUnmanaged(void){},
+                    .name = ns_name,
+                    .version = "0",
+                    .aliases = .{},
+                    .classes = .{},
+                    .interfaces = .{},
+                    .records = .{},
+                    .unions = .{},
+                    .bit_fields = .{},
+                    .enums = .{},
+                    .functions = .{},
+                    .callbacks = .{},
+                    .constants = .{},
                 };
             }
-            try ns_map.value_ptr.pointer_types.put(allocator, local_name, {});
+            try ns_map.value_ptr.callbacks.put(allocator, local_name, .{
+                .name = local_name,
+                .parameters = undefined,
+                .return_value = undefined,
+            });
         }
         return ctx;
     }
@@ -1679,7 +1753,7 @@ test "translateArrayType" {
         .element = &.{
             .simple = .{ .name = .{ .ns = "Gio", .local = "File" }, .c_type = null },
         },
-    }, .{ .gobject_context = true, .object_types = &.{"Gio.File"} });
+    }, .{ .gobject_context = true, .class_names = &.{"Gio.File"} });
 }
 
 fn testTranslateArrayType(expected: []const u8, @"type": gir.ArrayType, options: TestTranslateTypeOptions) !void {

@@ -1352,7 +1352,7 @@ pub const Callback = struct {
     parameters: []const Parameter,
     return_value: ReturnValue,
     throws: bool = false,
-    documentation: ?Documentation,
+    documentation: ?Documentation = null,
 
     fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Callback {
         var name: ?[]const u8 = null;
