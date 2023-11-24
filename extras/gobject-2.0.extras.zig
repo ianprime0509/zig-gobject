@@ -602,5 +602,5 @@ fn isCString(comptime T: type) bool {
 }
 
 fn isRegisteredType(comptime T: type) bool {
-    return std.meta.trait.hasFn("getType")(T) and @TypeOf(T.getType) == fn () callconv(.C) gobject.Type;
+    return std.meta.hasFn(T, "getType") and @TypeOf(T.getType) == fn () callconv(.C) gobject.Type;
 }
