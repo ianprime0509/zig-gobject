@@ -382,7 +382,7 @@ pub const Class = struct {
     signals: []const Signal = &.{},
     constants: []const Constant = &.{},
     get_type: []const u8,
-    type_struct: ?[]const u8 = null,
+    type_struct: ?Name = null,
     final: bool = false,
     symbol_prefix: ?[]const u8 = null,
     documentation: ?Documentation = null,
@@ -408,7 +408,7 @@ pub const Class = struct {
         var signals = ArrayListUnmanaged(Signal){};
         var constants = ArrayListUnmanaged(Constant){};
         var get_type: ?[]const u8 = null;
-        var type_struct: ?[]const u8 = null;
+        var type_struct: ?Name = null;
         var final = false;
         var symbol_prefix: ?[]const u8 = null;
         var documentation: ?Documentation = null;
@@ -423,7 +423,7 @@ pub const Class = struct {
             } else if (attr.name.is(ns.glib, "get-type")) {
                 get_type = try allocator.dupe(u8, attr.value);
             } else if (attr.name.is(ns.glib, "type-struct")) {
-                type_struct = try allocator.dupe(u8, attr.value);
+                type_struct = try Name.parse(allocator, attr.value, current_ns);
             } else if (attr.name.is(null, "final")) {
                 final = mem.eql(u8, attr.value, "1");
             } else if (attr.name.is(ns.c, "symbol-prefix")) {
@@ -493,7 +493,7 @@ pub const Interface = struct {
     signals: []const Signal = &.{},
     constants: []const Constant = &.{},
     get_type: []const u8,
-    type_struct: ?[]const u8 = null,
+    type_struct: ?Name = null,
     symbol_prefix: ?[]const u8 = null,
     documentation: ?Documentation = null,
 
@@ -511,7 +511,7 @@ pub const Interface = struct {
         var signals = ArrayListUnmanaged(Signal){};
         var constants = ArrayListUnmanaged(Constant){};
         var get_type: ?[]const u8 = null;
-        var type_struct: ?[]const u8 = null;
+        var type_struct: ?Name = null;
         var symbol_prefix: ?[]const u8 = null;
         var documentation: ?Documentation = null;
 
@@ -521,7 +521,7 @@ pub const Interface = struct {
             } else if (attr.name.is(ns.glib, "get-type")) {
                 get_type = try allocator.dupe(u8, attr.value);
             } else if (attr.name.is(ns.glib, "type-struct")) {
-                type_struct = try allocator.dupe(u8, attr.value);
+                type_struct = try Name.parse(allocator, attr.value, current_ns);
             } else if (attr.name.is(ns.c, "symbol-prefix")) {
                 symbol_prefix = try allocator.dupe(u8, attr.value);
             }
@@ -580,7 +580,7 @@ pub const Record = struct {
     disguised: bool = false,
     @"opaque": bool = false,
     pointer: bool = false,
-    is_gtype_struct_for: ?[]const u8 = null,
+    is_gtype_struct_for: ?Name = null,
     symbol_prefix: ?[]const u8 = null,
     documentation: ?Documentation = null,
 
@@ -609,7 +609,7 @@ pub const Record = struct {
         var disguised = false;
         var @"opaque" = false;
         var pointer = false;
-        var is_gtype_struct_for: ?[]const u8 = null;
+        var is_gtype_struct_for: ?Name = null;
         var symbol_prefix: ?[]const u8 = null;
         var documentation: ?Documentation = null;
 
@@ -627,7 +627,7 @@ pub const Record = struct {
             } else if (attr.name.is(null, "pointer")) {
                 pointer = mem.eql(u8, attr.value, "1");
             } else if (attr.name.is(ns.glib, "is-gtype-struct-for")) {
-                is_gtype_struct_for = try allocator.dupe(u8, attr.value);
+                is_gtype_struct_for = try Name.parse(allocator, attr.value, current_ns);
             } else if (attr.name.is(ns.c, "symbol-prefix")) {
                 symbol_prefix = try allocator.dupe(u8, attr.value);
             }

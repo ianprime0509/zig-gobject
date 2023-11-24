@@ -287,7 +287,9 @@ fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContex
     try out.print("};\n", .{});
 
     if (class.type_struct) |type_struct| {
-        try out.print("pub const Class = $I;\n", .{escapeTypeName(type_struct)});
+        try out.print("pub const Class = ", .{});
+        try translateName(allocator, type_struct, out);
+        try out.print(";\n", .{});
     }
     try out.print("const _Self = @This();\n\n", .{});
 
@@ -416,7 +418,9 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, ctx: Trans
     try out.print("};\n", .{});
 
     if (interface.type_struct) |type_struct| {
-        try out.print("pub const Iface = $I;\n", .{escapeTypeName(type_struct)});
+        try out.print("pub const Iface = ", .{});
+        try translateName(allocator, type_struct, out);
+        try out.print(";\n", .{});
     }
     try out.print("const _Self = @This();\n\n", .{});
 
@@ -533,7 +537,9 @@ fn translateRecord(allocator: Allocator, record: gir.Record, ctx: TranslationCon
     }
 
     if (record.is_gtype_struct_for) |is_gtype_struct_for| {
-        try out.print("pub const Instance = $I;\n", .{escapeTypeName(is_gtype_struct_for)});
+        try out.print("pub const Instance = ", .{});
+        try translateName(allocator, is_gtype_struct_for, out);
+        try out.print(";\n", .{});
     }
     try out.print("const _Self = @This();\n\n", .{});
 
@@ -588,16 +594,19 @@ fn translateRecord(allocator: Allocator, record: gir.Record, ctx: TranslationCon
     try out.print("return struct{\n", .{});
     try out.print("pub usingnamespace $LOwnMethods(_Self);\n", .{record.name});
     if (record.is_gtype_struct_for) |is_gtype_struct_for| {
+        try out.print("const Instance =", .{});
+        try translateName(allocator, is_gtype_struct_for, out);
+        try out.print(";\n", .{});
         try out.print(
-            \\pub usingnamespace if (@hasDecl($I, "Parent") and @hasDecl($I.Parent, "Class"))
-            \\    $I.Parent.Class.Methods(_Self)
-            \\else if (@hasDecl($I, "Parent"))
+            \\pub usingnamespace if (@hasDecl(Instance, "Parent") and @hasDecl(Instance.Parent, "Class"))
+            \\    Instance.Parent.Class.Methods(_Self)
+            \\else if (@hasDecl(Instance, "Parent"))
             \\    gobject.TypeClass.Methods(_Self)
             \\else
             \\    struct{}
             \\;
             \\
-        , .{ escapeTypeName(is_gtype_struct_for), escapeTypeName(is_gtype_struct_for), escapeTypeName(is_gtype_struct_for), escapeTypeName(is_gtype_struct_for) });
+        , .{});
     }
     try out.print("pub usingnamespace $LExtraMethods(_Self);\n", .{record.name});
     try out.print("};\n", .{});
@@ -956,7 +965,7 @@ fn translateMethod(allocator: Allocator, method: gir.Method, options: TranslateF
     }, options, ctx, out);
 }
 
-fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMethod, container_name: []const u8, container_type: []const u8, instance_type: []const u8, ctx: TranslationContext, out: anytype) !void {
+fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMethod, container_name: []const u8, container_type: gir.Name, instance_type: []const u8, ctx: TranslationContext, out: anytype) !void {
     var upper_method_name = try toCamelCase(allocator, virtual_method.name, "_");
     defer allocator.free(upper_method_name);
     if (upper_method_name.len > 0) {
@@ -968,7 +977,9 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
     try out.print("pub fn implement$L(p_class: *$I, p_implementation: ", .{ upper_method_name, container_name });
     try translateVirtualMethodImplementationType(allocator, virtual_method, "_Instance", ctx, out);
     try out.print(") void {\n", .{});
-    try out.print("@as(*$I, @ptrCast(@alignCast(p_class))).$I = @ptrCast(p_implementation);\n", .{ container_type, virtual_method.name });
+    try out.print("@as(*", .{});
+    try translateName(allocator, container_type, out);
+    try out.print(", @ptrCast(@alignCast(p_class))).$I = @ptrCast(p_implementation);\n", .{virtual_method.name});
     try out.print("}\n\n", .{});
 
     // call
@@ -982,7 +993,9 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
         .force_nullable = virtual_method.throws and anyTypeIsPointer(virtual_method.return_value.type, false, ctx),
     }, ctx, out);
     try out.print(" {\n", .{});
-    try out.print("return @as(*$I, @ptrCast(@alignCast(p_class))).$I.?(", .{ container_type, virtual_method.name });
+    try out.print("return @as(*", .{});
+    try translateName(allocator, container_type, out);
+    try out.print(", @ptrCast(@alignCast(p_class))).$I.?(", .{virtual_method.name});
     try translateParameterNames(allocator, virtual_method.parameters, .{ .throws = virtual_method.throws }, out);
     try out.print(");\n", .{});
     try out.print("}\n\n", .{});
