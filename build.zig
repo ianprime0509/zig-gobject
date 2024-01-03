@@ -14,7 +14,7 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
     exe.linkLibC();
-    exe.addModule("xml", xml);
+    exe.root_module.addImport("xml", xml);
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
@@ -37,7 +37,7 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
     exe_tests.linkLibC();
-    exe_tests.addModule("xml", xml);
+    exe_tests.root_module.addImport("xml", xml);
 
     const test_exe_step = b.step("test-exe", "Run tests for the binding generator");
     test_exe_step.dependOn(&b.addRunArtifact(exe_tests).step);
@@ -68,7 +68,7 @@ pub fn build(b: *std.Build) !void {
     run_example_step.dependOn(&run_example_cmd.step);
 }
 
-fn addCodegenStep(b: *std.Build, codegen_exe: *std.Build.CompileStep) !*std.Build.Step {
+fn addCodegenStep(b: *std.Build, codegen_exe: *std.Build.Step.Compile) !*std.Build.Step {
     const gir = [_][]const u8{
         "Adw-1.gir",
         "AppStreamGlib-1.0.gir",

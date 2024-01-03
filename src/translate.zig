@@ -2086,28 +2086,35 @@ pub fn createBuildFile(allocator: Allocator, repositories: []const gir.Repositor
 
     try out.print("const std = @import(\"std\");\n\n", .{});
 
-    try out.print("pub fn build(_: *std.Build) void {}\n\n", .{});
+    try out.print("pub fn build(b: *std.Build) void {\n", .{});
+    try out.print(
+        \\const target = b.standardTargetOptions(.{});
+        \\const optimize = b.standardOptimizeOption(.{});
+        \\
+    , .{});
 
-    try out.print("pub fn addBindingModule(b: *std.Build, step: *std.Build.Step.Compile, module_name: []const u8) *std.Build.Module {\n", .{});
     for (repositories) |repo| {
         const module_name = try moduleNameAlloc(allocator, repo.namespace.name, repo.namespace.version);
         defer allocator.free(module_name);
 
-        try out.print("if (std.mem.eql(u8, module_name, $S)) {\n", .{module_name});
         try out.print(
-            \\const module = b.modules.get($S) orelse b.addModule($S, .{
-            \\    .source_file = .{ .path = comptime blk: {
-            \\        @setEvalBranchQuota(10_000);
-            \\        break :blk std.fs.path.dirname(@src().file).? ++ "/src/" ++ $S ++ ".zig";
-            \\    } },
+            \\const $I = b.addModule($S, .{
+            \\    .root_source_file = .{ .path = b.pathJoin(&.{ "src", $S ++ ".zig" }) },
+            \\    .target = target,
+            \\    .optimize = optimize,
             \\});
             \\
         , .{ module_name, module_name, module_name });
 
-        try out.print("step.linkLibC();\n", .{});
+        try out.print("$I.link_libc = true;\n", .{module_name});
         for (repo.packages) |package| {
-            try out.print("step.linkSystemLibrary($S);\n", .{package.name});
+            try out.print("$I.linkSystemLibrary($S, .{});\n", .{ module_name, package.name });
         }
+    }
+
+    for (repositories) |repo| {
+        const module_name = try moduleNameAlloc(allocator, repo.namespace.name, repo.namespace.version);
+        defer allocator.free(module_name);
 
         var seen = RepositorySet{};
         defer seen.deinit(allocator);
@@ -2120,7 +2127,7 @@ pub fn createBuildFile(allocator: Allocator, repositories: []const gir.Repositor
             if (!seen.contains(needed_dep)) {
                 const dep_module_name = try moduleNameAlloc(allocator, needed_dep.name, needed_dep.version);
                 defer allocator.free(dep_module_name);
-                try out.print("module.dependencies.put($S, addBindingModule(b, step, $S)) catch @panic(\"OOM\");\n", .{ dep_module_name, dep_module_name });
+                try out.print("$I.addImport($S, $I);\n", .{ module_name, dep_module_name, dep_module_name });
 
                 try seen.put(allocator, needed_dep, {});
                 if (repository_map.get(needed_dep)) |dep_repo| {
@@ -2128,18 +2135,11 @@ pub fn createBuildFile(allocator: Allocator, repositories: []const gir.Repositor
                 }
             }
         }
-        // The self-dependency is useful for extras files to be able to import their own module by name
-        try out.print("module.dependencies.put($S, module) catch @panic(\"OOM\");\n", .{module_name});
 
-        try out.print("return module;\n", .{});
-        try out.print("} else ", .{});
+        // The self-dependency is useful for extras files to be able to import their own module by name
+        try out.print("$I.addImport($S, $I);\n\n", .{ module_name, module_name, module_name });
     }
-    try out.print(
-        \\{
-        \\    std.debug.panic("module not available: {s}", .{module_name});
-        \\}
-        \\
-    , .{});
+
     try out.print("}\n", .{});
 
     try raw_source.append(allocator, 0);

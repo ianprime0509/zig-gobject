@@ -1,5 +1,4 @@
 const std = @import("std");
-const gobject = @import("gobject");
 
 const modules = [_][]const u8{
     "adw-1",
@@ -331,6 +330,11 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const gobject = b.dependency("gobject", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     const test_step = b.step("test", "Run binding tests");
 
     const test_modules = b.option([]const []const u8, "modules", "Modules to test") orelse &modules;
@@ -344,7 +348,7 @@ pub fn build(b: *std.Build) !void {
             .target = target,
             .optimize = optimize,
         });
-        tests.addModule(local_name, gobject.addBindingModule(b, tests, module));
+        tests.root_module.addImport(local_name, gobject.module(module));
         test_step.dependOn(&b.addRunArtifact(tests).step);
 
         if (options.test_abi) {
@@ -353,7 +357,7 @@ pub fn build(b: *std.Build) !void {
                 .target = target,
                 .optimize = optimize,
             });
-            abi_tests.addModule(module, gobject.addBindingModule(b, abi_tests, module));
+            abi_tests.root_module.addImport(module, gobject.module(module));
             test_step.dependOn(&b.addRunArtifact(abi_tests).step);
         }
     }
