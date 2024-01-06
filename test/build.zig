@@ -1,4 +1,5 @@
 const std = @import("std");
+const gobject_build = @import("gobject");
 
 const modules = [_][]const u8{
     "adw-1",
@@ -358,6 +359,11 @@ pub fn build(b: *std.Build) !void {
                 .optimize = optimize,
             });
             abi_tests.root_module.addImport(module, gobject.module(module));
+            inline for (@typeInfo(gobject_build.libraries).Struct.decls) |lib_decl| {
+                if (std.mem.eql(u8, lib_decl.name, module)) {
+                    @field(gobject_build.libraries, lib_decl.name).linkTo(&abi_tests.root_module);
+                }
+            }
             test_step.dependOn(&b.addRunArtifact(abi_tests).step);
         }
     }

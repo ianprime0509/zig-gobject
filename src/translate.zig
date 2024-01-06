@@ -2140,7 +2140,50 @@ pub fn createBuildFile(allocator: Allocator, repositories: []const gir.Repositor
         try out.print("$I.addImport($S, $I);\n\n", .{ module_name, module_name, module_name });
     }
 
-    try out.print("}\n", .{});
+    try out.print("}\n\n", .{});
+
+    // Library metadata
+    try out.print(
+        \\/// A library accessible through the generated bindings.
+        \\///
+        \\/// While the generated bindings are typically used through modules
+        \\/// (e.g. `gobject.module("glib-2.0")`), there are cases where it is
+        \\/// useful to have additional information about the libraries exposed
+        \\/// to the build script. For example, if any files in the root module
+        \\/// of the application want to import a library's C headers directly,
+        \\/// it will be necessary to link the library directly to the root module
+        \\/// using `Library.linkTo` so the include paths will be available.
+        \\pub const Library = struct {
+        \\    /// System libraries to be linked using pkg-config.
+        \\    system_libraries: []const []const u8,
+        \\
+        \\    /// Links `lib` to `module`.
+        \\    pub fn linkTo(lib: Library, module: *std.Build.Module) void {
+        \\        for (lib.system_libraries) |system_lib| {
+        \\            module.linkSystemLibrary(system_lib, .{});
+        \\        }
+        \\    }
+        \\};
+        \\
+        \\
+    , .{});
+    try out.print("pub const libraries = struct {\n", .{});
+    for (repositories) |repo| {
+        const module_name = try moduleNameAlloc(allocator, repo.namespace.name, repo.namespace.version);
+        defer allocator.free(module_name);
+
+        try out.print("pub const $I: Library = .{\n", .{module_name});
+
+        try out.print(".system_libraries = &.{", .{});
+        for (repo.packages, 0..) |package, i| {
+            if (i > 0) try out.print(", ", .{});
+            try out.print("$S", .{package.name});
+        }
+        try out.print("},\n", .{});
+
+        try out.print("};\n\n", .{});
+    }
+    try out.print("};\n\n", .{});
 
     try raw_source.append(allocator, 0);
     var ast = try zig.Ast.parse(allocator, raw_source.items[0 .. raw_source.items.len - 1 :0], .zig);
