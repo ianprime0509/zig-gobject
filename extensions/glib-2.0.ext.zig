@@ -2,58 +2,54 @@ const glib = @import("glib-2.0");
 const std = @import("std");
 
 pub const Bytes = struct {
-    const Self = glib.Bytes;
-
     /// Returns a new `Bytes` copying the given slice.
-    pub fn newFromSlice(bytes: []const u8) *Self {
+    pub fn newFromSlice(bytes: []const u8) *glib.Bytes {
         // TODO: the const cast is only needed due to a mistranslation of the array type in new
-        return Self.new(@constCast(bytes.ptr), bytes.len);
+        return glib.Bytes.new(@constCast(bytes.ptr), bytes.len);
     }
 };
 
 pub const Variant = struct {
-    const Self = glib.Variant;
-
     /// Returns a new `Variant` with the given contents.
     ///
     /// This does not take ownership of the value (if applicable).
-    pub fn newFrom(contents: anytype) *Self {
+    pub fn newFrom(contents: anytype) *glib.Variant {
         const T = @TypeOf(contents);
         const type_info = @typeInfo(T);
         if (T == bool) {
-            return Self.newBoolean(@intFromBool(contents));
+            return glib.Variant.newBoolean(@intFromBool(contents));
         } else if (T == u8) {
-            return Self.newByte(contents);
+            return glib.Variant.newByte(contents);
         } else if (T == i16) {
-            return Self.newInt16(contents);
+            return glib.Variant.newInt16(contents);
         } else if (T == i32) {
-            return Self.newInt32(contents);
+            return glib.Variant.newInt32(contents);
         } else if (T == i64) {
-            return Self.newInt64(contents);
+            return glib.Variant.newInt64(contents);
         } else if (T == u16) {
-            return Self.newUint16(contents);
+            return glib.Variant.newUint16(contents);
         } else if (T == u32) {
-            return Self.newUint32(contents);
+            return glib.Variant.newUint32(contents);
         } else if (T == u64) {
-            return Self.newUint64(contents);
+            return glib.Variant.newUint64(contents);
         } else if (T == f64) {
-            return Self.newDouble(contents);
+            return glib.Variant.newDouble(contents);
         } else if (comptime isCString(T)) {
-            return Self.newString(contents);
-        } else if (T == *Self) {
-            return Self.newVariant(contents);
+            return glib.Variant.newString(contents);
+        } else if (T == *glib.Variant) {
+            return glib.Variant.newVariant(contents);
         } else if (type_info == .Array) {
-            const child_type = glib.VariantType.newFor(type_info.Array.child);
+            const child_type = glib.ext.VariantType.newFor(type_info.Array.child);
             defer child_type.free();
             var children: [type_info.Array.len]*glib.Variant = undefined;
             inline for (contents, &children) |item, *child| {
                 child.* = newFrom(item);
             }
-            return Self.newArray(child_type, &children, children.len);
+            return glib.Variant.newArray(child_type, &children, children.len);
         } else if (type_info == .Pointer and type_info.Pointer.size == .Slice) {
             @compileError("TODO: slices should be implemented here");
         } else if (type_info == .Optional) {
-            const child_type = glib.VariantType.newFor(type_info.Optional.child);
+            const child_type = glib.ext.VariantType.newFor(type_info.Optional.child);
             defer child_type.free();
             if (contents) |value| {
                 const child = newFrom(value);
@@ -74,11 +70,9 @@ pub const Variant = struct {
 };
 
 pub const VariantType = struct {
-    const Self = glib.VariantType;
-
     /// Returns a new variant type corresponding to the given type.
-    pub fn newFor(comptime T: type) *Self {
-        return Self.new(stringFor(T));
+    pub fn newFor(comptime T: type) *glib.VariantType {
+        return glib.VariantType.new(stringFor(T));
     }
 
     /// Returns the variant type string corresponding to the given type.

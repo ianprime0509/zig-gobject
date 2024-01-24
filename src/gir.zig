@@ -328,20 +328,20 @@ pub const Namespace = struct {
 };
 
 pub const Alias = struct {
-    name: []const u8,
+    name: Name,
     c_type: ?[]const u8 = null,
     type: Type,
     documentation: ?Documentation = null,
 
     fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Alias {
-        var name: ?[]const u8 = null;
+        var name: ?Name = null;
         var c_type: ?[]const u8 = null;
         var @"type": ?Type = null;
         var documentation: ?Documentation = null;
 
         for (start.attributes) |attr| {
             if (attr.name.is(null, "name")) {
-                name = try allocator.dupe(u8, attr.value);
+                name = try Name.parse(allocator, attr.value, current_ns);
             } else if (attr.name.is(ns.c, "type")) {
                 c_type = try allocator.dupe(u8, attr.value);
             }
@@ -370,7 +370,7 @@ pub const Alias = struct {
 };
 
 pub const Class = struct {
-    name: []const u8,
+    name: Name,
     c_type: ?[]const u8 = null,
     parent: ?Name = null,
     implements: []const Implements = &.{},
@@ -382,21 +382,19 @@ pub const Class = struct {
     signals: []const Signal = &.{},
     constants: []const Constant = &.{},
     get_type: []const u8,
+    ref_func: ?[]const u8 = null,
+    unref_func: ?[]const u8 = null,
     type_struct: ?Name = null,
     final: bool = false,
     symbol_prefix: ?[]const u8 = null,
     documentation: ?Documentation = null,
-
-    pub fn getTypeFunction(self: Class) Function {
-        return Function.forGetType(self, self.symbol_prefix, true);
-    }
 
     pub fn isOpaque(self: Class) bool {
         return self.final or self.layout_elements.len == 0;
     }
 
     fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Class {
-        var name: ?[]const u8 = null;
+        var name: ?Name = null;
         var c_type: ?[]const u8 = null;
         var parent: ?Name = null;
         var implements = ArrayListUnmanaged(Implements){};
@@ -408,6 +406,8 @@ pub const Class = struct {
         var signals = ArrayListUnmanaged(Signal){};
         var constants = ArrayListUnmanaged(Constant){};
         var get_type: ?[]const u8 = null;
+        var ref_func: ?[]const u8 = null;
+        var unref_func: ?[]const u8 = null;
         var type_struct: ?Name = null;
         var final = false;
         var symbol_prefix: ?[]const u8 = null;
@@ -415,13 +415,17 @@ pub const Class = struct {
 
         for (start.attributes) |attr| {
             if (attr.name.is(null, "name")) {
-                name = try allocator.dupe(u8, attr.value);
+                name = try Name.parse(allocator, attr.value, current_ns);
             } else if (attr.name.is(ns.c, "type")) {
                 c_type = try allocator.dupe(u8, attr.value);
             } else if (attr.name.is(null, "parent")) {
                 parent = try Name.parse(allocator, attr.value, current_ns);
             } else if (attr.name.is(ns.glib, "get-type")) {
                 get_type = try allocator.dupe(u8, attr.value);
+            } else if (attr.name.is(ns.glib, "ref-func")) {
+                ref_func = try allocator.dupe(u8, attr.value);
+            } else if (attr.name.is(ns.glib, "unref-func")) {
+                unref_func = try allocator.dupe(u8, attr.value);
             } else if (attr.name.is(ns.glib, "type-struct")) {
                 type_struct = try Name.parse(allocator, attr.value, current_ns);
             } else if (attr.name.is(null, "final")) {
@@ -475,6 +479,8 @@ pub const Class = struct {
             .signals = try signals.toOwnedSlice(allocator),
             .constants = try constants.toOwnedSlice(allocator),
             .get_type = get_type orelse return error.InvalidGir,
+            .ref_func = ref_func,
+            .unref_func = unref_func,
             .type_struct = type_struct,
             .final = final,
             .symbol_prefix = symbol_prefix,
@@ -484,7 +490,7 @@ pub const Class = struct {
 };
 
 pub const Interface = struct {
-    name: []const u8,
+    name: Name,
     prerequisites: []const Prerequisite = &.{},
     functions: []const Function = &.{},
     constructors: []const Constructor = &.{},
@@ -497,12 +503,8 @@ pub const Interface = struct {
     symbol_prefix: ?[]const u8 = null,
     documentation: ?Documentation = null,
 
-    pub fn getTypeFunction(self: Interface) Function {
-        return Function.forGetType(self, self.symbol_prefix, true);
-    }
-
     fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Interface {
-        var name: ?[]const u8 = null;
+        var name: ?Name = null;
         var prerequisites = ArrayListUnmanaged(Prerequisite){};
         var functions = ArrayListUnmanaged(Function){};
         var constructors = ArrayListUnmanaged(Constructor){};
@@ -517,7 +519,7 @@ pub const Interface = struct {
 
         for (start.attributes) |attr| {
             if (attr.name.is(null, "name")) {
-                name = try allocator.dupe(u8, attr.value);
+                name = try Name.parse(allocator, attr.value, current_ns);
             } else if (attr.name.is(ns.glib, "get-type")) {
                 get_type = try allocator.dupe(u8, attr.value);
             } else if (attr.name.is(ns.glib, "type-struct")) {
@@ -570,7 +572,7 @@ pub const Interface = struct {
 };
 
 pub const Record = struct {
-    name: []const u8,
+    name: Name,
     c_type: ?[]const u8 = null,
     layout_elements: []const LayoutElement,
     functions: []const Function = &.{},
@@ -584,10 +586,6 @@ pub const Record = struct {
     symbol_prefix: ?[]const u8 = null,
     documentation: ?Documentation = null,
 
-    pub fn getTypeFunction(self: Record) ?Function {
-        return Function.forGetType(self, self.symbol_prefix, false);
-    }
-
     pub fn isPointer(self: Record) bool {
         // The check on is_gtype_struct_for is a heuristic to avoid
         // mistranslations for class types (which are not typedefed pointers)
@@ -599,7 +597,7 @@ pub const Record = struct {
     }
 
     fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Record {
-        var name: ?[]const u8 = null;
+        var name: ?Name = null;
         var c_type: ?[]const u8 = null;
         var layout_elements = ArrayListUnmanaged(LayoutElement){};
         var functions = ArrayListUnmanaged(Function){};
@@ -615,7 +613,7 @@ pub const Record = struct {
 
         for (start.attributes) |attr| {
             if (attr.name.is(null, "name")) {
-                name = try allocator.dupe(u8, attr.value);
+                name = try Name.parse(allocator, attr.value, current_ns);
             } else if (attr.name.is(ns.c, "type")) {
                 c_type = try allocator.dupe(u8, attr.value);
             } else if (attr.name.is(ns.glib, "get-type")) {
@@ -675,7 +673,7 @@ pub const Record = struct {
 };
 
 pub const Union = struct {
-    name: []const u8,
+    name: Name,
     c_type: ?[]const u8 = null,
     layout_elements: []const LayoutElement,
     functions: []const Function = &.{},
@@ -685,16 +683,12 @@ pub const Union = struct {
     symbol_prefix: ?[]const u8 = null,
     documentation: ?Documentation = null,
 
-    pub fn getTypeFunction(self: Union) ?Function {
-        return Function.forGetType(self, self.symbol_prefix, false);
-    }
-
     pub fn isOpaque(self: Union) bool {
         return self.layout_elements.len == 0;
     }
 
     fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Union {
-        var name: ?[]const u8 = null;
+        var name: ?Name = null;
         var c_type: ?[]const u8 = null;
         var layout_elements = ArrayListUnmanaged(LayoutElement){};
         var functions = ArrayListUnmanaged(Function){};
@@ -706,7 +700,7 @@ pub const Union = struct {
 
         for (start.attributes) |attr| {
             if (attr.name.is(null, "name")) {
-                name = try allocator.dupe(u8, attr.value);
+                name = try Name.parse(allocator, attr.value, current_ns);
             } else if (attr.name.is(ns.c, "type")) {
                 c_type = try allocator.dupe(u8, attr.value);
             } else if (attr.name.is(ns.glib, "get-type")) {
@@ -860,19 +854,15 @@ pub const AnonymousUnion = struct {
 };
 
 pub const BitField = struct {
-    name: []const u8,
+    name: Name,
     c_type: ?[]const u8 = null,
     members: []const Member,
     functions: []const Function = &.{},
     get_type: ?[]const u8 = null,
     documentation: ?Documentation = null,
 
-    pub fn getTypeFunction(self: BitField) ?Function {
-        return Function.forGetType(self, null, false);
-    }
-
     fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !BitField {
-        var name: ?[]const u8 = null;
+        var name: ?Name = null;
         var c_type: ?[]const u8 = null;
         var members = ArrayListUnmanaged(Member){};
         var functions = ArrayListUnmanaged(Function){};
@@ -881,7 +871,7 @@ pub const BitField = struct {
 
         for (start.attributes) |attr| {
             if (attr.name.is(null, "name")) {
-                name = try allocator.dupe(u8, attr.value);
+                name = try Name.parse(allocator, attr.value, current_ns);
             } else if (attr.name.is(ns.c, "type")) {
                 c_type = try allocator.dupe(u8, attr.value);
             } else if (attr.name.is(ns.glib, "get-type")) {
@@ -916,19 +906,15 @@ pub const BitField = struct {
 };
 
 pub const Enum = struct {
-    name: []const u8,
+    name: Name,
     c_type: ?[]const u8 = null,
     members: []const Member = &.{},
     functions: []const Function = &.{},
     get_type: ?[]const u8 = null,
     documentation: ?Documentation = null,
 
-    pub fn getTypeFunction(self: Enum) ?Function {
-        return Function.forGetType(self, null, false);
-    }
-
     fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Enum {
-        var name: ?[]const u8 = null;
+        var name: ?Name = null;
         var c_type: ?[]const u8 = null;
         var members = ArrayListUnmanaged(Member){};
         var functions = ArrayListUnmanaged(Function){};
@@ -937,7 +923,7 @@ pub const Enum = struct {
 
         for (start.attributes) |attr| {
             if (attr.name.is(null, "name")) {
-                name = try allocator.dupe(u8, attr.value);
+                name = try Name.parse(allocator, attr.value, current_ns);
             } else if (attr.name.is(ns.c, "type")) {
                 c_type = try allocator.dupe(u8, attr.value);
             } else if (attr.name.is(ns.glib, "get-type")) {
@@ -1016,28 +1002,6 @@ pub const Function = struct {
     return_value: ReturnValue,
     throws: bool = false,
     documentation: ?Documentation = null,
-
-    fn forGetType(elem: anytype, symbol_prefix: ?[]const u8, comptime required: bool) if (required) Function else ?Function {
-        if (!required and elem.get_type == null) {
-            return null;
-        }
-
-        const c_identifier = if (required) elem.get_type else elem.get_type.?;
-        const name = if (symbol_prefix) |prefix| stripSymbolPrefix(c_identifier, prefix) else "get_type";
-
-        return .{
-            .name = name,
-            .c_identifier = c_identifier,
-            .parameters = &.{},
-            .return_value = .{
-                .nullable = false,
-                .type = .{ .simple = .{
-                    .name = .{ .ns = "GObject", .local = "Type" },
-                    .c_type = "GType",
-                } },
-            },
-        };
-    }
 
     fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Function {
         var name: ?[]const u8 = null;

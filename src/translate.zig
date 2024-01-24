@@ -63,31 +63,31 @@ const TranslationContext = struct {
 
         var aliases: StringHashMapUnmanaged(gir.Alias) = .{};
         for (repository.namespace.aliases) |alias| {
-            try aliases.put(allocator, alias.name, alias);
+            try aliases.put(allocator, alias.name.local, alias);
         }
         var classes: StringHashMapUnmanaged(gir.Class) = .{};
         for (repository.namespace.classes) |class| {
-            try classes.put(allocator, class.name, class);
+            try classes.put(allocator, class.name.local, class);
         }
         var interfaces: StringHashMapUnmanaged(gir.Interface) = .{};
         for (repository.namespace.interfaces) |interface| {
-            try interfaces.put(allocator, interface.name, interface);
+            try interfaces.put(allocator, interface.name.local, interface);
         }
         var records: StringHashMapUnmanaged(gir.Record) = .{};
         for (repository.namespace.records) |record| {
-            try records.put(allocator, record.name, record);
+            try records.put(allocator, record.name.local, record);
         }
         var unions: StringHashMapUnmanaged(gir.Union) = .{};
         for (repository.namespace.unions) |@"union"| {
-            try unions.put(allocator, @"union".name, @"union");
+            try unions.put(allocator, @"union".name.local, @"union");
         }
         var bit_fields: StringHashMapUnmanaged(gir.BitField) = .{};
         for (repository.namespace.bit_fields) |bit_field| {
-            try bit_fields.put(allocator, bit_field.name, bit_field);
+            try bit_fields.put(allocator, bit_field.name.local, bit_field);
         }
         var enums: StringHashMapUnmanaged(gir.Enum) = .{};
         for (repository.namespace.enums) |@"enum"| {
-            try enums.put(allocator, @"enum".name, @"enum");
+            try enums.put(allocator, @"enum".name.local, @"enum");
         }
         var functions: StringHashMapUnmanaged(gir.Function) = .{};
         for (repository.namespace.functions) |function| {
@@ -165,7 +165,7 @@ pub const CreateBindingsError = Allocator.Error || fs.File.OpenError || fs.File.
     NotSupported,
 };
 
-pub fn createBindings(allocator: Allocator, repositories: []const gir.Repository, extras_path: []const fs.Dir, output_dir: fs.Dir) CreateBindingsError!void {
+pub fn createBindings(allocator: Allocator, repositories: []const gir.Repository, bindings_path: []const fs.Dir, extensions_path: []const fs.Dir, output_dir: fs.Dir) CreateBindingsError!void {
     var repository_map = RepositoryMap{};
     defer repository_map.deinit(allocator);
     for (repositories) |repo| {
@@ -173,41 +173,57 @@ pub fn createBindings(allocator: Allocator, repositories: []const gir.Repository
     }
 
     for (repositories) |repo| {
-        const extras_file = try copyExtrasFile(allocator, repo.namespace.name, repo.namespace.version, extras_path, output_dir);
-        defer allocator.free(extras_file);
-        var ctx = TranslationContext.init(allocator);
-        defer ctx.deinit();
-        try ctx.addRepositoryAndDependencies(repo, repository_map);
-        try translateRepository(allocator, repo, extras_file, repository_map, ctx, output_dir);
+        const manual_bindings = try copyBindingsFile(allocator, repo.namespace.name, repo.namespace.version, bindings_path, output_dir);
+        const extensions_file = try copyExtensionsFile(allocator, repo.namespace.name, repo.namespace.version, extensions_path, output_dir);
+        defer allocator.free(extensions_file);
+        if (!manual_bindings) {
+            var ctx = TranslationContext.init(allocator);
+            defer ctx.deinit();
+            try ctx.addRepositoryAndDependencies(repo, repository_map);
+            try translateRepository(allocator, repo, extensions_file, repository_map, ctx, output_dir);
+        }
     }
 }
 
-fn copyExtrasFile(allocator: Allocator, name: []const u8, version: []const u8, extras_path: []const fs.Dir, output_dir: fs.Dir) ![]u8 {
-    const extras_name = try extrasFileNameAlloc(allocator, name, version);
-    errdefer allocator.free(extras_name);
-    for (extras_path) |extras_dir| {
-        extras_dir.copyFile(extras_name, output_dir, extras_name, .{}) catch |err| switch (err) {
+fn copyBindingsFile(allocator: Allocator, name: []const u8, version: []const u8, bindings_path: []const fs.Dir, output_dir: fs.Dir) !bool {
+    const bindings_name = try fileNameAlloc(allocator, name, version);
+    defer allocator.free(bindings_name);
+    for (bindings_path) |bindings_dir| {
+        bindings_dir.copyFile(bindings_name, output_dir, bindings_name, .{}) catch |err| switch (err) {
             error.FileNotFound => continue,
-            else => return err,
+            else => |other_err| return other_err,
         };
-        return extras_name;
+        return true;
     }
-    try output_dir.writeFile(extras_name, "");
-    return extras_name;
+    return false;
 }
 
-fn extrasFileNameAlloc(allocator: Allocator, name: []const u8, version: []const u8) ![]u8 {
-    const file_name = try fmt.allocPrint(allocator, "{s}-{s}.extras.zig", .{ name, version });
+fn copyExtensionsFile(allocator: Allocator, name: []const u8, version: []const u8, extensions_path: []const fs.Dir, output_dir: fs.Dir) ![]u8 {
+    const extensions_name = try extensionsFileNameAlloc(allocator, name, version);
+    errdefer allocator.free(extensions_name);
+    for (extensions_path) |extensions_dir| {
+        extensions_dir.copyFile(extensions_name, output_dir, extensions_name, .{}) catch |err| switch (err) {
+            error.FileNotFound => continue,
+            else => |other_err| return other_err,
+        };
+        return extensions_name;
+    }
+    try output_dir.writeFile(extensions_name, "");
+    return extensions_name;
+}
+
+fn extensionsFileNameAlloc(allocator: Allocator, name: []const u8, version: []const u8) ![]u8 {
+    const file_name = try fmt.allocPrint(allocator, "{s}-{s}.ext.zig", .{ name, version });
     _ = ascii.lowerString(file_name, file_name);
     return file_name;
 }
 
-fn translateRepository(allocator: Allocator, repo: gir.Repository, extras_path: []const u8, repository_map: RepositoryMap, ctx: TranslationContext, output_dir: fs.Dir) !void {
+fn translateRepository(allocator: Allocator, repo: gir.Repository, extensions_path: []const u8, repository_map: RepositoryMap, ctx: TranslationContext, output_dir: fs.Dir) !void {
     var raw_source = ArrayListUnmanaged(u8){};
     defer raw_source.deinit(allocator);
     var out = zigWriter(raw_source.writer(allocator));
 
-    try out.print("const extras = @import($S);\n", .{extras_path});
+    try out.print("pub const ext = @import($S);\n", .{extensions_path});
 
     try translateIncludes(allocator, repo.namespace, repository_map, &out);
     try translateNamespace(allocator, repo.namespace, ctx, &out);
@@ -298,12 +314,11 @@ fn translateNamespace(allocator: Allocator, ns: gir.Namespace, ctx: TranslationC
     for (ns.constants) |constant| {
         try translateConstant(constant, out);
     }
-    try out.print("pub usingnamespace if (@hasDecl(extras, \"namespace\")) extras.namespace else struct {};\n", .{});
 }
 
 fn translateAlias(allocator: Allocator, alias: gir.Alias, ctx: TranslationContext, out: anytype) !void {
     try translateDocumentation(alias.documentation, out);
-    try out.print("pub const $I = ", .{escapeTypeName(alias.name)});
+    try out.print("pub const $I = ", .{escapeTypeName(alias.name.local)});
     try translateType(allocator, alias.type, .{}, ctx, out);
     try out.print(";\n\n", .{});
 }
@@ -311,7 +326,7 @@ fn translateAlias(allocator: Allocator, alias: gir.Alias, ctx: TranslationContex
 fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContext, out: anytype) !void {
     // class type
     try translateDocumentation(class.documentation, out);
-    try out.print("pub const $I = ", .{escapeTypeName(class.name)});
+    try out.print("pub const $I = ", .{escapeTypeName(class.name.local)});
     if (class.isOpaque()) {
         try out.print("opaque {\n", .{});
     } else {
@@ -344,109 +359,155 @@ fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContex
         try out.print("\n", .{});
     }
 
-    try out.print("pub const Own = struct{\n", .{});
-    const get_type_function = class.getTypeFunction();
-    if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
-        try translateFunction(allocator, get_type_function, .{ .self_type = "_Self" }, ctx, out);
-    }
+    var member_names = std.StringHashMap(void).init(allocator);
+    defer member_names.deinit();
     for (class.functions) |function| {
+        try member_names.put(function.name, {});
         try translateFunction(allocator, function, .{ .self_type = "_Self" }, ctx, out);
     }
     for (class.constructors) |constructor| {
+        try member_names.put(constructor.name, {});
         try translateConstructor(allocator, constructor, .{ .self_type = "_Self" }, ctx, out);
     }
-    for (class.constants) |constant| {
-        try translateConstant(constant, out);
-    }
-    try out.print("};\n\n", .{});
-
-    try out.print("pub const OwnMethods = $LOwnMethods;\n", .{class.name});
-    try out.print("pub const Methods = $LMethods;\n", .{class.name});
-    if (class.type_struct != null) {
-        try out.print("pub const OwnVirtualMethods = $LOwnVirtualMethods;\n", .{class.name});
-        try out.print("pub const VirtualMethods = $LVirtualMethods;\n", .{class.name});
-        try out.print("pub const ExtraVirtualMethods = $LExtraVirtualMethods;\n", .{class.name});
-    }
-    try out.print("pub const Extras = if (@hasDecl(extras, $S)) extras.$I else struct {};\n", .{ class.name, class.name });
-    try out.print("pub const ExtraMethods = $LExtraMethods;\n\n", .{class.name});
-
-    try out.print("pub usingnamespace Own;\n", .{});
-    try out.print("pub usingnamespace Methods(_Self);\n", .{});
-    try out.print("pub usingnamespace Extras;\n", .{});
-
-    try out.print("};\n\n", .{});
-
-    // methods mixins
-    try out.print("fn $LOwnMethods(comptime _Self: type) type {\n", .{class.name});
-    try out.print(
-        \\const _i_dont_care_if_Self_is_unused = _Self;
-        \\_ = _i_dont_care_if_Self_is_unused;
-        \\
-    , .{});
-    try out.print("return struct{\n", .{});
     for (class.methods) |method| {
+        try member_names.put(method.name, {});
         try translateMethod(allocator, method, .{ .self_type = "_Self" }, ctx, out);
     }
     for (class.signals) |signal| {
+        try member_names.put(signal.name, {});
         try translateSignal(allocator, signal, ctx, out);
     }
-    try out.print("};\n", .{});
-    try out.print("}\n\n", .{});
-
-    try out.print("fn $LMethods(comptime _Self: type) type {\n", .{class.name});
-    try out.print("return struct{\n", .{});
-    try out.print("pub usingnamespace $LOwnMethods(_Self);\n", .{class.name});
-    try out.print("pub usingnamespace $I.Parent.Methods(_Self);\n", .{escapeTypeName(class.name)});
-    for (class.implements) |implements| {
-        try out.print("pub usingnamespace ", .{});
-        try translateName(allocator, implements.name, out);
-        try out.print(".Methods(_Self);\n", .{});
+    for (class.constants) |constant| {
+        try member_names.put(constant.name, {});
+        try translateConstant(constant, out);
     }
-    try out.print("pub usingnamespace $LExtraMethods(_Self);\n", .{class.name});
-    try out.print("};\n", .{});
-    try out.print("}\n\n", .{});
 
-    try out.print("fn $LExtraMethods(comptime _Self: type) type {\n", .{class.name});
-    try out.print("return if (@hasDecl(extras, \"$LMethods\")) extras.$LMethods(_Self) else struct {};\n", .{ class.name, class.name });
-    try out.print("}\n\n", .{});
-
-    // virtual methods mixins
-    if (class.type_struct) |type_struct| {
-        try out.print("fn $LOwnVirtualMethods(comptime _Class: type, comptime _Instance: type) type {\n", .{class.name});
-        try out.print(
-            \\const _i_dont_care_if_Class_is_unused = _Class;
-            \\_ = _i_dont_care_if_Class_is_unused;
-            \\const _i_dont_care_if_Instance_is_unused = _Instance;
-            \\_ = _i_dont_care_if_Instance_is_unused;
-            \\
-        , .{});
-        try out.print("return struct{\n", .{});
-        for (class.virtual_methods) |virtual_method| {
-            try translateVirtualMethod(allocator, virtual_method, "_Class", type_struct, class.name, ctx, out);
+    if (!member_names.contains("get_type")) {
+        try translateFunction(allocator, .{
+            .name = "get_type",
+            .c_identifier = class.get_type,
+            .parameters = &.{},
+            .return_value = .{
+                .type = .{ .simple = .{
+                    .name = .{ .ns = "GObject", .local = "Type" },
+                    .c_type = "GType",
+                } },
+            },
+        }, .{}, ctx, out);
+    }
+    if (!member_names.contains("ref")) {
+        if (class.ref_func) |ref_func| {
+            try translateFunction(allocator, .{
+                .name = "ref",
+                .c_identifier = ref_func,
+                .parameters = &.{
+                    .{
+                        .name = "self",
+                        .type = .{ .simple = .{
+                            .name = class.name,
+                            .c_type = "gpointer",
+                        } },
+                    },
+                },
+                .return_value = .{
+                    .type = .{ .simple = .{
+                        .name = .{ .ns = null, .local = "none" },
+                        .c_type = "void",
+                    } },
+                },
+            }, .{}, ctx, out);
+        } else if (classDerivesFromObject(class, ctx)) {
+            try translateFunction(allocator, .{
+                .name = "ref",
+                .c_identifier = "g_object_ref",
+                .parameters = &.{
+                    .{
+                        .name = "self",
+                        .type = .{ .simple = .{
+                            .name = class.name,
+                            .c_type = "gpointer",
+                        } },
+                    },
+                },
+                .return_value = .{
+                    .type = .{ .simple = .{
+                        .name = .{ .ns = null, .local = "none" },
+                        .c_type = "void",
+                    } },
+                },
+            }, .{}, ctx, out);
         }
-        try out.print("};\n", .{});
-        try out.print("}\n\n", .{});
-
-        try out.print("fn $LVirtualMethods(comptime _Class: type, comptime _Instance: type) type {\n", .{class.name});
-        try out.print("return struct{\n", .{});
-        try out.print("pub usingnamespace $LOwnVirtualMethods(_Class, _Instance);\n", .{class.name});
-        if (class.parent != null) {
-            try out.print("pub usingnamespace if (@hasDecl($I.Parent, \"VirtualMethods\")) $I.Parent.VirtualMethods(_Class, _Instance) else struct {};\n", .{ escapeTypeName(class.name), escapeTypeName(class.name) });
+    }
+    if (!member_names.contains("unref")) {
+        if (class.unref_func) |unref_func| {
+            try translateFunction(allocator, .{
+                .name = "unref",
+                .c_identifier = unref_func,
+                .parameters = &.{
+                    .{
+                        .name = "self",
+                        .type = .{ .simple = .{
+                            .name = class.name,
+                            .c_type = "gpointer",
+                        } },
+                    },
+                },
+                .return_value = .{
+                    .type = .{ .simple = .{
+                        .name = .{ .ns = null, .local = "none" },
+                        .c_type = "void",
+                    } },
+                },
+            }, .{}, ctx, out);
+        } else if (classDerivesFromObject(class, ctx)) {
+            try translateFunction(allocator, .{
+                .name = "unref",
+                .c_identifier = "g_object_unref",
+                .parameters = &.{
+                    .{
+                        .name = "self",
+                        .type = .{ .simple = .{
+                            .name = class.name,
+                            .c_type = "gpointer",
+                        } },
+                    },
+                },
+                .return_value = .{
+                    .type = .{ .simple = .{
+                        .name = .{ .ns = null, .local = "none" },
+                        .c_type = "void",
+                    } },
+                },
+            }, .{}, ctx, out);
         }
-        try out.print("pub usingnamespace $LExtraVirtualMethods(_Class, _Instance);\n", .{class.name});
-        try out.print("};\n", .{});
-        try out.print("}\n\n", .{});
+    }
 
-        try out.print("fn $LExtraVirtualMethods(comptime _Class: type, comptime _Instance: type) type {\n", .{class.name});
-        try out.print("return if (@hasDecl(extras, \"$LVirtualMethods\")) extras.$LVirtualMethods(_Class, _Instance) else struct {};\n", .{ class.name, class.name });
-        try out.print("}\n\n", .{});
+    try out.print(
+        \\pub fn as(p_self: *_Self, comptime P_T: type) *P_T {
+        \\    return gobject.ext.as(P_T, p_self);
+        \\}
+        \\
+    , .{});
+
+    try out.print("};\n\n", .{});
+}
+
+fn classDerivesFromObject(class: gir.Class, ctx: TranslationContext) bool {
+    var current_class = class;
+    while (true) {
+        if (mem.eql(u8, current_class.name.ns.?, "GObject") and mem.eql(u8, current_class.name.local, "Object")) {
+            return true;
+        }
+        const parent = current_class.parent orelse return false;
+        const parent_ns = ctx.namespaces.get(parent.ns.?) orelse return false;
+        current_class = parent_ns.classes.get(parent.local) orelse return false;
     }
 }
 
 fn translateInterface(allocator: Allocator, interface: gir.Interface, ctx: TranslationContext, out: anytype) !void {
     // interface type
     try translateDocumentation(interface.documentation, out);
-    try out.print("pub const $I = opaque {\n", .{escapeTypeName(interface.name)});
+    try out.print("pub const $I = opaque {\n", .{escapeTypeName(interface.name.local)});
 
     try out.print("pub const Prerequisites = [_]type{", .{});
     // This doesn't seem to be correct (since it seems to be possible to create
@@ -470,109 +531,113 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, ctx: Trans
     }
     try out.print("const _Self = @This();\n\n", .{});
 
-    try out.print("pub const Own = struct{\n", .{});
-    const get_type_function = interface.getTypeFunction();
-    if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
-        try translateFunction(allocator, get_type_function, .{ .self_type = "_Self" }, ctx, out);
-    }
+    var member_names = std.StringHashMap(void).init(allocator);
+    defer member_names.deinit();
     for (interface.functions) |function| {
+        try member_names.put(function.name, {});
         try translateFunction(allocator, function, .{ .self_type = "_Self" }, ctx, out);
     }
     for (interface.constructors) |constructor| {
+        try member_names.put(constructor.name, {});
         try translateConstructor(allocator, constructor, .{ .self_type = "_Self" }, ctx, out);
     }
-    for (interface.constants) |constant| {
-        try translateConstant(constant, out);
-    }
-    try out.print("};\n\n", .{});
-
-    try out.print("pub const OwnMethods = $LOwnMethods;\n", .{interface.name});
-    try out.print("pub const Methods = $LMethods;\n", .{interface.name});
-    if (interface.type_struct != null) {
-        try out.print("pub const OwnVirtualMethods = $LOwnVirtualMethods;\n", .{interface.name});
-        try out.print("pub const VirtualMethods = $LVirtualMethods;\n", .{interface.name});
-        try out.print("pub const ExtraVirtualMethods = $LExtraVirtualMethods;\n", .{interface.name});
-    }
-    try out.print("pub const Extras = if (@hasDecl(extras, $S)) extras.$I else struct {};\n", .{ interface.name, interface.name });
-    try out.print("pub const ExtraMethods = $LExtraMethods;\n\n", .{interface.name});
-
-    try out.print("pub usingnamespace Own;\n", .{});
-    try out.print("pub usingnamespace Methods(_Self);\n", .{});
-    try out.print("pub usingnamespace Extras;\n", .{});
-
-    try out.print("};\n\n", .{});
-
-    // methods mixins
-    try out.print("fn $LOwnMethods(comptime _Self: type) type {\n", .{interface.name});
-    try out.print(
-        \\const _i_dont_care_if_Self_is_unused = _Self;
-        \\_ = _i_dont_care_if_Self_is_unused;
-        \\
-    , .{});
-    try out.print("return struct{\n", .{});
     for (interface.methods) |method| {
+        try member_names.put(method.name, {});
         try translateMethod(allocator, method, .{ .self_type = "_Self" }, ctx, out);
     }
     for (interface.signals) |signal| {
+        try member_names.put(signal.name, {});
         try translateSignal(allocator, signal, ctx, out);
     }
-    try out.print("};\n", .{});
-    try out.print("}\n\n", .{});
-
-    try out.print("fn $LMethods(comptime _Self: type) type {\n", .{interface.name});
-    try out.print("return struct {\n", .{});
-    try out.print("pub usingnamespace $LOwnMethods(_Self);\n", .{interface.name});
-    // See the note above on this implicit prerequisite
-    if (interface.prerequisites.len == 0) {
-        try out.print("pub usingnamespace gobject.Object.Methods(_Self);\n", .{});
+    for (interface.constants) |constant| {
+        try member_names.put(constant.name, {});
+        try translateConstant(constant, out);
     }
+
+    if (!member_names.contains("get_type")) {
+        try translateFunction(allocator, .{
+            .name = "get_type",
+            .c_identifier = interface.get_type,
+            .parameters = &.{},
+            .return_value = .{
+                .type = .{ .simple = .{
+                    .name = .{ .ns = "GObject", .local = "Type" },
+                    .c_type = "GType",
+                } },
+            },
+        }, .{}, ctx, out);
+    }
+    if (!member_names.contains("ref") and interfaceDerivesFromObject(interface, ctx)) {
+        try translateFunction(allocator, .{
+            .name = "ref",
+            .c_identifier = "g_object_ref",
+            .parameters = &.{
+                .{
+                    .name = "self",
+                    .type = .{ .simple = .{
+                        .name = interface.name,
+                        .c_type = "gpointer",
+                    } },
+                },
+            },
+            .return_value = .{
+                .type = .{ .simple = .{
+                    .name = .{ .ns = null, .local = "none" },
+                    .c_type = "void",
+                } },
+            },
+        }, .{}, ctx, out);
+    }
+    if (!member_names.contains("unref") and interfaceDerivesFromObject(interface, ctx)) {
+        try translateFunction(allocator, .{
+            .name = "unref",
+            .c_identifier = "g_object_unref",
+            .parameters = &.{
+                .{
+                    .name = "self",
+                    .type = .{ .simple = .{
+                        .name = interface.name,
+                        .c_type = "gpointer",
+                    } },
+                },
+            },
+            .return_value = .{
+                .type = .{ .simple = .{
+                    .name = .{ .ns = null, .local = "none" },
+                    .c_type = "void",
+                } },
+            },
+        }, .{}, ctx, out);
+    }
+
+    try out.print(
+        \\pub fn as(p_self: *_Self, comptime P_T: type) *P_T {
+        \\    return gobject.ext.as(P_T, p_self);
+        \\}
+        \\
+    , .{});
+
+    try out.print("};\n\n", .{});
+}
+
+fn interfaceDerivesFromObject(interface: gir.Interface, ctx: TranslationContext) bool {
+    if (interface.prerequisites.len == 0) return true; // See special case documented above in translateInterface
     for (interface.prerequisites) |prerequisite| {
-        try out.print("pub usingnamespace ", .{});
-        try translateName(allocator, prerequisite.name, out);
-        try out.print(".Methods(_Self);\n", .{});
-    }
-    try out.print("pub usingnamespace $LExtraMethods(_Self);\n", .{interface.name});
-    try out.print("};\n", .{});
-    try out.print("}\n\n", .{});
-
-    try out.print("fn $LExtraMethods(comptime _Self: type) type {\n", .{interface.name});
-    try out.print("return if (@hasDecl(extras, \"$LMethods\")) extras.$LMethods(_Self) else struct {};\n", .{ interface.name, interface.name });
-    try out.print("}\n\n", .{});
-
-    // virtual methods mixins
-    if (interface.type_struct) |type_struct| {
-        try out.print("fn $LOwnVirtualMethods(comptime _Iface: type, comptime _Instance: type) type {\n", .{interface.name});
-        try out.print(
-            \\const _i_dont_care_if_Iface_is_unused = _Iface;
-            \\_ = _i_dont_care_if_Iface_is_unused;
-            \\const _i_dont_care_if_Instance_is_unused = _Instance;
-            \\_ = _i_dont_care_if_Instance_is_unused;
-            \\
-        , .{});
-        try out.print("return struct{\n", .{});
-        for (interface.virtual_methods) |virtual_method| {
-            try translateVirtualMethod(allocator, virtual_method, "_Iface", type_struct, interface.name, ctx, out);
+        const prerequisite_ns = ctx.namespaces.get(prerequisite.name.ns.?) orelse continue;
+        if (prerequisite_ns.classes.get(prerequisite.name.local)) |prerequisite_class| {
+            if (classDerivesFromObject(prerequisite_class, ctx)) return true;
         }
-        try out.print("};\n", .{});
-        try out.print("}\n\n", .{});
-
-        try out.print("fn $LVirtualMethods(comptime _Iface: type, comptime _Instance: type) type {\n", .{interface.name});
-        try out.print("return struct{\n", .{});
-        try out.print("pub usingnamespace $LOwnVirtualMethods(_Iface, _Instance);\n", .{interface.name});
-        try out.print("pub usingnamespace $LExtraVirtualMethods(_Iface, _Instance);\n", .{interface.name});
-        try out.print("};\n", .{});
-        try out.print("}\n\n", .{});
-
-        try out.print("fn $LExtraVirtualMethods(comptime _Iface: type, comptime _Instance: type) type {\n", .{interface.name});
-        try out.print("return if (@hasDecl(extras, \"$LVirtualMethods\")) extras.$LVirtualMethods(_Iface, _Instance) else struct {};\n", .{ interface.name, interface.name });
-        try out.print("}\n\n", .{});
+        if (prerequisite_ns.interfaces.get(prerequisite.name.local)) |prerequisite_interface| {
+            if (interfaceDerivesFromObject(prerequisite_interface, ctx)) return true;
+        }
     }
+    return false;
 }
 
 fn translateRecord(allocator: Allocator, record: gir.Record, ctx: TranslationContext, out: anytype) !void {
     // record type
     try translateDocumentation(record.documentation, out);
-    try out.print("pub const $I = ", .{escapeTypeName(record.name)});
+    try out.print("pub const $I = ", .{escapeTypeName(record.name.local)});
     if (record.isPointer()) {
         try out.print("*", .{});
     }
@@ -594,78 +659,62 @@ fn translateRecord(allocator: Allocator, record: gir.Record, ctx: TranslationCon
         try out.print("\n", .{});
     }
 
-    try out.print("pub const Own = struct{\n", .{});
-    if (record.getTypeFunction()) |get_type_function| {
-        if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
-            try translateFunction(allocator, get_type_function, .{ .self_type = "_Self" }, ctx, out);
-        }
-    }
+    var member_names = std.StringHashMap(void).init(allocator);
+    defer member_names.deinit();
     for (record.functions) |function| {
+        try member_names.put(function.name, {});
         try translateFunction(allocator, function, .{ .self_type = "_Self" }, ctx, out);
     }
     for (record.constructors) |constructor| {
+        try member_names.put(constructor.name, {});
         try translateConstructor(allocator, constructor, .{ .self_type = "_Self" }, ctx, out);
     }
-    try out.print("};\n\n", .{});
-
-    try out.print("pub const OwnMethods = $LOwnMethods;\n", .{record.name});
-    try out.print("pub const Methods = $LMethods;\n", .{record.name});
-    try out.print("pub const Extras = if (@hasDecl(extras, $S)) extras.$I else struct {};\n", .{ record.name, record.name });
-    try out.print("pub const ExtraMethods = $LExtraMethods;\n\n", .{record.name});
-
-    try out.print("pub usingnamespace Own;\n", .{});
-    try out.print("pub usingnamespace Methods(_Self);\n", .{});
-    if (record.is_gtype_struct_for != null) {
-        try out.print("pub usingnamespace Instance.VirtualMethods(_Self, Instance);\n", .{});
-    }
-    try out.print("pub usingnamespace Extras;\n", .{});
-
-    try out.print("};\n\n", .{});
-
-    // methods mixins
-    try out.print("fn $LOwnMethods(comptime _Self: type) type {\n", .{record.name});
-    try out.print(
-        \\const _i_dont_care_if_Self_is_unused = _Self;
-        \\_ = _i_dont_care_if_Self_is_unused;
-        \\
-    , .{});
-    try out.print("return struct{\n", .{});
     for (record.methods) |method| {
+        try member_names.put(method.name, {});
         try translateMethod(allocator, method, .{ .self_type = "_Self" }, ctx, out);
     }
-    try out.print("};\n", .{});
-    try out.print("}\n\n", .{});
 
-    try out.print("fn $LMethods(comptime _Self: type) type {\n", .{record.name});
-    try out.print("return struct{\n", .{});
-    try out.print("pub usingnamespace $LOwnMethods(_Self);\n", .{record.name});
-    if (record.is_gtype_struct_for) |is_gtype_struct_for| {
-        try out.print("const Instance =", .{});
-        try translateName(allocator, is_gtype_struct_for, out);
-        try out.print(";\n", .{});
+    if (record.get_type != null and !member_names.contains("get_type")) {
+        try translateFunction(allocator, .{
+            .name = "get_type",
+            .c_identifier = record.get_type.?,
+            .parameters = &.{},
+            .return_value = .{
+                .type = .{ .simple = .{
+                    .name = .{ .ns = "GObject", .local = "Type" },
+                    .c_type = "GType",
+                } },
+            },
+        }, .{}, ctx, out);
+    }
+
+    if (record.is_gtype_struct_for) |instance_type_name| virtual_methods: {
+        const instance_type_ns_name = instance_type_name.ns orelse break :virtual_methods;
+        const instance_type_ns = ctx.namespaces.get(instance_type_ns_name) orelse break :virtual_methods;
+        const virtual_methods = if (instance_type_ns.classes.get(instance_type_name.local)) |class|
+            class.virtual_methods
+        else if (instance_type_ns.interfaces.get(instance_type_name.local)) |interface|
+            interface.virtual_methods
+        else
+            break :virtual_methods;
+        for (virtual_methods) |virtual_method| {
+            try translateVirtualMethod(allocator, virtual_method, ctx, out);
+        }
+
         try out.print(
-            \\pub usingnamespace if (@hasDecl(Instance, "Parent") and @hasDecl(Instance.Parent, "Class"))
-            \\    Instance.Parent.Class.Methods(_Self)
-            \\else if (@hasDecl(Instance, "Parent"))
-            \\    gobject.TypeClass.Methods(_Self)
-            \\else
-            \\    struct{}
-            \\;
+            \\pub fn as(p_self: *_Self, comptime P_T: type) *P_T {
+            \\    return gobject.ext.as(P_T, p_self);
+            \\}
             \\
         , .{});
     }
-    try out.print("pub usingnamespace $LExtraMethods(_Self);\n", .{record.name});
-    try out.print("};\n", .{});
-    try out.print("}\n\n", .{});
 
-    try out.print("fn $LExtraMethods(comptime _Self: type) type {\n", .{record.name});
-    try out.print("return if (@hasDecl(extras, \"$LMethods\")) extras.$LMethods(_Self) else struct {};\n", .{ record.name, record.name });
-    try out.print("}\n\n", .{});
+    try out.print("};\n\n", .{});
 }
 
 fn translateUnion(allocator: Allocator, @"union": gir.Union, ctx: TranslationContext, out: anytype) !void {
     try translateDocumentation(@"union".documentation, out);
-    try out.print("pub const $I = ", .{escapeTypeName(@"union".name)});
+    try out.print("pub const $I = ", .{escapeTypeName(@"union".name.local)});
     if (@"union".isOpaque()) {
         try out.print("opaque {\n", .{});
     } else {
@@ -678,55 +727,36 @@ fn translateUnion(allocator: Allocator, @"union": gir.Union, ctx: TranslationCon
         try out.print("\n", .{});
     }
 
-    try out.print("pub const Own = struct{\n", .{});
-    if (@"union".getTypeFunction()) |get_type_function| {
-        if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
-            try translateFunction(allocator, get_type_function, .{ .self_type = "_Self" }, ctx, out);
-        }
-    }
+    var member_names = std.StringHashMap(void).init(allocator);
+    defer member_names.deinit();
     for (@"union".functions) |function| {
+        try member_names.put(function.name, {});
         try translateFunction(allocator, function, .{ .self_type = "_Self" }, ctx, out);
     }
     for (@"union".constructors) |constructor| {
+        try member_names.put(constructor.name, {});
         try translateConstructor(allocator, constructor, .{ .self_type = "_Self" }, ctx, out);
     }
-    try out.print("};\n\n", .{});
-
-    try out.print("pub const OwnMethods = $LOwnMethods;\n", .{@"union".name});
-    try out.print("pub const Methods = $LMethods;\n", .{@"union".name});
-    try out.print("pub const Extras = if (@hasDecl(extras, $S)) extras.$I else struct {};\n", .{ @"union".name, @"union".name });
-    try out.print("pub const ExtraMethods = $LExtraMethods;\n\n", .{@"union".name});
-
-    try out.print("pub usingnamespace Own;\n", .{});
-    try out.print("pub usingnamespace Methods(_Self);\n", .{});
-    try out.print("pub usingnamespace Extras;\n", .{});
-
-    try out.print("};\n\n", .{});
-
-    // methods mixins
-    try out.print("fn $LOwnMethods(comptime _Self: type) type {\n", .{@"union".name});
-    try out.print(
-        \\const _i_dont_care_if_Self_is_unused = _Self;
-        \\_ = _i_dont_care_if_Self_is_unused;
-        \\
-    , .{});
-    try out.print("return struct{\n", .{});
     for (@"union".methods) |method| {
+        try member_names.put(method.name, {});
         try translateMethod(allocator, method, .{ .self_type = "_Self" }, ctx, out);
     }
-    try out.print("};\n", .{});
-    try out.print("}\n\n", .{});
 
-    try out.print("fn $LMethods(comptime _Self: type) type {\n", .{@"union".name});
-    try out.print("return struct{\n", .{});
-    try out.print("pub usingnamespace $LOwnMethods(_Self);\n", .{@"union".name});
-    try out.print("pub usingnamespace $LExtraMethods(_Self);\n", .{@"union".name});
-    try out.print("};\n", .{});
-    try out.print("}\n\n", .{});
+    if (@"union".get_type != null and !member_names.contains("get_type")) {
+        try translateFunction(allocator, .{
+            .name = "get_type",
+            .c_identifier = @"union".get_type.?,
+            .parameters = &.{},
+            .return_value = .{
+                .type = .{ .simple = .{
+                    .name = .{ .ns = "GObject", .local = "Type" },
+                    .c_type = "GType",
+                } },
+            },
+        }, .{}, ctx, out);
+    }
 
-    try out.print("fn $LExtraMethods(comptime _Self: type) type {\n", .{@"union".name});
-    try out.print("return if (@hasDecl(extras, \"$LMethods\")) extras.$LMethods(_Self) else struct {};\n", .{ @"union".name, @"union".name });
-    try out.print("}\n\n", .{});
+    try out.print("};\n\n", .{});
 }
 
 fn translateLayoutElements(allocator: Allocator, layout_elements: []const gir.LayoutElement, ctx: TranslationContext, out: anytype) !void {
@@ -835,7 +865,7 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: Transla
     const backing_int = if (needs_u64) "u64" else "c_uint";
 
     try translateDocumentation(bit_field.documentation, out);
-    try out.print("pub const $I = packed struct($L) {\n", .{ escapeTypeName(bit_field.name), backing_int });
+    try out.print("pub const $I = packed struct($L) {\n", .{ escapeTypeName(bit_field.name.local), backing_int });
     for (members, 0..) |maybe_member, i| {
         if (maybe_member) |member| {
             try out.print("$I: bool = false,\n", .{member.name});
@@ -862,28 +892,33 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: Transla
         try seen.put(allocator, member.name, {});
     }
 
-    try out.print("\npub const Own = struct{\n", .{});
-    if (bit_field.getTypeFunction()) |get_type_function| {
-        if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
-            try translateFunction(allocator, get_type_function, .{ .self_type = "_Self" }, ctx, out);
-        }
-    }
+    var member_names = std.StringHashMap(void).init(allocator);
+    defer member_names.deinit();
     for (bit_field.functions) |function| {
+        try member_names.put(function.name, {});
         try translateFunction(allocator, function, .{ .self_type = "_Self" }, ctx, out);
     }
-    try out.print("};\n\n", .{});
 
-    try out.print("pub const Extras = if (@hasDecl(extras, $S)) extras.$I else struct {};\n\n", .{ bit_field.name, bit_field.name });
-
-    try out.print("pub usingnamespace Own;\n", .{});
-    try out.print("pub usingnamespace Extras;\n", .{});
+    if (bit_field.get_type != null and !member_names.contains("get_type")) {
+        try translateFunction(allocator, .{
+            .name = "get_type",
+            .c_identifier = bit_field.get_type.?,
+            .parameters = &.{},
+            .return_value = .{
+                .type = .{ .simple = .{
+                    .name = .{ .ns = "GObject", .local = "Type" },
+                    .c_type = "GType",
+                } },
+            },
+        }, .{}, ctx, out);
+    }
 
     try out.print("};\n\n", .{});
 }
 
 fn translateEnum(allocator: Allocator, @"enum": gir.Enum, ctx: TranslationContext, out: anytype) !void {
     try translateDocumentation(@"enum".documentation, out);
-    try out.print("pub const $I = enum(c_int) {\n", .{escapeTypeName(@"enum".name)});
+    try out.print("pub const $I = enum(c_int) {\n", .{escapeTypeName(@"enum".name.local)});
 
     // Zig does not allow enums to have multiple fields with the same value, so
     // we must translate any duplicate values as constants referencing the
@@ -907,21 +942,26 @@ fn translateEnum(allocator: Allocator, @"enum": gir.Enum, ctx: TranslationContex
         try out.print("pub const $I = _Self.$I;\n", .{ member.name, seen_values.get(member.value).?.name });
     }
 
-    try out.print("pub const Own = struct{\n", .{});
-    if (@"enum".getTypeFunction()) |get_type_function| {
-        if (mem.endsWith(u8, get_type_function.c_identifier, "get_type")) {
-            try translateFunction(allocator, get_type_function, .{ .self_type = "_Self" }, ctx, out);
-        }
-    }
+    var member_names = std.StringHashMap(void).init(allocator);
+    defer member_names.deinit();
     for (@"enum".functions) |function| {
+        try member_names.put(function.name, {});
         try translateFunction(allocator, function, .{ .self_type = "_Self" }, ctx, out);
     }
-    try out.print("};\n\n", .{});
 
-    try out.print("pub const Extras = if (@hasDecl(extras, $S)) extras.$I else struct {};\n\n", .{ @"enum".name, @"enum".name });
-
-    try out.print("pub usingnamespace Own;\n", .{});
-    try out.print("pub usingnamespace Extras;\n", .{});
+    if (@"enum".get_type != null and !member_names.contains("get_type")) {
+        try translateFunction(allocator, .{
+            .name = "get_type",
+            .c_identifier = @"enum".get_type.?,
+            .parameters = &.{},
+            .return_value = .{
+                .type = .{ .simple = .{
+                    .name = .{ .ns = "GObject", .local = "Type" },
+                    .c_type = "GType",
+                } },
+            },
+        }, .{}, ctx, out);
+    }
 
     try out.print("};\n\n", .{});
 }
@@ -1011,52 +1051,27 @@ fn translateMethod(allocator: Allocator, method: gir.Method, options: TranslateF
     }, options, ctx, out);
 }
 
-fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMethod, container_name: []const u8, container_type: gir.Name, instance_type: []const u8, ctx: TranslationContext, out: anytype) !void {
+fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMethod, ctx: TranslationContext, out: anytype) !void {
     var upper_method_name = try toCamelCase(allocator, virtual_method.name, "_");
     defer allocator.free(upper_method_name);
     if (upper_method_name.len > 0) {
         upper_method_name[0] = ascii.toUpper(upper_method_name[0]);
     }
 
-    // implementation
     try translateDocumentation(virtual_method.documentation, out);
-    try out.print("pub fn implement$L(p_class: *$I, p_implementation: ", .{ upper_method_name, container_name });
-    try translateVirtualMethodImplementationType(allocator, virtual_method, "_Instance", ctx, out);
-    try out.print(") void {\n", .{});
-    try out.print("@as(*", .{});
-    try translateName(allocator, container_type, out);
-    try out.print(", @ptrCast(@alignCast(p_class))).$I = @ptrCast(p_implementation);\n", .{virtual_method.name});
-    try out.print("}\n\n", .{});
-
-    // call
-    try out.print("pub fn call$L(p_class: *$I, ", .{ upper_method_name, container_name });
-    try translateParameters(allocator, virtual_method.parameters, .{
-        .self_type = instance_type,
-        .throws = virtual_method.throws,
-    }, ctx, out);
-    try out.print(") ", .{});
-    try translateReturnValue(allocator, virtual_method.return_value, .{
-        .force_nullable = virtual_method.throws and anyTypeIsPointer(virtual_method.return_value.type, false, ctx),
-    }, ctx, out);
-    try out.print(" {\n", .{});
-    try out.print("return @as(*", .{});
-    try translateName(allocator, container_type, out);
-    try out.print(", @ptrCast(@alignCast(p_class))).$I.?(", .{virtual_method.name});
-    try translateParameterNames(allocator, virtual_method.parameters, .{ .throws = virtual_method.throws }, out);
-    try out.print(");\n", .{});
-    try out.print("}\n\n", .{});
-}
-
-fn translateVirtualMethodImplementationType(allocator: Allocator, virtual_method: gir.VirtualMethod, instance_type: []const u8, ctx: TranslationContext, out: anytype) !void {
+    try out.print("pub fn implement$L(p_class: anytype, p_implementation: ", .{upper_method_name});
     try out.print("*const fn (", .{});
     try translateParameters(allocator, virtual_method.parameters, .{
-        .self_type = instance_type,
+        .self_type = "@typeInfo(@TypeOf(p_class)).Pointer.child.Instance",
         .throws = virtual_method.throws,
     }, ctx, out);
     try out.print(") callconv(.C) ", .{});
     try translateReturnValue(allocator, virtual_method.return_value, .{
         .force_nullable = virtual_method.throws and anyTypeIsPointer(virtual_method.return_value.type, false, ctx),
     }, ctx, out);
+    try out.print(") void {\n", .{});
+    try out.print("p_class.as(_Self).$I = @ptrCast(p_implementation);\n", .{virtual_method.name});
+    try out.print("}\n\n", .{});
 }
 
 fn translateSignal(allocator: Allocator, signal: gir.Signal, ctx: TranslationContext, out: anytype) !void {
@@ -1068,25 +1083,21 @@ fn translateSignal(allocator: Allocator, signal: gir.Signal, ctx: TranslationCon
 
     // normal connection
     try translateDocumentation(signal.documentation, out);
-    try out.print("pub fn connect$L(p_self: *_Self, comptime P_T: type, p_callback: ", .{upper_signal_name});
+    try out.print("pub fn connect$L(p_self: anytype, comptime P_T: type, p_callback: ", .{upper_signal_name});
     // TODO: verify that P_T is a pointer type or compatible
-    try translateSignalCallbackType(allocator, signal, ctx, out);
-    try out.print(", p_data: P_T, p_options: struct { after: bool = false }) c_ulong {\n", .{});
-    try out.print("return gobject.signalConnectData(p_self.as(gobject.Object), $S, @ptrCast(p_callback), p_data, null, .{ .after = p_options.after });\n", .{signal.name});
-    try out.print("}\n\n", .{});
-}
-
-fn translateSignalCallbackType(allocator: Allocator, signal: gir.Signal, ctx: TranslationContext, out: anytype) !void {
-    try out.print("*const fn (*_Self", .{});
+    try out.print("*const fn (@TypeOf(p_self)", .{});
     if (signal.parameters.len > 0) {
         try out.print(", ", .{});
     }
     try translateParameters(allocator, signal.parameters, .{
-        .self_type = "_Self",
+        .self_type = "@TypeOf(p_self)",
         .gobject_context = true,
     }, ctx, out);
     try out.print(", P_T) callconv(.C) ", .{});
     try translateReturnValue(allocator, signal.return_value, .{ .gobject_context = true }, ctx, out);
+    try out.print(", p_data: P_T, p_options: struct { after: bool = false }) c_ulong {\n", .{});
+    try out.print("return gobject.signalConnectData(@ptrCast(@alignCast(p_self.as(_Self))), $S, @ptrCast(p_callback), p_data, null, .{ .after = p_options.after });\n", .{signal.name});
+    try out.print("}\n\n", .{});
 }
 
 fn translateConstant(constant: gir.Constant, out: anytype) !void {
@@ -1180,6 +1191,9 @@ const TranslateTypeOptions = struct {
     /// corresponding C type and in such a case are meant to be assumed to be
     /// pointers.
     gobject_context: bool = false,
+    /// An override for the type name. This will be output in place of the name
+    /// wherever the name would have been output.
+    override_name: ?[]const u8 = null,
 };
 
 fn typeIsPointer(@"type": gir.Type, gobject_context: bool, ctx: TranslationContext) bool {
@@ -1253,7 +1267,11 @@ fn translateType(allocator: Allocator, @"type": gir.Type, options: TranslateType
         if (options.gobject_context and ctx.isObjectType(name)) {
             try out.print("*", .{});
         }
-        try translateName(allocator, name, out);
+        if (options.override_name) |override_name| {
+            try out.print("$L", .{override_name});
+        } else {
+            try translateName(allocator, name, out);
+        }
         return;
     };
     // Special cases that we have to handle early or they will be misinterpreted
@@ -1308,7 +1326,10 @@ fn translateType(allocator: Allocator, @"type": gir.Type, options: TranslateType
         }
         // Nullability does not apply recursively.
         // TODO: how does GIR expect to represent nullability more than one level deep?
-        return translateType(allocator, .{ .name = name, .c_type = pointer.element }, .{ .gobject_context = options.gobject_context }, ctx, out);
+        return translateType(allocator, .{ .name = name, .c_type = pointer.element }, .{
+            .gobject_context = options.gobject_context,
+            .override_name = options.override_name,
+        }, ctx, out);
     }
 
     // Unnecessary const qualifier for non-pointer type
@@ -1330,7 +1351,11 @@ fn translateType(allocator: Allocator, @"type": gir.Type, options: TranslateType
     if (options.gobject_context and ctx.isObjectType(name)) {
         try out.print("*", .{});
     }
-    try translateName(allocator, name, out);
+    if (options.override_name) |override_name| {
+        try out.print("$L", .{override_name});
+    } else {
+        try translateName(allocator, name, out);
+    }
 }
 
 test "translateType" {
@@ -1470,11 +1495,14 @@ test "translateType" {
     try testTranslateType("*const anyopaque", .{ .c_type = "const _GtkMountOperationHandler*" }, .{});
     try testTranslateType("?*anyopaque", .{ .c_type = "_GtkMountOperationHandler*" }, .{ .nullable = true });
     try testTranslateType("?*const anyopaque", .{ .c_type = "const _GtkMountOperationHandler*" }, .{ .nullable = true });
+    // Name overrides are used for instance parameters
+    try testTranslateType("*OverrideName", .{ .name = .{ .ns = "GObject", .local = "Object" }, .c_type = "GObject*" }, .{ .override_name = "OverrideName" });
 }
 
 const TestTranslateTypeOptions = struct {
     nullable: bool = false,
     gobject_context: bool = false,
+    override_name: ?[]const u8 = null,
     is_pointer: ?bool = null,
     class_names: []const []const u8 = &.{},
     callback_names: []const []const u8 = &.{},
@@ -1543,6 +1571,7 @@ const TestTranslateTypeOptions = struct {
         return .{
             .nullable = self.nullable,
             .gobject_context = self.gobject_context,
+            .override_name = self.override_name,
         };
     }
 };
@@ -1913,18 +1942,10 @@ fn translateParameter(allocator: Allocator, parameter: gir.Parameter, options: T
     try out.print(": ", .{});
     switch (parameter.type) {
         .simple => |simple_type| {
-            // This is kind of a hacky way of ensuring the self type is used
-            // if applicable. We cannot always be sure that an
-            // instance-parameter will even only occur in the context of a
-            // container (thanks, Gee-0.8), and this helps unify the pointer
-            // handling logic.
-            const effective_type = if (parameter.instance and options.self_type != null) gir.Type{
-                .name = .{ .ns = null, .local = options.self_type.? },
-                .c_type = simple_type.c_type,
-            } else simple_type;
-            try translateType(allocator, effective_type, .{
+            try translateType(allocator, simple_type, .{
                 .nullable = options.force_nullable or parameter.isNullable(),
                 .gobject_context = options.gobject_context,
+                .override_name = if (parameter.instance) options.self_type else null,
             }, ctx, out);
         },
         .array => |array_type| try translateArrayType(allocator, array_type, .{
@@ -2001,14 +2022,6 @@ const type_name_escapes = ComptimeStringMap([]const u8, .{
     .{ "Iface", "Iface_" },
     .{ "Parent", "Parent_" },
     .{ "Implements", "Implements_" },
-    .{ "Own", "Own_" },
-    .{ "OwnMethods", "OwnMethods_" },
-    .{ "Methods", "Methods_" },
-    .{ "OwnVirtualMethods", "OwnVirtualMethods_" },
-    .{ "VirtualMethods", "VirtualMethods_" },
-    .{ "ExtraVirtualMethods", "ExtraVirtualMethods_" },
-    .{ "Extras", "Extras_" },
-    .{ "ExtraMethods", "ExtraMethods_" },
 });
 
 /// Escapes a potentially problematic type name (such as Class) with an
@@ -2136,7 +2149,7 @@ pub fn createBuildFile(allocator: Allocator, repositories: []const gir.Repositor
             }
         }
 
-        // The self-dependency is useful for extras files to be able to import their own module by name
+        // The self-dependency is useful for extensions files to be able to import their own module by name
         try out.print("$I.addImport($S, $I);\n\n", .{ module_name, module_name, module_name });
     }
 
@@ -2354,7 +2367,7 @@ pub fn createAbiTests(allocator: Allocator, repositories: []const gir.Repository
         , .{});
 
         for (ns.aliases) |alias| {
-            const alias_name = escapeTypeName(alias.name);
+            const alias_name = escapeTypeName(alias.name.local);
             if (alias.c_type) |c_type| {
                 try out.print("test $S {\n", .{alias_name});
                 try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_type});
@@ -2369,7 +2382,7 @@ pub fn createAbiTests(allocator: Allocator, repositories: []const gir.Repository
         }
 
         for (ns.classes) |class| {
-            const class_name = escapeTypeName(class.name);
+            const class_name = escapeTypeName(class.name.local);
             // containsBitField: https://github.com/ziglang/zig/issues/1499
             if (!class.isOpaque() and !containsBitField(class.layout_elements)) {
                 if (class.c_type) |c_type| {
@@ -2409,7 +2422,7 @@ pub fn createAbiTests(allocator: Allocator, repositories: []const gir.Repository
         }
 
         for (ns.records) |record| {
-            const record_name = escapeTypeName(record.name);
+            const record_name = escapeTypeName(record.name.local);
             // containsBitField: https://github.com/ziglang/zig/issues/1499
             if (!record.isOpaque() and !containsBitField(record.layout_elements)) {
                 if (record.c_type) |c_type| {
@@ -2455,7 +2468,7 @@ pub fn createAbiTests(allocator: Allocator, repositories: []const gir.Repository
         }
 
         for (ns.unions) |@"union"| {
-            const union_name = escapeTypeName(@"union".name);
+            const union_name = escapeTypeName(@"union".name.local);
             if (!@"union".isOpaque()) {
                 if (@"union".c_type) |c_type| {
                     try out.print("test $S {\n", .{union_name});
@@ -2494,7 +2507,7 @@ pub fn createAbiTests(allocator: Allocator, repositories: []const gir.Repository
         }
 
         for (ns.bit_fields) |bit_field| {
-            const bit_field_name = escapeTypeName(bit_field.name);
+            const bit_field_name = escapeTypeName(bit_field.name.local);
             if (bit_field.c_type) |c_type| {
                 try out.print("test $S {\n", .{bit_field_name});
                 try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_type});
@@ -2517,7 +2530,7 @@ pub fn createAbiTests(allocator: Allocator, repositories: []const gir.Repository
         }
 
         for (ns.enums) |@"enum"| {
-            const enum_name = escapeTypeName(@"enum".name);
+            const enum_name = escapeTypeName(@"enum".name.local);
             if (@"enum".c_type) |c_type| {
                 try out.print("test $S {\n", .{enum_name});
                 try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_type});
@@ -2571,7 +2584,7 @@ fn createFunctionTest(
     try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_name});
     try out.print(
         \\const ExpectedFnType = @TypeOf(c.$I);
-        \\const ActualFnType = @TypeOf($I.$I.Own.$I);
+        \\const ActualFnType = @TypeOf($I.$I.$I);
         \\try std.testing.expect(@typeInfo(ExpectedFnType) == .Fn);
         \\try checkCompatibility(ExpectedFnType, ActualFnType);
         \\
@@ -2591,7 +2604,7 @@ fn createMethodTest(
     try out.print(
         \\const ExpectedFnType = @TypeOf(c.$I);
         \\const ActualType = $I.$I;
-        \\const ActualFnType = @TypeOf(ActualType.OwnMethods(ActualType).$I);
+        \\const ActualFnType = @TypeOf(ActualType.$I);
         \\try std.testing.expect(@typeInfo(ExpectedFnType) == .Fn);
         \\try checkCompatibility(ExpectedFnType, ActualFnType);
         \\

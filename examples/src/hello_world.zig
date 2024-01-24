@@ -3,35 +3,36 @@
 const std = @import("std");
 const glib = @import("glib");
 const gobject = @import("gobject");
+const gio = @import("gio");
 const gtk = @import("gtk");
 
 pub fn main() void {
     var app = gtk.Application.new("org.gtk.example", .{});
     defer app.unref();
-    _ = app.connectActivate(?*anyopaque, &activate, null, .{});
-    const status = app.run(@intCast(std.os.argv.len), std.os.argv.ptr);
+    _ = gio.Application.connectActivate(app, ?*anyopaque, &activate, null, .{});
+    const status = gio.Application.run(app.as(gio.Application), @intCast(std.os.argv.len), std.os.argv.ptr);
     std.os.exit(@intCast(status));
 }
 
 fn activate(app: *gtk.Application, _: ?*anyopaque) callconv(.C) void {
     var window = gtk.ApplicationWindow.new(app);
-    window.setTitle("Window");
-    window.setDefaultSize(200, 200);
+    gtk.Window.setTitle(window.as(gtk.Window), "Window");
+    gtk.Window.setDefaultSize(window.as(gtk.Window), 200, 200);
 
     var box = gtk.Box.new(gtk.Orientation.vertical, 0);
-    box.setHalign(gtk.Align.center);
-    box.setValign(gtk.Align.center);
+    gtk.Widget.setHalign(box.as(gtk.Widget), gtk.Align.center);
+    gtk.Widget.setValign(box.as(gtk.Widget), gtk.Align.center);
 
-    window.setChild(box.as(gtk.Widget));
+    gtk.Window.setChild(window.as(gtk.Window), box.as(gtk.Widget));
 
     var button = gtk.Button.newWithLabel("Hello World");
 
-    _ = button.connectClicked(?*anyopaque, &printHello, null, .{});
-    _ = button.connectClicked(*gtk.ApplicationWindow, &closeWindow, window, .{});
+    _ = gtk.Button.connectClicked(button, ?*anyopaque, &printHello, null, .{});
+    _ = gtk.Button.connectClicked(button, *gtk.ApplicationWindow, &closeWindow, window, .{});
 
-    box.append(button.as(gtk.Widget));
+    gtk.Box.append(box, button.as(gtk.Widget));
 
-    window.show();
+    gtk.Widget.show(window.as(gtk.Widget));
 }
 
 fn printHello(_: *gtk.Button, _: ?*anyopaque) callconv(.C) void {
@@ -39,5 +40,5 @@ fn printHello(_: *gtk.Button, _: ?*anyopaque) callconv(.C) void {
 }
 
 fn closeWindow(_: *gtk.Button, window: *gtk.ApplicationWindow) callconv(.C) void {
-    window.destroy();
+    gtk.Window.destroy(window.as(gtk.Window));
 }
