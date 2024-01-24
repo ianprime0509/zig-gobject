@@ -174,19 +174,18 @@ fn addCodegenStep(b: *std.Build, codegen_exe: *std.Build.Step.Compile) !*std.Bui
         "libintl-0.0.gir",
     };
 
-    const extras = [_][]const u8{
-        "cairo-1.0.extras.zig",
-        "glib-2.0.extras.zig",
-        "gtk-4.0.extras.zig",
-        "gobject-2.0.extras.zig",
-        "libintl-0.0.extras.zig",
+    const extensions = [_][]const u8{
+        "glib-2.0.ext.zig",
+        "gtk-4.0.ext.zig",
+        "gobject-2.0.ext.zig",
+        "libintl-0.0.ext.zig",
     };
 
     const codegen_cmd = b.addRunArtifact(codegen_exe);
     codegen_cmd.addArgs(&.{ "--gir-dir", try b.build_root.join(b.allocator, &.{"gir-overrides"}) });
     codegen_cmd.addArg("--gir-dir");
     codegen_cmd.addFileArg(b.dependency("gir", .{}).path("."));
-    codegen_cmd.addArgs(&.{ "--extras-dir", try b.build_root.join(b.allocator, &.{"extras"}) });
+    codegen_cmd.addArgs(&.{ "--extensions-dir", try b.build_root.join(b.allocator, &.{"extensions"}) });
     codegen_cmd.addArgs(&.{ "--output-dir", try b.build_root.join(b.allocator, &.{"bindings"}) });
     codegen_cmd.addArgs(&.{ "--abi-test-output-dir", try b.build_root.join(b.allocator, &.{ "test", "abi" }) });
 
@@ -199,8 +198,8 @@ fn addCodegenStep(b: *std.Build, codegen_exe: *std.Build.Step.Compile) !*std.Bui
         codegen_cmd.addArg(file[0 .. file.len - ".gir".len]);
         try file_deps.append(try b.build_root.join(b.allocator, &.{ "gir-overrides", file }));
     }
-    for (extras) |file| {
-        try file_deps.append(try b.build_root.join(b.allocator, &.{ "extras", file }));
+    for (extensions) |file| {
+        try file_deps.append(try b.build_root.join(b.allocator, &.{ "extensions", file }));
     }
     codegen_cmd.extra_file_dependencies = file_deps.items;
 

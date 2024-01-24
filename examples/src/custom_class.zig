@@ -10,35 +10,38 @@ const ExampleApplication = extern struct {
     pub const Parent = gtk.Application;
     const Self = @This();
 
-    pub const getType = gobject.defineType(Self, .{
+    pub const getType = gobject.ext.defineType(Self, .{
         .classInit = &Class.init,
     });
 
     pub fn new() *Self {
-        return Self.newWith(.{
+        return gobject.ext.newInstance(Self, .{
             .application_id = "org.gtk.exampleapp",
             .flags = gio.ApplicationFlags{ .handles_open = true },
         });
     }
 
-    fn activateImpl(self: *Self) callconv(.C) void {
-        const win = ExampleApplicationWindow.new(self);
-        win.present();
+    pub fn as(self: *Self, comptime T: type) *T {
+        return gobject.ext.as(T, self);
     }
 
-    pub usingnamespace Parent.Methods(Self);
+    fn activateImpl(self: *Self) callconv(.C) void {
+        const win = ExampleApplicationWindow.new(self);
+        gtk.Window.present(win.as(gtk.Window));
+    }
 
     pub const Class = extern struct {
         parent_class: Parent.Class,
 
         pub const Instance = Self;
 
-        fn init(self: *Class) callconv(.C) void {
-            self.implementActivate(&ExampleApplication.activateImpl);
+        pub fn as(self: *Class, comptime T: type) *T {
+            return gobject.ext.as(T, self);
         }
 
-        pub usingnamespace Parent.Class.Methods(Class);
-        pub usingnamespace Parent.VirtualMethods(Class, Self);
+        fn init(self: *Class) callconv(.C) void {
+            gio.ApplicationClass.implementActivate(self, &activateImpl);
+        }
     };
 };
 
@@ -87,20 +90,26 @@ const ExampleApplicationWindow = extern struct {
         var offset: c_int = 0;
     };
 
-    pub const getType = gobject.defineType(Self, .{
+    pub const getType = gobject.ext.defineType(Self, .{
         .instanceInit = &init,
         .classInit = &Class.init,
         .private = .{ .Type = Private, .offset = &Private.offset },
     });
 
     pub fn new(app: *ExampleApplication) *Self {
-        return Self.newWith(.{ .application = app });
+        return gobject.ext.newInstance(Self, .{
+            .application = app,
+        });
+    }
+
+    pub fn as(self: *Self, comptime T: type) *T {
+        return gobject.ext.as(T, self);
     }
 
     fn init(self: *Self, _: *Class) callconv(.C) void {
-        self.initTemplate();
+        gtk.Widget.initTemplate(self.as(gtk.Widget));
 
-        _ = self.private().button.connectCounterIncremented(?*anyopaque, &handleIncremented, null, .{});
+        _ = ExampleButton.connectCounterIncremented(self.private().button, ?*anyopaque, &handleIncremented, null, .{});
     }
 
     fn handleIncremented(_: *ExampleButton, new_value: c_uint, _: ?*anyopaque) callconv(.C) void {
@@ -108,30 +117,29 @@ const ExampleApplicationWindow = extern struct {
     }
 
     fn private(self: *Self) *Private {
-        return gobject.impl_helpers.getPrivate(self, Private, Private.offset);
+        return gobject.ext.impl_helpers.getPrivate(self, Private, Private.offset);
     }
-
-    pub usingnamespace Parent.Methods(Self);
 
     pub const Class = extern struct {
         parent_class: Parent.Class,
 
         pub const Instance = Self;
 
+        pub fn as(self: *Class, comptime T: type) *T {
+            return gobject.ext.as(T, self);
+        }
+
         fn init(self: *Class) callconv(.C) void {
             // Ensure the ExampleButton type is registered before handling the
             // template
             _ = ExampleButton.getType();
-            self.setTemplateFromSlice(template);
+            gtk.ext.WidgetClass.setTemplateFromSlice(self.as(gtk.WidgetClass), template);
             self.bindTemplateChildPrivate("button", .{});
         }
 
-        fn bindTemplateChildPrivate(self: *Class, comptime name: [:0]const u8, comptime options: gtk.BindTemplateChildOptions) void {
-            gtk.impl_helpers.bindTemplateChildPrivate(self, name, Private, Private.offset, options);
+        fn bindTemplateChildPrivate(self: *Class, comptime name: [:0]const u8, comptime options: gtk.ext.BindTemplateChildOptions) void {
+            gtk.ext.impl_helpers.bindTemplateChildPrivate(self, name, Private, Private.offset, options);
         }
-
-        pub usingnamespace Parent.Class.Methods(Class);
-        pub usingnamespace Parent.VirtualMethods(Class, Self);
     };
 };
 
@@ -147,17 +155,21 @@ const ExampleButton = extern struct {
         var offset: c_int = 0;
     };
 
-    pub const getType = gobject.defineType(Self, .{
+    pub const getType = gobject.ext.defineType(Self, .{
         .instanceInit = &init,
         .classInit = &Class.init,
         .private = .{ .Type = Private, .offset = &Private.offset },
     });
 
-    const counter_incremented = gobject.defineSignal("counter-incremented", *Self, &.{c_uint}, void);
+    const counter_incremented = gobject.ext.defineSignal("counter-incremented", Self, &.{c_uint}, void);
     pub const connectCounterIncremented = counter_incremented.connect;
 
+    pub fn as(self: *Self, comptime T: type) *T {
+        return gobject.ext.as(T, self);
+    }
+
     fn init(self: *Self, _: *Class) callconv(.C) void {
-        _ = self.connectClicked(?*anyopaque, &handleClicked, null, .{});
+        _ = gtk.Button.connectClicked(self, ?*anyopaque, &handleClicked, null, .{});
 
         self.updateLabel();
     }
@@ -170,30 +182,29 @@ const ExampleButton = extern struct {
 
     fn updateLabel(self: *Self) void {
         var buf: [64]u8 = undefined;
-        self.setLabel(std.fmt.bufPrintZ(&buf, "Clicked: {}", .{self.private().counter}) catch unreachable);
+        gtk.Button.setLabel(self.as(gtk.Button), std.fmt.bufPrintZ(&buf, "Clicked: {}", .{self.private().counter}) catch unreachable);
     }
 
     fn private(self: *Self) *Private {
-        return gobject.impl_helpers.getPrivate(self, Private, Private.offset);
+        return gobject.ext.impl_helpers.getPrivate(self, Private, Private.offset);
     }
-
-    pub usingnamespace Parent.Methods(Self);
 
     pub const Class = extern struct {
         parent_class: Parent.Class,
 
         pub const Instance = Self;
 
+        pub fn as(self: *Class, comptime T: type) *T {
+            return gobject.ext.as(T, self);
+        }
+
         fn init(_: *Class) callconv(.C) void {
             counter_incremented.register(.{});
         }
-
-        pub usingnamespace Parent.Class.Methods(Class);
-        pub usingnamespace Parent.VirtualMethods(Class, Self);
     };
 };
 
 pub fn main() void {
-    const status = ExampleApplication.new().run(@intCast(std.os.argv.len), std.os.argv.ptr);
+    const status = gio.Application.run(ExampleApplication.new().as(gio.Application), @intCast(std.os.argv.len), std.os.argv.ptr);
     std.os.exit(@intCast(status));
 }

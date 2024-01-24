@@ -17,7 +17,7 @@ const usage =
     \\
     \\Options:
     \\  -h, --help                          Show this help
-    \\      --extras-dir DIR                Add a directory to the extras search path
+    \\      --extensions-dir DIR            Add a directory to the extensions search path
     \\      --gir-dir DIR                   Add a directory to the GIR search path
     \\      --output-dir DIR                Set the output directory
     \\      --abi-test-output-dir DIR       Set the output directory for ABI tests
@@ -47,8 +47,8 @@ fn mainInner() !void {
 
     var gir_path = ArrayListUnmanaged(fs.Dir){};
     defer for (gir_path.items) |*dir| dir.close();
-    var extras_path = ArrayListUnmanaged(fs.Dir){};
-    defer for (extras_path.items) |*dir| dir.close();
+    var extensions_path = ArrayListUnmanaged(fs.Dir){};
+    defer for (extensions_path.items) |*dir| dir.close();
     var output_dir: ?fs.Dir = null;
     defer if (output_dir) |*dir| dir.close();
     var abi_test_output_dir: ?fs.Dir = null;
@@ -61,12 +61,12 @@ fn mainInner() !void {
             if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
                 try io.getStdOut().writeAll(usage);
                 return;
-            } else if (mem.eql(u8, arg, "--extras-dir")) {
-                const extras_dir_path = args.next() orelse {
-                    log.err("Expected directory after --extras-dir", .{});
+            } else if (mem.eql(u8, arg, "--extensions-dir")) {
+                const extensions_dir_path = args.next() orelse {
+                    log.err("Expected directory after --extensions-dir", .{});
                     return error.InvalidArguments;
                 };
-                try extras_path.append(allocator, try fs.cwd().openDir(extras_dir_path, .{}));
+                try extensions_path.append(allocator, try fs.cwd().openDir(extensions_dir_path, .{}));
             } else if (mem.eql(u8, arg, "--gir-dir")) {
                 const gir_dir_path = args.next() orelse {
                     log.err("Expected directory after --gir-dir", .{});
@@ -112,7 +112,7 @@ fn mainInner() !void {
     defer src_out_dir.close();
 
     const repositories = try gir.findRepositories(allocator, gir_path.items, roots.items);
-    try translate.createBindings(allocator, repositories, extras_path.items, src_out_dir);
+    try translate.createBindings(allocator, repositories, extensions_path.items, src_out_dir);
     try translate.createBuildFile(allocator, repositories, output_dir.?);
     if (abi_test_output_dir) |dir| {
         try translate.createAbiTests(allocator, repositories, dir);

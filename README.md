@@ -39,13 +39,14 @@ ensure the bindings are generated and run the example project launcher, run
 
 ## Binding philosophy
 
-zig-gobject is fundamentally a low-level binding with some higher-level
-additions ("extras") added in. The first layer (the low-level part) is a direct
-translation of information available in GIR (GObject introspection repository)
-files, represented and organized in a way that makes sense in Zig while
-maintaining transparency of the underlying symbols. Basically, this first layer
-can be thought of as an enhanced `zig translate-c`, using GObject introspection
-for additional expressiveness (such as pointer nullability).
+zig-gobject is fundamentally a low-level binding, with some higher-level
+extensions provided within the `ext` namespace of each binding module.  The
+bindings are a direct translation of information available in GIR (GObject
+introspection repository) files, represented and organized in a way that makes
+sense in Zig while maintaining transparency of the underlying symbols.
+Basically, they can be thought of as an enhanced `zig translate-c`, using
+GObject introspection for additional expressiveness (such as pointer
+nullability).
 
 For example, consider `gtk.Application.new` from the generated GTK 4 bindings,
 which is translated as follows:
@@ -85,27 +86,19 @@ pub const ApplicationFlags = packed struct(c_uint) {
     // Padding fields omitted
 
     const _Self = @This();
-    const flags_none = @bitCast(_Self, @as(c_uint, 0));
-    const default_flags = @bitCast(_Self, @as(c_uint, 0));
-    const is_service = @bitCast(_Self, @as(c_uint, 1));
-    const is_launcher = @bitCast(_Self, @as(c_uint, 2));
-    const handles_open = @bitCast(_Self, @as(c_uint, 4));
-    const handles_command_line = @bitCast(_Self, @as(c_uint, 8));
-    const send_environment = @bitCast(_Self, @as(c_uint, 16));
-    const non_unique = @bitCast(_Self, @as(c_uint, 32));
-    const can_override_app_id = @bitCast(_Self, @as(c_uint, 64));
-    const allow_replacement = @bitCast(_Self, @as(c_uint, 128));
-    const replace = @bitCast(_Self, @as(c_uint, 256));
-
-    pub const Own = struct{
-        extern fn g_application_flags_get_type() usize;
-        pub const getType = g_application_flags_get_type;
-    };
-
-    pub const Extras = if (@hasDecl(extras, "ApplicationFlags")) extras.ApplicationFlags else struct {};
-
-    pub usingnamespace Own;
-    pub usingnamespace Extras;
+    const flags_none: _Self = @bitCast(@as(c_uint, 0));
+    const default_flags: _Self = @bitCast(@as(c_uint, 0));
+    const is_service: _Self = @bitCast(@as(c_uint, 1));
+    const is_launcher: _Self = @bitCast(@as(c_uint, 2));
+    const handles_open: _Self = @bitCast(@as(c_uint, 4));
+    const handles_command_line: _Self = @bitCast(@as(c_uint, 8));
+    const send_environment: _Self = @bitCast(@as(c_uint, 16));
+    const non_unique: _Self = @bitCast(@as(c_uint, 32));
+    const can_override_app_id: _Self = @bitCast(@as(c_uint, 64));
+    const allow_replacement: _Self = @bitCast(@as(c_uint, 128));
+    const replace: _Self = @bitCast(@as(c_uint, 256));
+    extern fn g_application_flags_get_type() usize;
+    pub const getType = g_application_flags_get_type;
 };
 ```
 
@@ -123,41 +116,10 @@ basic:
 pub const GApplicationFlags = c_uint;
 ```
 
-This first layer also includes some core-level helpers such as `connect*`
+The generated bindings also include some core-level helpers such as `connect*`
 methods for type-safe signal connection.
 
-The second layer (the higher-level part) is the "extras", which can be seen in
-`ApplicationFlags` above:
-
-```zig
-pub const Extras = if (@hasDecl(extras, "ApplicationFlags")) extras.ApplicationFlags else struct {};
-
-pub usingnamespace Extras;
-```
-
-The `extras` referenced here is just `@import("gio-2.0.extras.zig")` (or
-`struct {}` if there was no `gio-2.0.extras.zig` provided during translation).
-Any `ApplicationFlags` defined in the extras file is mixed in to the generated
-`ApplicationFlags` type. In other words, the extras provide additional helpers
-on top of what is provided by the underlying libraries, but they do not change
-anything about the core bindings.
-
-Occasionally, this approach to binding creation results in conflicting
-identifiers, such as `gtk_window_set_focus` and `gtk_root_set_focus` in GTK 4:
-since `Gtk.Window` implements `Gtk.Root`, zig-gobject includes all the methods
-of `gtk.Root` on `gtk.Window` as a convenience. This means that `setFocus` can
-no longer be used directly, because it is duplicated across two different
-`usingnamespace`s. To offer a way out of this, zig-gobject groups bindings into
-various namespaces before mixing them into the container type, meaning that
-either of these variants can be used to disambiguate:
-
-```zig
-// Doesn't work due to conflicting bindings:
-// window.setFocus(widget);
-gtk.Window.OwnMethods(gtk.Window).setFocus(window, widget);
-gtk.Root.OwnMethods(gtk.Window).setFocus(window, widget);
-```
-
-This is certainly more tedious than if `setFocus` just worked directly, but it
-ensures none of the functionality of the underlying libraries is lost in
-translation.
+The extensions available within the `ext` namespace of each binding package are
+written by hand and copied from the `extensions` directory of the project. They
+provide higher-level helper functions which are not translated from GIR, such as
+`gobject.defineType` to define a new class type in the GObject type system.

@@ -5,49 +5,53 @@ const bindings = @import("bindings.zig");
 const testing = std.testing;
 const expectEqual = testing.expectEqual;
 const expectEqualStrings = testing.expectEqualStrings;
-const Value = gobject.Value;
 
 test "bindings" {
     bindings.refAllBindings(gobject);
 }
 
 test "Value.new" {
-    try testValueNew(i8, -123, Value.getSchar, Value.setSchar);
-    try testValueNew(u8, 123, Value.getUchar, Value.setUchar);
-    try testValueNew(c_int, -123, Value.getInt, Value.setInt);
-    try testValueNew(c_uint, 123, Value.getUint, Value.setUint);
-    try testValueNew(c_long, -123, Value.getLong, Value.setLong);
-    try testValueNew(c_ulong, 123, Value.getUlong, Value.setUlong);
-    try testValueNew(i64, -(1 << 48), Value.getInt64, Value.setInt64);
-    try testValueNew(u64, 1 << 48, Value.getUint64, Value.setUint64);
-    try testValueNew(f32, 3.14, Value.getFloat, Value.setFloat);
-    try testValueNew(f64, 3.1415926, Value.getDouble, Value.setDouble);
+    try testValueNew(i8, -123, gobject.Value.getSchar, gobject.Value.setSchar);
+    try testValueNew(u8, 123, gobject.Value.getUchar, gobject.Value.setUchar);
+    try testValueNew(c_int, -123, gobject.Value.getInt, gobject.Value.setInt);
+    try testValueNew(c_uint, 123, gobject.Value.getUint, gobject.Value.setUint);
+    try testValueNew(c_long, -123, gobject.Value.getLong, gobject.Value.setLong);
+    try testValueNew(c_ulong, 123, gobject.Value.getUlong, gobject.Value.setUlong);
+    try testValueNew(i64, -(1 << 48), gobject.Value.getInt64, gobject.Value.setInt64);
+    try testValueNew(u64, 1 << 48, gobject.Value.getUint64, gobject.Value.setUint64);
+    try testValueNew(f32, 3.14, gobject.Value.getFloat, gobject.Value.setFloat);
+    try testValueNew(f64, 3.1415926, gobject.Value.getDouble, gobject.Value.setDouble);
 }
 
 test "Value.new(bool)" {
-    var value = Value.new(bool);
+    var value = gobject.ext.Value.new(bool);
     defer value.unset();
     value.setBoolean(1);
     try expectEqual(@as(c_int, 1), value.getBoolean());
 }
 
 test "Value.new([*:0]const u8)" {
-    var value = Value.new([*:0]const u8);
+    var value = gobject.ext.Value.new([*:0]const u8);
     defer value.unset();
     value.setString("Hello, world!");
     try expectEqualStrings("Hello, world!", std.mem.sliceTo(value.getString().?, 0));
 }
 
 test "Value.new(*anyopaque)" {
-    var value = Value.new(*anyopaque);
+    var value = gobject.ext.Value.new(*anyopaque);
     defer value.unset();
     var something: i32 = 123;
     value.setPointer(&something);
     try expectEqual(@as(?*anyopaque, &something), value.getPointer());
 }
 
-fn testValueNew(comptime T: type, data: T, getter: fn (*const Value) callconv(.C) T, setter: fn (*Value, T) callconv(.C) void) !void {
-    var value = Value.new(T);
+fn testValueNew(
+    comptime T: type,
+    data: T,
+    getter: fn (*const gobject.Value) callconv(.C) T,
+    setter: fn (*gobject.Value, T) callconv(.C) void,
+) !void {
+    var value = gobject.ext.Value.new(T);
     defer value.unset();
     setter(&value, data);
     try expectEqual(data, getter(&value));
@@ -66,13 +70,25 @@ test "Object subclass" {
             var offset: c_int = 0;
         };
 
-        pub const getType = gobject.defineType(Self, .{
+        pub const getType = gobject.ext.defineType(Self, .{
             .instanceInit = &init,
             .private = .{ .Type = Private, .offset = &Private.offset },
         });
 
         pub fn new() *Self {
-            return Self.newWith(.{});
+            return gobject.ext.newInstance(Self, .{});
+        }
+
+        pub fn as(self: *Self, comptime T: type) *T {
+            return gobject.ext.as(T, self);
+        }
+
+        pub fn ref(self: *Self) void {
+            gobject.Object.ref(self.as(gobject.Object));
+        }
+
+        pub fn unref(self: *Self) void {
+            gobject.Object.unref(self.as(gobject.Object));
         }
 
         fn init(self: *Self, _: *Self.Class) callconv(.C) void {
@@ -84,18 +100,17 @@ test "Object subclass" {
         }
 
         fn private(self: *Self) *Private {
-            return gobject.impl_helpers.getPrivate(self, Private, Private.offset);
+            return gobject.ext.impl_helpers.getPrivate(self, Private, Private.offset);
         }
-
-        pub usingnamespace Parent.Methods(Self);
 
         pub const Class = extern struct {
             parent_class: Parent.Class,
 
             pub const Instance = Self;
 
-            pub usingnamespace Parent.Class.Methods(Class);
-            pub usingnamespace Parent.VirtualMethods(Class, Self);
+            pub fn as(self: *Class, comptime T: type) *T {
+                return gobject.ext.as(T, self);
+            }
         };
     };
 
