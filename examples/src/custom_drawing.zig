@@ -1,6 +1,7 @@
 // https://docs.gtk.org/gtk4/getting_started.html#custom-drawing
 
 const std = @import("std");
+const gio = @import("gio");
 const gtk = @import("gtk");
 const gdk = @import("gdk");
 const cairo = @import("cairo");
@@ -8,43 +9,42 @@ const gobject = @import("gobject");
 
 pub fn main() void {
     const app = gtk.Application.new("org.gtk.example", .{});
-    _ = app.connectActivate(?*anyopaque, &activate, null, .{});
-    const status = app.run(@intCast(std.os.argv.len), std.os.argv.ptr);
+    _ = gio.Application.connectActivate(app, ?*anyopaque, &activate, null, .{});
+    const status = gio.Application.run(app.as(gio.Application), @intCast(std.os.argv.len), std.os.argv.ptr);
     std.os.exit(@intCast(status));
 }
 
 fn activate(app: *gtk.Application, _: ?*anyopaque) callconv(.C) void {
     const window = gtk.ApplicationWindow.new(app);
-    window.setTitle("Drawing Area");
+    gtk.Window.setTitle(window.as(gtk.Window), "Drawing Area");
 
-    _ = window.connectDestroy(?*anyopaque, &closeWindow, null, .{});
+    _ = gtk.Widget.connectDestroy(window, ?*anyopaque, &closeWindow, null, .{});
 
     const frame = gtk.Frame.new(null);
-    window.setChild(frame.as(gtk.Widget));
+    gtk.Window.setChild(window.as(gtk.Window), frame.as(gtk.Widget));
 
     const drawing_area = gtk.DrawingArea.new();
-    drawing_area.setSizeRequest(100, 100);
+    gtk.Widget.setSizeRequest(drawing_area.as(gtk.Widget), 100, 100);
 
-    frame.setChild(drawing_area.as(gtk.Widget));
+    gtk.Frame.setChild(frame, drawing_area.as(gtk.Widget));
 
-    drawing_area.setDrawFunc(&drawCb, null, null);
+    gtk.DrawingArea.setDrawFunc(drawing_area, &drawCb, null, null);
 
-    _ = drawing_area.connectResize(?*anyopaque, &resizeCb, null, .{ .after = true });
-    // _ = gobject.signalConnectData(drawing_area, "resize", @ptrCast(gobject.Callback, &resizeCb), null, null, .{ .after = true });
+    _ = gtk.DrawingArea.connectResize(drawing_area, ?*anyopaque, &resizeCb, null, .{ .after = true });
 
     const drag = gtk.GestureDrag.new();
-    drag.setButton(gdk.BUTTON_PRIMARY);
-    drawing_area.addController(drag.as(gtk.EventController));
-    _ = drag.connectDragBegin(*gtk.DrawingArea, &dragBegin, drawing_area, .{});
-    _ = drag.connectDragUpdate(*gtk.DrawingArea, &dragUpdate, drawing_area, .{});
-    _ = drag.connectDragEnd(*gtk.DrawingArea, &dragEnd, drawing_area, .{});
+    gtk.GestureSingle.setButton(drag.as(gtk.GestureSingle), gdk.BUTTON_PRIMARY);
+    gtk.Widget.addController(drawing_area.as(gtk.Widget), drag.as(gtk.EventController));
+    _ = gtk.GestureDrag.connectDragBegin(drag, *gtk.DrawingArea, &dragBegin, drawing_area, .{});
+    _ = gtk.GestureDrag.connectDragUpdate(drag, *gtk.DrawingArea, &dragUpdate, drawing_area, .{});
+    _ = gtk.GestureDrag.connectDragEnd(drag, *gtk.DrawingArea, &dragEnd, drawing_area, .{});
 
     const press = gtk.GestureClick.new();
-    press.setButton(gdk.BUTTON_SECONDARY);
-    drawing_area.addController(press.as(gtk.EventController));
-    _ = press.connectPressed(*gtk.DrawingArea, &pressed, drawing_area, .{});
+    gtk.GestureSingle.setButton(press.as(gtk.GestureSingle), gdk.BUTTON_SECONDARY);
+    gtk.Widget.addController(drawing_area.as(gtk.Widget), press.as(gtk.EventController));
+    _ = gtk.GestureClick.connectPressed(press, *gtk.DrawingArea, &pressed, drawing_area, .{});
 
-    window.show();
+    gtk.Widget.show(window.as(gtk.Widget));
 }
 
 var surface: ?*cairo.Surface = null;
@@ -63,8 +63,10 @@ fn resizeCb(widget: *gtk.DrawingArea, _: c_int, _: c_int, _: ?*anyopaque) callco
         surface = null;
     }
 
-    if (widget.getNative()) |native| {
-        surface = native.getSurface().createSimilarSurface(cairo.Content.color, widget.getWidth(), widget.getHeight());
+    if (gtk.Widget.getNative(widget.as(gtk.Widget))) |native| {
+        const width = gtk.Widget.getWidth(widget.as(gtk.Widget));
+        const height = gtk.Widget.getHeight(widget.as(gtk.Widget));
+        surface = gtk.Native.getSurface(native).createSimilarSurface(cairo.Content.color, width, height);
 
         // Initialize the surface to white
         clearSurface();
@@ -83,7 +85,7 @@ fn drawBrush(widget: *gtk.DrawingArea, x: f64, y: f64) callconv(.C) void {
     cr.rectangle(x - 3, y - 3, 6, 6);
     cr.fill();
 
-    widget.queueDraw();
+    gtk.Widget.queueDraw(widget.as(gtk.Widget));
 }
 
 var start_x: f64 = 0;
@@ -106,7 +108,7 @@ fn dragEnd(_: *gtk.GestureDrag, x: f64, y: f64, area: *gtk.DrawingArea) callconv
 
 fn pressed(_: *gtk.GestureClick, _: c_int, _: f64, _: f64, area: *gtk.DrawingArea) callconv(.C) void {
     clearSurface();
-    area.queueDraw();
+    gtk.Widget.queueDraw(area.as(gtk.Widget));
 }
 
 fn closeWindow(_: *gtk.ApplicationWindow, _: ?*anyopaque) callconv(.C) void {

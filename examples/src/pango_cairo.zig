@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const math = std.math;
+const gio = @import("gio");
 const gtk = @import("gtk");
 const cairo = @import("cairo");
 const pango = @import("pango");
@@ -40,21 +41,21 @@ fn draw(_: *gtk.DrawingArea, cr: *cairo.Context, draw_width: c_int, draw_height:
 
 fn activate(app: *gtk.Application, _: ?*anyopaque) callconv(.C) void {
     const window = gtk.ApplicationWindow.new(app);
-    window.setTitle("PangoCairo text example");
-    window.setDefaultSize(300, 300);
+    gtk.Window.setTitle(window.as(gtk.Window), "PangoCairo text example");
+    gtk.Window.setDefaultSize(window.as(gtk.Window), 300, 300);
 
     const drawing_area = gtk.DrawingArea.new();
-    drawing_area.setHexpand(1);
-    drawing_area.setVexpand(1);
-    _ = drawing_area.setDrawFunc(&draw, null, null);
-    window.setChild(drawing_area.as(gtk.Widget));
+    gtk.Widget.setHexpand(drawing_area.as(gtk.Widget), 1);
+    gtk.Widget.setVexpand(drawing_area.as(gtk.Widget), 1);
+    _ = gtk.DrawingArea.setDrawFunc(drawing_area, &draw, null, null);
+    gtk.Window.setChild(window.as(gtk.Window), drawing_area.as(gtk.Widget));
 
-    window.show();
+    gtk.Widget.show(window.as(gtk.Widget));
 }
 
 pub fn main() void {
     const app = gtk.Application.new("org.gtk.example", .{});
-    _ = app.connectActivate(?*anyopaque, &activate, null, .{});
-    const status = app.run(@intCast(std.os.argv.len), std.os.argv.ptr);
+    _ = gio.Application.connectActivate(app, ?*anyopaque, &activate, null, .{});
+    const status = gio.Application.run(app.as(gio.Application), @intCast(std.os.argv.len), std.os.argv.ptr);
     std.os.exit(@intCast(status));
 }
