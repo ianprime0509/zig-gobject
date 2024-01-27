@@ -17,6 +17,7 @@ const usage =
     \\
     \\Options:
     \\  -h, --help                          Show this help
+    \\      --bindings-dir DIR              Add a directory to the bindings search path (for manual bindings)
     \\      --extensions-dir DIR            Add a directory to the extensions search path
     \\      --gir-dir DIR                   Add a directory to the GIR search path
     \\      --output-dir DIR                Set the output directory
@@ -47,6 +48,8 @@ fn mainInner() !void {
 
     var gir_path = ArrayListUnmanaged(fs.Dir){};
     defer for (gir_path.items) |*dir| dir.close();
+    var bindings_path = ArrayListUnmanaged(fs.Dir){};
+    defer for (bindings_path.items) |*dir| dir.close();
     var extensions_path = ArrayListUnmanaged(fs.Dir){};
     defer for (extensions_path.items) |*dir| dir.close();
     var output_dir: ?fs.Dir = null;
@@ -61,6 +64,12 @@ fn mainInner() !void {
             if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
                 try io.getStdOut().writeAll(usage);
                 return;
+            } else if (mem.eql(u8, arg, "--bindings-dir")) {
+                const bindings_dir_path = args.next() orelse {
+                    log.err("Expected directory after --bindings-dir", .{});
+                    return error.InvalidArguments;
+                };
+                try bindings_path.append(allocator, try fs.cwd().openDir(bindings_dir_path, .{}));
             } else if (mem.eql(u8, arg, "--extensions-dir")) {
                 const extensions_dir_path = args.next() orelse {
                     log.err("Expected directory after --extensions-dir", .{});
@@ -112,7 +121,7 @@ fn mainInner() !void {
     defer src_out_dir.close();
 
     const repositories = try gir.findRepositories(allocator, gir_path.items, roots.items);
-    try translate.createBindings(allocator, repositories, extensions_path.items, src_out_dir);
+    try translate.createBindings(allocator, repositories, bindings_path.items, extensions_path.items, src_out_dir);
     try translate.createBuildFile(allocator, repositories, output_dir.?);
     if (abi_test_output_dir) |dir| {
         try translate.createAbiTests(allocator, repositories, dir);

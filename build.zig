@@ -169,6 +169,10 @@ fn addCodegenStep(b: *std.Build, codegen_exe: *std.Build.Step.Compile) !*std.Bui
         "xrandr-1.3.gir",
     };
 
+    const binding_overrides = [_][]const u8{
+        "cairo-1.0.gir",
+    };
+
     const gir_overrides = [_][]const u8{
         "freetype2-2.0.gir",
         "libintl-0.0.gir",
@@ -185,6 +189,7 @@ fn addCodegenStep(b: *std.Build, codegen_exe: *std.Build.Step.Compile) !*std.Bui
     codegen_cmd.addArgs(&.{ "--gir-dir", try b.build_root.join(b.allocator, &.{"gir-overrides"}) });
     codegen_cmd.addArg("--gir-dir");
     codegen_cmd.addFileArg(b.dependency("gir", .{}).path("."));
+    codegen_cmd.addArgs(&.{ "--bindings-dir", try b.build_root.join(b.allocator, &.{"binding-overrides"}) });
     codegen_cmd.addArgs(&.{ "--extensions-dir", try b.build_root.join(b.allocator, &.{"extensions"}) });
     codegen_cmd.addArgs(&.{ "--output-dir", try b.build_root.join(b.allocator, &.{"bindings"}) });
     codegen_cmd.addArgs(&.{ "--abi-test-output-dir", try b.build_root.join(b.allocator, &.{ "test", "abi" }) });
@@ -193,6 +198,9 @@ fn addCodegenStep(b: *std.Build, codegen_exe: *std.Build.Step.Compile) !*std.Bui
     for (gir) |file| {
         codegen_cmd.addArg(file[0 .. file.len - ".gir".len]);
         try file_deps.append(try b.build_root.join(b.allocator, &.{ "lib", "gir-files", file }));
+    }
+    for (binding_overrides) |file| {
+        try file_deps.append(try b.build_root.join(b.allocator, &.{ "binding-overrides", file }));
     }
     for (gir_overrides) |file| {
         codegen_cmd.addArg(file[0 .. file.len - ".gir".len]);
