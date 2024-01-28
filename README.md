@@ -85,20 +85,19 @@ pub const ApplicationFlags = packed struct(c_uint) {
     replace: bool = false,
     // Padding fields omitted
 
-    const _Self = @This();
-    const flags_none: _Self = @bitCast(@as(c_uint, 0));
-    const default_flags: _Self = @bitCast(@as(c_uint, 0));
-    const is_service: _Self = @bitCast(@as(c_uint, 1));
-    const is_launcher: _Self = @bitCast(@as(c_uint, 2));
-    const handles_open: _Self = @bitCast(@as(c_uint, 4));
-    const handles_command_line: _Self = @bitCast(@as(c_uint, 8));
-    const send_environment: _Self = @bitCast(@as(c_uint, 16));
-    const non_unique: _Self = @bitCast(@as(c_uint, 32));
-    const can_override_app_id: _Self = @bitCast(@as(c_uint, 64));
-    const allow_replacement: _Self = @bitCast(@as(c_uint, 128));
-    const replace: _Self = @bitCast(@as(c_uint, 256));
+    const flags_none: ApplicationFlags = @bitCast(@as(c_uint, 0));
+    const default_flags: ApplicationFlags = @bitCast(@as(c_uint, 0));
+    const is_service: ApplicationFlags = @bitCast(@as(c_uint, 1));
+    const is_launcher: ApplicationFlags = @bitCast(@as(c_uint, 2));
+    const handles_open: ApplicationFlags = @bitCast(@as(c_uint, 4));
+    const handles_command_line: ApplicationFlags = @bitCast(@as(c_uint, 8));
+    const send_environment: ApplicationFlags = @bitCast(@as(c_uint, 16));
+    const non_unique: ApplicationFlags = @bitCast(@as(c_uint, 32));
+    const can_override_app_id: ApplicationFlags = @bitCast(@as(c_uint, 64));
+    const allow_replacement: ApplicationFlags = @bitCast(@as(c_uint, 128));
+    const replace: ApplicationFlags = @bitCast(@as(c_uint, 256));
     extern fn g_application_flags_get_type() usize;
-    pub const getType = g_application_flags_get_type;
+    pub const getGObjectType = g_application_flags_get_type;
 };
 ```
 

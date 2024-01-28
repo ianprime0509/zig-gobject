@@ -366,9 +366,7 @@ fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContex
         try translateConstant(constant, out);
     }
 
-    if (!member_names.contains("get_type")) {
-        try translateGetTypeFunction(allocator, "get_type", class.get_type, ctx, out);
-    }
+    try translateGetTypeFunction(allocator, "get_g_object_type", class.get_type, ctx, out);
     if (!member_names.contains("ref")) {
         if (class.ref_func) |ref_func| {
             try translateRefFunction(allocator, "ref", ref_func, class.name, ctx, out);
@@ -456,9 +454,7 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, ctx: Trans
         try translateConstant(constant, out);
     }
 
-    if (!member_names.contains("get_type")) {
-        try translateGetTypeFunction(allocator, "get_type", interface.get_type, ctx, out);
-    }
+    try translateGetTypeFunction(allocator, "get_g_object_type", interface.get_type, ctx, out);
     if (!member_names.contains("ref") and interfaceDerivesFromObject(interface, ctx)) {
         try translateRefFunction(allocator, "ref", "g_object_ref", interface.name, ctx, out);
     }
@@ -516,23 +512,18 @@ fn translateRecord(allocator: Allocator, record: gir.Record, ctx: TranslationCon
         try out.print("\n", .{});
     }
 
-    var member_names = std.StringHashMap(void).init(allocator);
-    defer member_names.deinit();
     for (record.functions) |function| {
-        try member_names.put(function.name, {});
         try translateFunction(allocator, function, .{ .self_type = name }, ctx, out);
     }
     for (record.constructors) |constructor| {
-        try member_names.put(constructor.name, {});
         try translateConstructor(allocator, constructor, record.name, ctx, out);
     }
     for (record.methods) |method| {
-        try member_names.put(method.name, {});
         try translateMethod(allocator, method, .{ .self_type = name }, ctx, out);
     }
 
-    if (record.get_type != null and !member_names.contains("get_type")) {
-        try translateGetTypeFunction(allocator, "get_type", record.get_type.?, ctx, out);
+    if (record.get_type) |get_type| {
+        try translateGetTypeFunction(allocator, "get_g_object_type", get_type, ctx, out);
     }
 
     if (record.is_gtype_struct_for) |instance_type_name| virtual_methods: {
@@ -575,23 +566,18 @@ fn translateUnion(allocator: Allocator, @"union": gir.Union, ctx: TranslationCon
         try out.print("\n", .{});
     }
 
-    var member_names = std.StringHashMap(void).init(allocator);
-    defer member_names.deinit();
     for (@"union".functions) |function| {
-        try member_names.put(function.name, {});
         try translateFunction(allocator, function, .{ .self_type = name }, ctx, out);
     }
     for (@"union".constructors) |constructor| {
-        try member_names.put(constructor.name, {});
         try translateConstructor(allocator, constructor, @"union".name, ctx, out);
     }
     for (@"union".methods) |method| {
-        try member_names.put(method.name, {});
         try translateMethod(allocator, method, .{ .self_type = name }, ctx, out);
     }
 
-    if (@"union".get_type != null and !member_names.contains("get_type")) {
-        try translateGetTypeFunction(allocator, "get_type", @"union".get_type.?, ctx, out);
+    if (@"union".get_type) |get_type| {
+        try translateGetTypeFunction(allocator, "get_g_object_type", get_type, ctx, out);
     }
 
     try out.print("};\n\n", .{});
@@ -731,15 +717,12 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: Transla
         try seen.put(member.name, {});
     }
 
-    var member_names = std.StringHashMap(void).init(allocator);
-    defer member_names.deinit();
     for (bit_field.functions) |function| {
-        try member_names.put(function.name, {});
         try translateFunction(allocator, function, .{ .self_type = name }, ctx, out);
     }
 
-    if (bit_field.get_type != null and !member_names.contains("get_type")) {
-        try translateGetTypeFunction(allocator, "get_type", bit_field.get_type.?, ctx, out);
+    if (bit_field.get_type) |get_type| {
+        try translateGetTypeFunction(allocator, "get_g_object_type", get_type, ctx, out);
     }
 
     try out.print("};\n\n", .{});
@@ -772,15 +755,12 @@ fn translateEnum(allocator: Allocator, @"enum": gir.Enum, ctx: TranslationContex
         try out.print("pub const $I = $I.$I;\n", .{ member.name, name, seen_values.get(member.value).?.name });
     }
 
-    var member_names = std.StringHashMap(void).init(allocator);
-    defer member_names.deinit();
     for (@"enum".functions) |function| {
-        try member_names.put(function.name, {});
         try translateFunction(allocator, function, .{ .self_type = name }, ctx, out);
     }
 
-    if (@"enum".get_type != null and !member_names.contains("get_type")) {
-        try translateGetTypeFunction(allocator, "get_type", @"enum".get_type.?, ctx, out);
+    if (@"enum".get_type) |get_type| {
+        try translateGetTypeFunction(allocator, "get_g_object_type", get_type, ctx, out);
     }
 
     try out.print("};\n\n", .{});

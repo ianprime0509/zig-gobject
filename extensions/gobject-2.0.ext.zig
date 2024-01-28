@@ -24,7 +24,7 @@ pub fn typeFor(comptime T: type) gobject.Type {
     const typeInfo = @typeInfo(T);
     // Types manually extracted from gtype.h since they don't seem to show up in GIR
     if (typeInfo == .Pointer and comptime isRegisteredType(typeInfo.Pointer.child)) {
-        return typeInfo.Pointer.child.getType();
+        return typeInfo.Pointer.child.getGObjectType();
     } else if (T == void) {
         return typeMakeFundamental(1);
     } else if (T == i8) {
@@ -84,7 +84,7 @@ pub fn DefineTypeOptions(comptime Self: type) type {
 }
 
 /// Sets up a class type in the GObject type system, returning the associated
-/// `getType` function.
+/// `getGObjectType` function.
 ///
 /// The `Self` parameter is the instance struct for the type. There are several
 /// constraints on this type:
@@ -132,7 +132,7 @@ pub fn defineType(comptime Self: type, comptime options: DefineTypeOptions(Self)
         @compileError("a class type must have a declaration named Parent pointing to the parent type");
     }
     const parent_info = @typeInfo(Self.Parent);
-    if (parent_info != .Struct or parent_info.Struct.layout != .Extern or !@hasDecl(Self.Parent, "getType")) {
+    if (parent_info != .Struct or parent_info.Struct.layout != .Extern or !@hasDecl(Self.Parent, "getGObjectType")) {
         @compileError("the defined parent type " ++ @typeName(Self.Parent) ++ " does not appear to be a GObject class type");
     }
     if (self_info.Struct.fields.len == 0 or self_info.Struct.fields[0].type != Self.Parent) {
@@ -156,7 +156,7 @@ pub fn defineType(comptime Self: type, comptime options: DefineTypeOptions(Self)
     return struct {
         var registered_type: gobject.Type = 0;
 
-        pub fn getType() callconv(.C) gobject.Type {
+        pub fn getGObjectType() callconv(.C) gobject.Type {
             if (glib.Once.initEnter(&registered_type) != 0) {
                 const classInitFunc = struct {
                     fn classInit(class: *Self.Class) callconv(.C) void {
@@ -192,7 +192,7 @@ pub fn defineType(comptime Self: type, comptime options: DefineTypeOptions(Self)
                     }
                     break :blk self_name;
                 };
-                const type_id = gobject.typeRegisterStatic(Self.Parent.getType(), type_name, &info, options.flags);
+                const type_id = gobject.typeRegisterStatic(Self.Parent.getGObjectType(), type_name, &info, options.flags);
                 if (options.private) |private| {
                     private.offset.* = gobject.typeAddInstancePrivate(type_id, @sizeOf(private.Type));
                 }
@@ -200,7 +200,7 @@ pub fn defineType(comptime Self: type, comptime options: DefineTypeOptions(Self)
             }
             return registered_type;
         }
-    }.getType;
+    }.getGObjectType;
 }
 
 pub fn SignalHandler(comptime Itype: type, comptime param_types: []const type, comptime DataType: type, comptime ReturnType: type) type {
@@ -421,7 +421,7 @@ pub fn newInstance(comptime T: type, properties: anytype) *T {
     defer for (&values) |*value| value.unset();
     // TODO: the names parameter should actually be [*][*:0]const u8
     return @ptrCast(@alignCast(gobject.Object.newWithProperties(
-        T.getType(),
+        T.getGObjectType(),
         n_props,
         @as([*][*:0]u8, @ptrCast(&names)),
         &values,
@@ -445,7 +445,7 @@ pub const Value = struct {
         var value: gobject.Value = undefined;
         if (typeInfo == .Pointer and comptime isRegisteredType(typeInfo.Pointer.child)) {
             value = new(T);
-            if (typeInfo.Pointer.child.getType() == gobject.ext.Boxed) {
+            if (typeInfo.Pointer.child.getGObjectType() == gobject.ext.Boxed) {
                 value.setBoxed(contents);
             } else {
                 value.setObject(@as(*gobject.Object, @ptrCast(contents)));
@@ -516,7 +516,7 @@ pub const Value = struct {
     pub fn get(self: *const gobject.Value, comptime T: type) T {
         const typeInfo = @typeInfo(T);
         if (typeInfo == .Pointer and comptime isRegisteredType(typeInfo.Pointer.child)) {
-            if (typeInfo.Pointer.child.getType() == gobject.ext.Boxed) {
+            if (typeInfo.Pointer.child.getGObjectType() == gobject.ext.Boxed) {
                 return @ptrCast(@alignCast(self.getBoxed()));
             } else {
                 return @ptrCast(self.getObject());
@@ -578,5 +578,5 @@ fn isCString(comptime T: type) bool {
 }
 
 fn isRegisteredType(comptime T: type) bool {
-    return std.meta.hasFn(T, "getType") and @TypeOf(T.getType) == fn () callconv(.C) gobject.Type;
+    return std.meta.hasFn(T, "getGObjectType") and @TypeOf(T.getGObjectType) == fn () callconv(.C) gobject.Type;
 }

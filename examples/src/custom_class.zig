@@ -9,7 +9,7 @@ const ExampleApplication = extern struct {
 
     pub const Parent = gtk.Application;
 
-    pub const getType = gobject.ext.defineType(ExampleApplication, .{
+    pub const getGObjectType = gobject.ext.defineType(ExampleApplication, .{
         .classInit = &Class.init,
     });
 
@@ -88,7 +88,7 @@ const ExampleApplicationWindow = extern struct {
         var offset: c_int = 0;
     };
 
-    pub const getType = gobject.ext.defineType(ExampleApplicationWindow, .{
+    pub const getGObjectType = gobject.ext.defineType(ExampleApplicationWindow, .{
         .instanceInit = &init,
         .classInit = &Class.init,
         .private = .{ .Type = Private, .offset = &Private.offset },
@@ -130,7 +130,7 @@ const ExampleApplicationWindow = extern struct {
         fn init(class: *Class) callconv(.C) void {
             // Ensure the ExampleButton type is registered before handling the
             // template
-            _ = ExampleButton.getType();
+            _ = ExampleButton.getGObjectType();
             gtk.ext.WidgetClass.setTemplateFromSlice(class.as(gtk.WidgetClass), template);
             class.bindTemplateChildPrivate("button", .{});
         }
@@ -152,7 +152,7 @@ const ExampleButton = extern struct {
         var offset: c_int = 0;
     };
 
-    pub const getType = gobject.ext.defineType(ExampleButton, .{
+    pub const getGObjectType = gobject.ext.defineType(ExampleButton, .{
         .instanceInit = &init,
         .classInit = &Class.init,
         .private = .{ .Type = Private, .offset = &Private.offset },

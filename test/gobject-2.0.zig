@@ -70,7 +70,7 @@ test "Object subclass" {
             var offset: c_int = 0;
         };
 
-        pub const getType = gobject.ext.defineType(Self, .{
+        pub const getGObjectType = gobject.ext.defineType(Self, .{
             .instanceInit = &init,
             .private = .{ .Type = Private, .offset = &Private.offset },
         });
