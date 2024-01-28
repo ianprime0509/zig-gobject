@@ -23,9 +23,7 @@ pub fn typeMakeFundamental(x: usize) gobject.Type {
 pub fn typeFor(comptime T: type) gobject.Type {
     const typeInfo = @typeInfo(T);
     // Types manually extracted from gtype.h since they don't seem to show up in GIR
-    if (typeInfo == .Pointer and comptime isRegisteredType(typeInfo.Pointer.child)) {
-        return typeInfo.Pointer.child.getGObjectType();
-    } else if (T == void) {
+    if (T == void) {
         return typeMakeFundamental(1);
     } else if (T == i8) {
         return typeMakeFundamental(3);
@@ -51,10 +49,12 @@ pub fn typeFor(comptime T: type) gobject.Type {
         return typeMakeFundamental(15);
     } else if (comptime isCString(T)) {
         return typeMakeFundamental(16);
-    } else if (T == *gobject.ParamSpec) {
+    } else if (typeInfo == .Pointer and comptime isParamSpec(typeInfo.Pointer.child)) {
         return typeMakeFundamental(19);
     } else if (T == *glib.Variant) {
         return typeMakeFundamental(21);
+    } else if (typeInfo == .Pointer and comptime isRegisteredType(typeInfo.Pointer.child)) {
+        return typeInfo.Pointer.child.getGObjectType();
     } else if (typeInfo == .Pointer or (typeInfo == .Optional and @typeInfo(typeInfo.Optional.child) == .Pointer)) {
         return typeMakeFundamental(17);
     } else if (typeInfo == .Enum and typeInfo.Enum.tag_type == c_int) {
@@ -443,14 +443,7 @@ pub const Value = struct {
         const T = @TypeOf(contents);
         const typeInfo = @typeInfo(T);
         var value: gobject.Value = undefined;
-        if (typeInfo == .Pointer and comptime isRegisteredType(typeInfo.Pointer.child)) {
-            value = new(T);
-            if (typeInfo.Pointer.child.getGObjectType() == gobject.ext.Boxed) {
-                value.setBoxed(contents);
-            } else {
-                value.setObject(@as(*gobject.Object, @ptrCast(contents)));
-            }
-        } else if (T == void) {
+        if (T == void) {
             value = new(T);
         } else if (T == i8) {
             value = new(T);
@@ -488,12 +481,19 @@ pub const Value = struct {
         } else if (comptime isCString(T)) {
             value = new(T);
             value.setString(contents);
-        } else if (T == *gobject.ParamSpec) {
+        } else if (typeInfo == .Pointer and comptime isParamSpec(typeInfo.Pointer.child)) {
             value = new(T);
             value.setParam(contents);
         } else if (T == *glib.Variant) {
             value = new(T);
             value.setVariant(contents);
+        } else if (typeInfo == .Pointer and comptime isRegisteredType(typeInfo.Pointer.child)) {
+            value = new(T);
+            if (typeInfo.Pointer.child.getGObjectType() == gobject.ext.Boxed) {
+                value.setBoxed(contents);
+            } else {
+                value.setObject(@as(*gobject.Object, @ptrCast(@alignCast(contents))));
+            }
         } else if (typeInfo == .Pointer or (typeInfo == .Optional and @typeInfo(typeInfo.Optional.child) == .Pointer)) {
             value = new(T);
             value.setPointer(contents);
@@ -515,13 +515,7 @@ pub const Value = struct {
     /// copy/ref/etc. the value if needed beyond the lifetime of the container.
     pub fn get(self: *const gobject.Value, comptime T: type) T {
         const typeInfo = @typeInfo(T);
-        if (typeInfo == .Pointer and comptime isRegisteredType(typeInfo.Pointer.child)) {
-            if (typeInfo.Pointer.child.getGObjectType() == gobject.ext.Boxed) {
-                return @ptrCast(@alignCast(self.getBoxed()));
-            } else {
-                return @ptrCast(self.getObject());
-            }
-        } else if (T == void) {
+        if (T == void) {
             return {};
         } else if (T == i8) {
             return self.getSchar();
@@ -547,10 +541,16 @@ pub const Value = struct {
             // We do not accept all the various string types we accept in the
             // newFrom method here because we are not transferring ownership
             return self.getString();
-        } else if (T == *gobject.ParamSpec) {
-            return self.getParam();
+        } else if (typeInfo == .Pointer and comptime isParamSpec(typeInfo.Pointer.child)) {
+            return @ptrCast(@alignCast(self.getParam()));
         } else if (T == *glib.Variant) {
             return self.getVariant();
+        } else if (typeInfo == .Pointer and comptime isRegisteredType(typeInfo.Pointer.child)) {
+            if (typeInfo.Pointer.child.getGObjectType() == gobject.ext.Boxed) {
+                return @ptrCast(@alignCast(self.getBoxed()));
+            } else {
+                return @ptrCast(@alignCast(self.getObject()));
+            }
         } else if (typeInfo == .Pointer or (typeInfo == .Optional and @typeInfo(typeInfo.Optional.child) == .Pointer)) {
             return @ptrCast(@alignCast(self.getPointer()));
         } else if (typeInfo == .Enum and typeInfo.Enum.tag_type == c_int) {
@@ -575,6 +575,15 @@ fn isCString(comptime T: type) bool {
         },
         else => false,
     };
+}
+
+fn isParamSpec(comptime T: type) bool {
+    comptime var curr_type = T;
+    while (true) {
+        if (curr_type == gobject.ParamSpec) return true;
+        if (!@hasDecl(curr_type, "Parent")) return false;
+        curr_type = curr_type.Parent;
+    }
 }
 
 fn isRegisteredType(comptime T: type) bool {
