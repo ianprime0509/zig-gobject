@@ -27,7 +27,7 @@ pub fn ZigWriter(comptime Writer: type) type {
         /// This is a much simpler implementation than Zig's usual format
         /// function and could use better design and error handling if it's ever
         /// made into its own project.
-        pub fn print(self: Self, comptime fmt: []const u8, args: anytype) Error!void {
+        pub fn print(w: Self, comptime fmt: []const u8, args: anytype) Error!void {
             @setEvalBranchQuota(100_000);
             const arg_fields = @typeInfo(@TypeOf(args)).Struct.fields;
 
@@ -44,7 +44,7 @@ pub fn ZigWriter(comptime Writer: type) type {
                     @compileError("unterminated placeholder");
                 }
                 if (i > start) {
-                    try self.out.writeAll(fmt[start..i]);
+                    try w.out.writeAll(fmt[start..i]);
                 }
 
                 start = i + 2;
@@ -57,24 +57,24 @@ pub fn ZigWriter(comptime Writer: type) type {
                         const arg = @field(args, arg_fields[current_arg].name);
                         const arg_type_info = @typeInfo(@TypeOf(arg));
                         if (arg_type_info == .Pointer and arg_type_info.Pointer.size == .Slice and arg_type_info.Pointer.child == u8) {
-                            try self.out.print("{s}", .{arg});
+                            try w.out.print("{s}", .{arg});
                         } else {
-                            try self.out.print("{}", .{arg});
+                            try w.out.print("{}", .{arg});
                         }
                         current_arg += 1;
                     },
                     'S' => {
                         const arg = @field(args, arg_fields[current_arg].name);
-                        try self.out.print("\"{}\"", .{std.zig.fmtEscapes(arg)});
+                        try w.out.print("\"{}\"", .{std.zig.fmtEscapes(arg)});
                         current_arg += 1;
                     },
                     'I' => {
                         const arg = @field(args, arg_fields[current_arg].name);
                         // zig.fmtId does not escape primitive type names
                         if (std.zig.isValidId(arg) and !std.zig.primitives.isPrimitive(arg)) {
-                            try self.out.print("{s}", .{arg});
+                            try w.out.print("{s}", .{arg});
                         } else {
-                            try self.out.print("@\"{}\"", .{std.zig.fmtEscapes(arg)});
+                            try w.out.print("@\"{}\"", .{std.zig.fmtEscapes(arg)});
                         }
                         current_arg += 1;
                     },
@@ -83,7 +83,7 @@ pub fn ZigWriter(comptime Writer: type) type {
             }
 
             if (i > start) {
-                try self.out.writeAll(fmt[start..i]);
+                try w.out.writeAll(fmt[start..i]);
             }
 
             if (current_arg != arg_fields.len) {

@@ -87,8 +87,8 @@ pub const Repository = struct {
         };
     }
 
-    pub fn deinit(self: *Repository) void {
-        self.arena.deinit();
+    pub fn deinit(repository: *Repository) void {
+        repository.arena.deinit();
     }
 
     fn parseXml(allocator: Allocator, reader: anytype) !Repository {
@@ -381,8 +381,8 @@ pub const Class = struct {
     symbol_prefix: ?[]const u8 = null,
     documentation: ?Documentation = null,
 
-    pub fn isOpaque(self: Class) bool {
-        return self.final or self.layout_elements.len == 0;
+    pub fn isOpaque(class: Class) bool {
+        return class.final or class.layout_elements.len == 0;
     }
 
     fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Class {
@@ -578,14 +578,14 @@ pub const Record = struct {
     symbol_prefix: ?[]const u8 = null,
     documentation: ?Documentation = null,
 
-    pub fn isPointer(self: Record) bool {
+    pub fn isPointer(record: Record) bool {
         // The check on is_gtype_struct_for is a heuristic to avoid
         // mistranslations for class types (which are not typedefed pointers)
-        return self.pointer or (self.disguised and !self.@"opaque" and self.is_gtype_struct_for == null);
+        return record.pointer or (record.disguised and !record.@"opaque" and record.is_gtype_struct_for == null);
     }
 
-    pub fn isOpaque(self: Record) bool {
-        return self.@"opaque" or (self.disguised and !self.pointer) or self.layout_elements.len == 0;
+    pub fn isOpaque(record: Record) bool {
+        return record.@"opaque" or (record.disguised and !record.pointer) or record.layout_elements.len == 0;
     }
 
     fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Record {
@@ -675,8 +675,8 @@ pub const Union = struct {
     symbol_prefix: ?[]const u8 = null,
     documentation: ?Documentation = null,
 
-    pub fn isOpaque(self: Union) bool {
-        return self.layout_elements.len == 0;
+    pub fn isOpaque(@"union": Union) bool {
+        return @"union".layout_elements.len == 0;
     }
 
     fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Union {
@@ -1361,8 +1361,8 @@ pub const Parameter = struct {
     destroy: ?usize = null,
     documentation: ?Documentation = null,
 
-    pub fn isNullable(self: Parameter) bool {
-        return self.allow_none or self.nullable or self.optional;
+    pub fn isNullable(parameter: Parameter) bool {
+        return parameter.allow_none or parameter.nullable or parameter.optional;
     }
 
     fn parseMany(allocator: Allocator, parameters: *std.ArrayList(Parameter), children: anytype, current_ns: []const u8) !void {
@@ -1447,8 +1447,8 @@ pub const ReturnValue = struct {
     nullable: bool = false,
     documentation: ?Documentation = null,
 
-    pub fn isNullable(self: ReturnValue) bool {
-        return self.allow_none or self.nullable;
+    pub fn isNullable(return_value: ReturnValue) bool {
+        return return_value.allow_none or return_value.nullable;
     }
 
     fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !ReturnValue {
