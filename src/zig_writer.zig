@@ -1,6 +1,4 @@
 const std = @import("std");
-const testing = std.testing;
-const zig = std.zig;
 
 pub fn zigWriter(out: anytype) ZigWriter(@TypeOf(out)) {
     return .{ .out = out };
@@ -67,16 +65,16 @@ pub fn ZigWriter(comptime Writer: type) type {
                     },
                     'S' => {
                         const arg = @field(args, arg_fields[current_arg].name);
-                        try self.out.print("\"{}\"", .{zig.fmtEscapes(arg)});
+                        try self.out.print("\"{}\"", .{std.zig.fmtEscapes(arg)});
                         current_arg += 1;
                     },
                     'I' => {
                         const arg = @field(args, arg_fields[current_arg].name);
                         // zig.fmtId does not escape primitive type names
-                        if (zig.isValidId(arg) and !zig.primitives.isPrimitive(arg)) {
+                        if (std.zig.isValidId(arg) and !std.zig.primitives.isPrimitive(arg)) {
                             try self.out.print("{s}", .{arg});
                         } else {
-                            try self.out.print("@\"{}\"", .{zig.fmtEscapes(arg)});
+                            try self.out.print("@\"{}\"", .{std.zig.fmtEscapes(arg)});
                         }
                         current_arg += 1;
                     },
@@ -96,14 +94,14 @@ pub fn ZigWriter(comptime Writer: type) type {
 }
 
 test "print" {
-    var buf = std.ArrayList(u8).init(testing.allocator);
+    var buf = std.ArrayList(u8).init(std.testing.allocator);
     defer buf.deinit();
     var w = zigWriter(buf.writer());
     try w.print("const std = @import($S);\n\n", .{"std"});
     try w.print("pub fn $I() void {\n", .{"main"});
     try w.print("std.debug.print($S, .{$S});\n", .{ "Hello, {}!", "world" });
     try w.print("}\n", .{});
-    try testing.expectEqualStrings(
+    try std.testing.expectEqualStrings(
         \\const std = @import("std");
         \\
         \\pub fn main() void {

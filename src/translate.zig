@@ -1,37 +1,21 @@
 const std = @import("std");
 const zigWriter = @import("zig_writer.zig").zigWriter;
-const ascii = std.ascii;
-const fmt = std.fmt;
-const fs = std.fs;
-const heap = std.heap;
-const io = std.io;
-const math = std.math;
 const mem = std.mem;
-const testing = std.testing;
-const zig = std.zig;
 const Allocator = mem.Allocator;
-const ArrayList = std.ArrayList;
-const ArrayListUnmanaged = std.ArrayListUnmanaged;
-const ArenaAllocator = heap.ArenaAllocator;
-const AutoHashMapUnmanaged = std.AutoHashMapUnmanaged;
-const ComptimeStringMap = std.ComptimeStringMap;
-const HashMapUnmanaged = std.HashMapUnmanaged;
-const StringArrayHashMapUnmanaged = std.StringArrayHashMapUnmanaged;
-const StringHashMapUnmanaged = std.StringHashMapUnmanaged;
 
 const gir = @import("gir.zig");
 
-const RepositoryMap = HashMapUnmanaged(gir.Include, gir.Repository, gir.Include.Context, std.hash_map.default_max_load_percentage);
-const RepositorySet = HashMapUnmanaged(gir.Include, void, gir.Include.Context, std.hash_map.default_max_load_percentage);
+const RepositoryMap = std.HashMap(gir.Include, gir.Repository, gir.Include.Context, std.hash_map.default_max_load_percentage);
+const RepositorySet = std.HashMap(gir.Include, void, gir.Include.Context, std.hash_map.default_max_load_percentage);
 
 const TranslationContext = struct {
-    namespaces: StringHashMapUnmanaged(Namespace),
-    arena: ArenaAllocator,
+    namespaces: std.StringHashMapUnmanaged(Namespace),
+    arena: std.heap.ArenaAllocator,
 
     fn init(allocator: Allocator) TranslationContext {
-        const arena = ArenaAllocator.init(allocator);
+        const arena = std.heap.ArenaAllocator.init(allocator);
         return .{
-            .namespaces = StringHashMapUnmanaged(Namespace){},
+            .namespaces = .{},
             .arena = arena,
         };
     }
@@ -42,17 +26,17 @@ const TranslationContext = struct {
 
     fn addRepositoryAndDependencies(self: *TranslationContext, repository: gir.Repository, repository_map: RepositoryMap) !void {
         const allocator = self.arena.allocator();
-        var seen = RepositorySet{};
-        defer seen.deinit(allocator);
-        var needed_deps = ArrayListUnmanaged(gir.Include){};
-        defer needed_deps.deinit(allocator);
-        try needed_deps.append(allocator, .{ .name = repository.namespace.name, .version = repository.namespace.version });
+        var seen = RepositorySet.init(allocator);
+        defer seen.deinit();
+        var needed_deps = std.ArrayList(gir.Include).init(allocator);
+        defer needed_deps.deinit();
+        try needed_deps.append(.{ .name = repository.namespace.name, .version = repository.namespace.version });
         while (needed_deps.popOrNull()) |needed_dep| {
             if (!seen.contains(needed_dep)) {
-                try seen.put(allocator, needed_dep, {});
+                try seen.put(needed_dep, {});
                 if (repository_map.get(needed_dep)) |dep_repo| {
                     try self.addRepository(dep_repo);
-                    try needed_deps.appendSlice(allocator, dep_repo.includes);
+                    try needed_deps.appendSlice(dep_repo.includes);
                 }
             }
         }
@@ -61,60 +45,60 @@ const TranslationContext = struct {
     fn addRepository(self: *TranslationContext, repository: gir.Repository) !void {
         const allocator = self.arena.allocator();
 
-        var aliases: StringHashMapUnmanaged(gir.Alias) = .{};
+        var aliases = std.StringHashMap(gir.Alias).init(allocator);
         for (repository.namespace.aliases) |alias| {
-            try aliases.put(allocator, alias.name.local, alias);
+            try aliases.put(alias.name.local, alias);
         }
-        var classes: StringHashMapUnmanaged(gir.Class) = .{};
+        var classes = std.StringHashMap(gir.Class).init(allocator);
         for (repository.namespace.classes) |class| {
-            try classes.put(allocator, class.name.local, class);
+            try classes.put(class.name.local, class);
         }
-        var interfaces: StringHashMapUnmanaged(gir.Interface) = .{};
+        var interfaces = std.StringHashMap(gir.Interface).init(allocator);
         for (repository.namespace.interfaces) |interface| {
-            try interfaces.put(allocator, interface.name.local, interface);
+            try interfaces.put(interface.name.local, interface);
         }
-        var records: StringHashMapUnmanaged(gir.Record) = .{};
+        var records = std.StringHashMap(gir.Record).init(allocator);
         for (repository.namespace.records) |record| {
-            try records.put(allocator, record.name.local, record);
+            try records.put(record.name.local, record);
         }
-        var unions: StringHashMapUnmanaged(gir.Union) = .{};
+        var unions = std.StringHashMap(gir.Union).init(allocator);
         for (repository.namespace.unions) |@"union"| {
-            try unions.put(allocator, @"union".name.local, @"union");
+            try unions.put(@"union".name.local, @"union");
         }
-        var bit_fields: StringHashMapUnmanaged(gir.BitField) = .{};
+        var bit_fields = std.StringHashMap(gir.BitField).init(allocator);
         for (repository.namespace.bit_fields) |bit_field| {
-            try bit_fields.put(allocator, bit_field.name.local, bit_field);
+            try bit_fields.put(bit_field.name.local, bit_field);
         }
-        var enums: StringHashMapUnmanaged(gir.Enum) = .{};
+        var enums = std.StringHashMap(gir.Enum).init(allocator);
         for (repository.namespace.enums) |@"enum"| {
-            try enums.put(allocator, @"enum".name.local, @"enum");
+            try enums.put(@"enum".name.local, @"enum");
         }
-        var functions: StringHashMapUnmanaged(gir.Function) = .{};
+        var functions = std.StringHashMap(gir.Function).init(allocator);
         for (repository.namespace.functions) |function| {
-            try functions.put(allocator, function.name, function);
+            try functions.put(function.name, function);
         }
-        var callbacks: StringHashMapUnmanaged(gir.Callback) = .{};
+        var callbacks = std.StringHashMap(gir.Callback).init(allocator);
         for (repository.namespace.callbacks) |callback| {
-            try callbacks.put(allocator, callback.name, callback);
+            try callbacks.put(callback.name, callback);
         }
-        var constants: StringHashMapUnmanaged(gir.Constant) = .{};
+        var constants = std.StringHashMap(gir.Constant).init(allocator);
         for (repository.namespace.constants) |constant| {
-            try constants.put(allocator, constant.name, constant);
+            try constants.put(constant.name, constant);
         }
 
         try self.namespaces.put(allocator, repository.namespace.name, .{
             .name = repository.namespace.name,
             .version = repository.namespace.version,
-            .aliases = aliases,
-            .classes = classes,
-            .interfaces = interfaces,
-            .records = records,
-            .unions = unions,
-            .bit_fields = bit_fields,
-            .enums = enums,
-            .functions = functions,
-            .callbacks = callbacks,
-            .constants = constants,
+            .aliases = aliases.unmanaged,
+            .classes = classes.unmanaged,
+            .interfaces = interfaces.unmanaged,
+            .records = records.unmanaged,
+            .unions = unions.unmanaged,
+            .bit_fields = bit_fields.unmanaged,
+            .enums = enums.unmanaged,
+            .functions = functions.unmanaged,
+            .callbacks = callbacks.unmanaged,
+            .constants = constants.unmanaged,
         });
     }
 
@@ -147,29 +131,29 @@ const TranslationContext = struct {
     const Namespace = struct {
         name: []const u8,
         version: []const u8,
-        aliases: StringHashMapUnmanaged(gir.Alias),
-        classes: StringHashMapUnmanaged(gir.Class),
-        interfaces: StringHashMapUnmanaged(gir.Interface),
-        records: StringHashMapUnmanaged(gir.Record),
-        unions: StringHashMapUnmanaged(gir.Union),
-        bit_fields: StringHashMapUnmanaged(gir.BitField),
-        enums: StringHashMapUnmanaged(gir.Enum),
-        functions: StringHashMapUnmanaged(gir.Function),
-        callbacks: StringHashMapUnmanaged(gir.Callback),
-        constants: StringHashMapUnmanaged(gir.Constant),
+        aliases: std.StringHashMapUnmanaged(gir.Alias),
+        classes: std.StringHashMapUnmanaged(gir.Class),
+        interfaces: std.StringHashMapUnmanaged(gir.Interface),
+        records: std.StringHashMapUnmanaged(gir.Record),
+        unions: std.StringHashMapUnmanaged(gir.Union),
+        bit_fields: std.StringHashMapUnmanaged(gir.BitField),
+        enums: std.StringHashMapUnmanaged(gir.Enum),
+        functions: std.StringHashMapUnmanaged(gir.Function),
+        callbacks: std.StringHashMapUnmanaged(gir.Callback),
+        constants: std.StringHashMapUnmanaged(gir.Constant),
     };
 };
 
-pub const CreateBindingsError = Allocator.Error || fs.File.OpenError || fs.File.WriteError || fs.Dir.CopyFileError || error{
+pub const CreateBindingsError = Allocator.Error || std.fs.File.OpenError || std.fs.File.WriteError || std.fs.Dir.CopyFileError || error{
     FileSystem,
     NotSupported,
 };
 
-pub fn createBindings(allocator: Allocator, repositories: []const gir.Repository, bindings_path: []const fs.Dir, extensions_path: []const fs.Dir, output_dir: fs.Dir) CreateBindingsError!void {
-    var repository_map = RepositoryMap{};
-    defer repository_map.deinit(allocator);
+pub fn createBindings(allocator: Allocator, repositories: []const gir.Repository, bindings_path: []const std.fs.Dir, extensions_path: []const std.fs.Dir, output_dir: std.fs.Dir) CreateBindingsError!void {
+    var repository_map = RepositoryMap.init(allocator);
+    defer repository_map.deinit();
     for (repositories) |repo| {
-        try repository_map.put(allocator, .{ .name = repo.namespace.name, .version = repo.namespace.version }, repo);
+        try repository_map.put(.{ .name = repo.namespace.name, .version = repo.namespace.version }, repo);
     }
 
     for (repositories) |repo| {
@@ -185,7 +169,7 @@ pub fn createBindings(allocator: Allocator, repositories: []const gir.Repository
     }
 }
 
-fn copyBindingsFile(allocator: Allocator, name: []const u8, version: []const u8, bindings_path: []const fs.Dir, output_dir: fs.Dir) !bool {
+fn copyBindingsFile(allocator: Allocator, name: []const u8, version: []const u8, bindings_path: []const std.fs.Dir, output_dir: std.fs.Dir) !bool {
     const bindings_name = try fileNameAlloc(allocator, name, version);
     defer allocator.free(bindings_name);
     for (bindings_path) |bindings_dir| {
@@ -198,7 +182,7 @@ fn copyBindingsFile(allocator: Allocator, name: []const u8, version: []const u8,
     return false;
 }
 
-fn copyExtensionsFile(allocator: Allocator, name: []const u8, version: []const u8, extensions_path: []const fs.Dir, output_dir: fs.Dir) ![]u8 {
+fn copyExtensionsFile(allocator: Allocator, name: []const u8, version: []const u8, extensions_path: []const std.fs.Dir, output_dir: std.fs.Dir) ![]u8 {
     const extensions_name = try extensionsFileNameAlloc(allocator, name, version);
     errdefer allocator.free(extensions_name);
     for (extensions_path) |extensions_dir| {
@@ -213,23 +197,23 @@ fn copyExtensionsFile(allocator: Allocator, name: []const u8, version: []const u
 }
 
 fn extensionsFileNameAlloc(allocator: Allocator, name: []const u8, version: []const u8) ![]u8 {
-    const file_name = try fmt.allocPrint(allocator, "{s}-{s}.ext.zig", .{ name, version });
-    _ = ascii.lowerString(file_name, file_name);
+    const file_name = try std.fmt.allocPrint(allocator, "{s}-{s}.ext.zig", .{ name, version });
+    _ = std.ascii.lowerString(file_name, file_name);
     return file_name;
 }
 
-fn translateRepository(allocator: Allocator, repo: gir.Repository, extensions_path: []const u8, repository_map: RepositoryMap, ctx: TranslationContext, output_dir: fs.Dir) !void {
-    var raw_source = ArrayListUnmanaged(u8){};
-    defer raw_source.deinit(allocator);
-    var out = zigWriter(raw_source.writer(allocator));
+fn translateRepository(allocator: Allocator, repo: gir.Repository, extensions_path: []const u8, repository_map: RepositoryMap, ctx: TranslationContext, output_dir: std.fs.Dir) !void {
+    var raw_source = std.ArrayList(u8).init(allocator);
+    defer raw_source.deinit();
+    var out = zigWriter(raw_source.writer());
 
     try out.print("pub const ext = @import($S);\n", .{extensions_path});
 
     try translateIncludes(allocator, repo.namespace, repository_map, &out);
     try translateNamespace(allocator, repo.namespace, ctx, &out);
 
-    try raw_source.append(allocator, 0);
-    var ast = try zig.Ast.parse(allocator, raw_source.items[0 .. raw_source.items.len - 1 :0], .zig);
+    try raw_source.append(0);
+    var ast = try std.zig.Ast.parse(allocator, raw_source.items[0 .. raw_source.items.len - 1 :0], .zig);
     defer ast.deinit(allocator);
     const fmt_source = try ast.render(allocator);
     defer allocator.free(fmt_source);
@@ -241,45 +225,45 @@ fn translateRepository(allocator: Allocator, repo: gir.Repository, extensions_pa
 fn translateIncludes(allocator: Allocator, ns: gir.Namespace, repository_map: RepositoryMap, out: anytype) !void {
     // Having the current namespace in scope using the same name makes type
     // translation logic simpler (no need to know what namespace we're in)
-    const ns_lower = try ascii.allocLowerString(allocator, ns.name);
+    const ns_lower = try std.ascii.allocLowerString(allocator, ns.name);
     defer allocator.free(ns_lower);
     try out.print("const $I = @This();\n\n", .{ns_lower});
 
     // std is needed for std.builtin.VaList
     try out.print("const std = @import(\"std\");\n", .{});
 
-    var seen = RepositorySet{};
-    defer seen.deinit(allocator);
-    var needed_deps = ArrayListUnmanaged(gir.Include){};
-    defer needed_deps.deinit(allocator);
+    var seen = RepositorySet.init(allocator);
+    defer seen.deinit();
+    var needed_deps = std.ArrayList(gir.Include).init(allocator);
+    defer needed_deps.deinit();
     if (repository_map.get(.{ .name = ns.name, .version = ns.version })) |dep_repo| {
-        try needed_deps.appendSlice(allocator, dep_repo.includes);
+        try needed_deps.appendSlice(dep_repo.includes);
     }
     while (needed_deps.popOrNull()) |needed_dep| {
         if (!seen.contains(needed_dep)) {
             const module_name = try moduleNameAlloc(allocator, needed_dep.name, needed_dep.version);
             defer allocator.free(module_name);
-            const alias = try ascii.allocLowerString(allocator, needed_dep.name);
+            const alias = try std.ascii.allocLowerString(allocator, needed_dep.name);
             defer allocator.free(alias);
             try out.print("const $I = @import($S);\n", .{ alias, module_name });
 
-            try seen.put(allocator, needed_dep, {});
+            try seen.put(needed_dep, {});
             if (repository_map.get(needed_dep)) |dep_repo| {
-                try needed_deps.appendSlice(allocator, dep_repo.includes);
+                try needed_deps.appendSlice(dep_repo.includes);
             }
         }
     }
 }
 
 fn fileNameAlloc(allocator: Allocator, name: []const u8, version: []const u8) ![]u8 {
-    const file_name = try fmt.allocPrint(allocator, "{s}-{s}.zig", .{ name, version });
-    _ = ascii.lowerString(file_name, file_name);
+    const file_name = try std.fmt.allocPrint(allocator, "{s}-{s}.zig", .{ name, version });
+    _ = std.ascii.lowerString(file_name, file_name);
     return file_name;
 }
 
 fn moduleNameAlloc(allocator: Allocator, name: []const u8, version: []const u8) ![]u8 {
-    const module_name = try fmt.allocPrint(allocator, "{s}-{s}", .{ name, version });
-    _ = ascii.lowerString(module_name, module_name);
+    const module_name = try std.fmt.allocPrint(allocator, "{s}-{s}", .{ name, version });
+    _ = std.ascii.lowerString(module_name, module_name);
     return module_name;
 }
 
@@ -846,15 +830,15 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: Transla
     var needs_u64 = false;
     for (bit_field.members) |member| {
         if (member.value > 0) {
-            if (member.value > math.maxInt(u32)) {
+            if (member.value > std.math.maxInt(u32)) {
                 needs_u64 = true;
             }
             const as_u64: u64 = @intCast(member.value);
-            const pos = math.log2_int(u64, as_u64);
+            const pos = std.math.log2_int(u64, as_u64);
             // There are several bit fields who have members declared that are
             // not powers of 2. Those (and all other members) will be translated
             // as constants.
-            if (math.pow(u64, 2, pos) == as_u64) {
+            if (std.math.pow(u64, 2, pos) == as_u64) {
                 // For duplicate field names, only the first name is used
                 if (members[pos] == null) {
                     members[pos] = member;
@@ -883,13 +867,13 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: Transla
     // also need to keep track of duplicate members, since GstVideo-1.0 has
     // multiple members with the same name :thinking:
     // https://gitlab.gnome.org/GNOME/gobject-introspection/-/issues/264
-    var seen = StringHashMapUnmanaged(void){};
-    defer seen.deinit(allocator);
+    var seen = std.StringHashMap(void).init(allocator);
+    defer seen.deinit();
     for (bit_field.members) |member| {
         if (!seen.contains(member.name)) {
             try out.print("const $I: _Self = @bitCast(@as($L, $L));\n", .{ member.name, backing_int, member.value });
         }
-        try seen.put(allocator, member.name, {});
+        try seen.put(member.name, {});
     }
 
     var member_names = std.StringHashMap(void).init(allocator);
@@ -923,16 +907,16 @@ fn translateEnum(allocator: Allocator, @"enum": gir.Enum, ctx: TranslationContex
     // Zig does not allow enums to have multiple fields with the same value, so
     // we must translate any duplicate values as constants referencing the
     // "base" value
-    var seen_values = AutoHashMapUnmanaged(i65, gir.Member){};
-    defer seen_values.deinit(allocator);
-    var duplicate_members = ArrayListUnmanaged(gir.Member){};
-    defer duplicate_members.deinit(allocator);
+    var seen_values = std.AutoHashMap(i65, gir.Member).init(allocator);
+    defer seen_values.deinit();
+    var duplicate_members = std.ArrayList(gir.Member).init(allocator);
+    defer duplicate_members.deinit();
     for (@"enum".members) |member| {
         if (seen_values.get(member.value) == null) {
             try out.print("$I = $L,\n", .{ member.name, member.value });
-            try seen_values.put(allocator, member.value, member);
+            try seen_values.put(member.value, member);
         } else {
-            try duplicate_members.append(allocator, member);
+            try duplicate_members.append(member);
         }
     }
 
@@ -1055,7 +1039,7 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
     var upper_method_name = try toCamelCase(allocator, virtual_method.name, "_");
     defer allocator.free(upper_method_name);
     if (upper_method_name.len > 0) {
-        upper_method_name[0] = ascii.toUpper(upper_method_name[0]);
+        upper_method_name[0] = std.ascii.toUpper(upper_method_name[0]);
     }
 
     try translateDocumentation(virtual_method.documentation, out);
@@ -1078,7 +1062,7 @@ fn translateSignal(allocator: Allocator, signal: gir.Signal, ctx: TranslationCon
     var upper_signal_name = try toCamelCase(allocator, signal.name, "-");
     defer allocator.free(upper_signal_name);
     if (upper_signal_name.len > 0) {
-        upper_signal_name[0] = ascii.toUpper(upper_signal_name[0]);
+        upper_signal_name[0] = std.ascii.toUpper(upper_signal_name[0]);
     }
 
     // normal connection
@@ -1112,7 +1096,7 @@ fn translateConstant(constant: gir.Constant, out: anytype) !void {
 // See also the set of built-in type names in gir.zig. This map contains more
 // entries because it also handles mappings from C types, not just GIR type
 // names.
-const builtins = ComptimeStringMap([]const u8, .{
+const builtins = std.ComptimeStringMap([]const u8, .{
     .{ "gboolean", "c_int" },
     .{ "bool", "bool" },
     .{ "_Bool", "bool" },
@@ -1577,16 +1561,16 @@ const TestTranslateTypeOptions = struct {
 };
 
 fn testTranslateType(expected: []const u8, @"type": gir.Type, options: TestTranslateTypeOptions) !void {
-    var ctx = try options.initTranslationContext(testing.allocator);
+    var ctx = try options.initTranslationContext(std.testing.allocator);
     defer ctx.deinit();
 
-    var buf = ArrayList(u8).init(testing.allocator);
+    var buf = std.ArrayList(u8).init(std.testing.allocator);
     defer buf.deinit();
     var out = zigWriter(buf.writer());
-    try translateType(testing.allocator, @"type", options.options(), ctx, &out);
-    try testing.expectEqualStrings(expected, buf.items);
+    try translateType(std.testing.allocator, @"type", options.options(), ctx, &out);
+    try std.testing.expectEqualStrings(expected, buf.items);
 
-    try testing.expectEqual(options.is_pointer orelse zigTypeIsPointer(expected), typeIsPointer(@"type", options.gobject_context, ctx));
+    try std.testing.expectEqual(options.is_pointer orelse zigTypeIsPointer(expected), typeIsPointer(@"type", options.gobject_context, ctx));
 }
 
 fn arrayTypeIsPointer(@"type": gir.ArrayType, gobject_context: bool, ctx: TranslationContext) bool {
@@ -1786,16 +1770,16 @@ test "translateArrayType" {
 }
 
 fn testTranslateArrayType(expected: []const u8, @"type": gir.ArrayType, options: TestTranslateTypeOptions) !void {
-    var ctx = try options.initTranslationContext(testing.allocator);
+    var ctx = try options.initTranslationContext(std.testing.allocator);
     defer ctx.deinit();
 
-    var buf = ArrayList(u8).init(testing.allocator);
+    var buf = std.ArrayList(u8).init(std.testing.allocator);
     defer buf.deinit();
     var out = zigWriter(buf.writer());
-    try translateArrayType(testing.allocator, @"type", options.options(), ctx, &out);
-    try testing.expectEqualStrings(expected, buf.items);
+    try translateArrayType(std.testing.allocator, @"type", options.options(), ctx, &out);
+    try std.testing.expectEqualStrings(expected, buf.items);
 
-    try testing.expectEqual(options.is_pointer orelse zigTypeIsPointer(expected), arrayTypeIsPointer(@"type", options.gobject_context, ctx));
+    try std.testing.expectEqual(options.is_pointer orelse zigTypeIsPointer(expected), arrayTypeIsPointer(@"type", options.gobject_context, ctx));
 }
 
 fn anyTypeIsPointer(@"type": gir.AnyType, gobject_context: bool, ctx: TranslationContext) bool {
@@ -1890,21 +1874,21 @@ fn translateParameters(allocator: Allocator, parameters: []const gir.Parameter, 
     // GIR does not appear to consider the instance-parameter when numbering
     // parameters for closure metadata
     const param_offset: usize = if (parameters.len > 0 and parameters[0].instance) 1 else 0;
-    var force_nullable = AutoHashMapUnmanaged(usize, void){};
-    defer force_nullable.deinit(allocator);
+    var force_nullable = std.AutoHashMap(usize, void).init(allocator);
+    defer force_nullable.deinit();
     for (parameters) |parameter| {
         // TODO: GIR is pretty bad about using these attributes correctly, so we might want some extra checks
         // See https://gitlab.gnome.org/GNOME/gobject-introspection/-/issues/285
         if (parameter.closure) |closure| {
             const idx = closure + param_offset;
             if (idx < parameters.len and parameterTypeIsPointer(parameters[idx].type, options.gobject_context, ctx)) {
-                try force_nullable.put(allocator, closure + param_offset, {});
+                try force_nullable.put(closure + param_offset, {});
             }
         }
         if (parameter.destroy) |destroy| {
             const idx = destroy + param_offset;
             if (idx < parameters.len and parameterTypeIsPointer(parameters[idx].type, options.gobject_context, ctx)) {
-                try force_nullable.put(allocator, destroy + param_offset, {});
+                try force_nullable.put(destroy + param_offset, {});
             }
         }
     }
@@ -1981,7 +1965,7 @@ fn translateParameterNames(allocator: Allocator, parameters: []const gir.Paramet
 }
 
 fn translateParameterName(allocator: Allocator, parameter_name: []const u8, out: anytype) !void {
-    const translated_name = try fmt.allocPrint(allocator, "p_{s}", .{parameter_name});
+    const translated_name = try std.fmt.allocPrint(allocator, "p_{s}", .{parameter_name});
     defer allocator.free(translated_name);
     try out.print("$I", .{translated_name});
 }
@@ -2017,7 +2001,7 @@ fn translateDocumentation(documentation: ?gir.Documentation, out: anytype) !void
     }
 }
 
-const type_name_escapes = ComptimeStringMap([]const u8, .{
+const type_name_escapes = std.ComptimeStringMap([]const u8, .{
     .{ "Class", "Class_" },
     .{ "Iface", "Iface_" },
     .{ "Parent", "Parent_" },
@@ -2037,15 +2021,15 @@ fn translateName(allocator: Allocator, name: gir.Name, out: anytype) !void {
 
 fn translateNameNs(allocator: Allocator, nameNs: ?[]const u8, out: anytype) !void {
     if (nameNs != null) {
-        const type_ns = try ascii.allocLowerString(allocator, nameNs.?);
+        const type_ns = try std.ascii.allocLowerString(allocator, nameNs.?);
         defer allocator.free(type_ns);
         try out.print("$I.", .{type_ns});
     }
 }
 
 fn toCamelCase(allocator: Allocator, name: []const u8, word_sep: []const u8) ![]u8 {
-    var out = ArrayListUnmanaged(u8){};
-    try out.ensureTotalCapacity(allocator, name.len);
+    var out = std.ArrayList(u8).init(allocator);
+    try out.ensureTotalCapacity(name.len);
     var words = mem.split(u8, name, word_sep);
     var i: usize = 0;
     while (words.next()) |word| {
@@ -2053,7 +2037,7 @@ fn toCamelCase(allocator: Allocator, name: []const u8, word_sep: []const u8) ![]
             if (i == 0) {
                 out.appendSliceAssumeCapacity(word);
             } else {
-                out.appendAssumeCapacity(ascii.toUpper(word[0]));
+                out.appendAssumeCapacity(std.ascii.toUpper(word[0]));
                 out.appendSliceAssumeCapacity(word[1..]);
             }
             i += 1;
@@ -2061,7 +2045,7 @@ fn toCamelCase(allocator: Allocator, name: []const u8, word_sep: []const u8) ![]
             out.appendSliceAssumeCapacity("_");
         }
     }
-    return try out.toOwnedSlice(allocator);
+    return try out.toOwnedSlice();
 }
 
 test "toCamelCase" {
@@ -2076,26 +2060,26 @@ test "toCamelCase" {
 }
 
 fn testToCamelCase(expected: []const u8, input: []const u8, word_sep: []const u8) !void {
-    const actual = try toCamelCase(testing.allocator, input, word_sep);
-    defer testing.allocator.free(actual);
-    try testing.expectEqualStrings(expected, actual);
+    const actual = try toCamelCase(std.testing.allocator, input, word_sep);
+    defer std.testing.allocator.free(actual);
+    try std.testing.expectEqualStrings(expected, actual);
 }
 
-pub const CreateBuildFileError = Allocator.Error || fs.File.OpenError || fs.File.WriteError || error{
+pub const CreateBuildFileError = Allocator.Error || std.fs.File.OpenError || std.fs.File.WriteError || error{
     FileSystem,
     NotSupported,
 };
 
-pub fn createBuildFile(allocator: Allocator, repositories: []const gir.Repository, output_dir: fs.Dir) CreateBuildFileError!void {
-    var repository_map = RepositoryMap{};
-    defer repository_map.deinit(allocator);
+pub fn createBuildFile(allocator: Allocator, repositories: []const gir.Repository, output_dir: std.fs.Dir) CreateBuildFileError!void {
+    var repository_map = RepositoryMap.init(allocator);
+    defer repository_map.deinit();
     for (repositories) |repo| {
-        try repository_map.put(allocator, .{ .name = repo.namespace.name, .version = repo.namespace.version }, repo);
+        try repository_map.put(.{ .name = repo.namespace.name, .version = repo.namespace.version }, repo);
     }
 
-    var raw_source = ArrayListUnmanaged(u8){};
-    defer raw_source.deinit(allocator);
-    var out = zigWriter(raw_source.writer(allocator));
+    var raw_source = std.ArrayList(u8).init(allocator);
+    defer raw_source.deinit();
+    var out = zigWriter(raw_source.writer());
 
     try out.print("const std = @import(\"std\");\n\n", .{});
 
@@ -2129,12 +2113,12 @@ pub fn createBuildFile(allocator: Allocator, repositories: []const gir.Repositor
         const module_name = try moduleNameAlloc(allocator, repo.namespace.name, repo.namespace.version);
         defer allocator.free(module_name);
 
-        var seen = RepositorySet{};
-        defer seen.deinit(allocator);
-        var needed_deps = ArrayListUnmanaged(gir.Include){};
-        defer needed_deps.deinit(allocator);
+        var seen = RepositorySet.init(allocator);
+        defer seen.deinit();
+        var needed_deps = std.ArrayList(gir.Include).init(allocator);
+        defer needed_deps.deinit();
         if (repository_map.get(.{ .name = repo.namespace.name, .version = repo.namespace.version })) |dep_repo| {
-            try needed_deps.appendSlice(allocator, dep_repo.includes);
+            try needed_deps.appendSlice(dep_repo.includes);
         }
         while (needed_deps.popOrNull()) |needed_dep| {
             if (!seen.contains(needed_dep)) {
@@ -2142,9 +2126,9 @@ pub fn createBuildFile(allocator: Allocator, repositories: []const gir.Repositor
                 defer allocator.free(dep_module_name);
                 try out.print("$I.addImport($S, $I);\n", .{ module_name, dep_module_name, dep_module_name });
 
-                try seen.put(allocator, needed_dep, {});
+                try seen.put(needed_dep, {});
                 if (repository_map.get(needed_dep)) |dep_repo| {
-                    try needed_deps.appendSlice(allocator, dep_repo.includes);
+                    try needed_deps.appendSlice(dep_repo.includes);
                 }
             }
         }
@@ -2198,33 +2182,33 @@ pub fn createBuildFile(allocator: Allocator, repositories: []const gir.Repositor
     }
     try out.print("};\n\n", .{});
 
-    try raw_source.append(allocator, 0);
-    var ast = try zig.Ast.parse(allocator, raw_source.items[0 .. raw_source.items.len - 1 :0], .zig);
+    try raw_source.append(0);
+    var ast = try std.zig.Ast.parse(allocator, raw_source.items[0 .. raw_source.items.len - 1 :0], .zig);
     defer ast.deinit(allocator);
     const fmt_source = try ast.render(allocator);
     defer allocator.free(fmt_source);
     try output_dir.writeFile("build.zig", fmt_source);
 }
 
-pub const CreateAbiTestsError = Allocator.Error || fs.File.OpenError || fs.File.WriteError || error{
+pub const CreateAbiTestsError = Allocator.Error || std.fs.File.OpenError || std.fs.File.WriteError || error{
     FileSystem,
     NotSupported,
 };
 
-pub fn createAbiTests(allocator: Allocator, repositories: []const gir.Repository, output_dir: fs.Dir) CreateAbiTestsError!void {
+pub fn createAbiTests(allocator: Allocator, repositories: []const gir.Repository, output_dir: std.fs.Dir) CreateAbiTestsError!void {
     for (repositories) |repo| {
         var output_file = output_file: {
-            const name = try fmt.allocPrint(allocator, "{s}-{s}.abi.zig", .{ repo.namespace.name, repo.namespace.version });
+            const name = try std.fmt.allocPrint(allocator, "{s}-{s}.abi.zig", .{ repo.namespace.name, repo.namespace.version });
             defer allocator.free(name);
-            _ = ascii.lowerString(name, name);
+            _ = std.ascii.lowerString(name, name);
             break :output_file try output_dir.createFile(name, .{});
         };
         defer output_file.close();
-        var bw = io.bufferedWriter(output_file.writer());
+        var bw = std.io.bufferedWriter(output_file.writer());
         var out = zigWriter(bw.writer());
 
         const ns = repo.namespace;
-        const pkg = try ascii.allocLowerString(allocator, ns.name);
+        const pkg = try std.ascii.allocLowerString(allocator, ns.name);
         defer allocator.free(pkg);
 
         try out.print("const c = @cImport({\n", .{});
