@@ -2016,6 +2016,7 @@ pub fn createBuildFile(allocator: Allocator, repositories: []const gir.Repositor
         \\
         \\    /// Links `lib` to `module`.
         \\    pub fn linkTo(lib: Library, module: *std.Build.Module) void {
+        \\        module.link_libc = true;
         \\        for (lib.system_libraries) |system_lib| {
         \\            module.linkSystemLibrary(system_lib, .{});
         \\        }
@@ -2041,6 +2042,32 @@ pub fn createBuildFile(allocator: Allocator, repositories: []const gir.Repositor
         try out.print("};\n\n", .{});
     }
     try out.print("};\n\n", .{});
+
+    // Helper functions
+    try out.print(
+        \\/// Returns a `std.Build.Module` created by compiling the GResources file at `path`.
+        \\///
+        \\/// This requires the `glib-compile-resources` system command to be available.
+        \\pub fn addCompileResources(
+        \\    b: *std.Build,
+        \\    target: std.Build.ResolvedTarget,
+        \\    path: std.Build.LazyPath,
+        \\) *std.Build.Module {
+        \\    const compile_resources = b.addSystemCommand(&.{ "glib-compile-resources", "--generate-source" });
+        \\    compile_resources.addArg("--target");
+        \\    const gresources_c = compile_resources.addOutputFileArg("gresources.c");
+        \\    compile_resources.addArg("--sourcedir");
+        \\    compile_resources.addDirectoryArg(path.dirname());
+        \\    compile_resources.addFileArg(path);
+        \\
+        \\    const module = b.createModule(.{ .target = target });
+        \\    module.addCSourceFile(.{ .file = gresources_c });
+        \\    libraries.@"gio-2.0".linkTo(module);
+        \\    return module;
+        \\}
+        \\
+        \\
+    , .{});
 
     try raw_source.append(0);
     var ast = try std.zig.Ast.parse(allocator, raw_source.items[0 .. raw_source.items.len - 1 :0], .zig);
