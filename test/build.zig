@@ -8,7 +8,8 @@ const modules = [_][]const u8{
     "atspi-2.0",
     "cairo-1.0",
     "dbus-1.0",
-    "dbusglib-1.0",
+    // Can't link within the GNOME 44 SDK
+    // "dbusglib-1.0",
     "fontconfig-2.0",
     "freetype2-2.0",
     "gcab-1.0",
@@ -71,7 +72,7 @@ const modules = [_][]const u8{
     // "gstvulkan-1.0",
     // TODO: Vulkan-1.0.gir is incorrect; all records should have pointer="1"
     // "gstvulkanwayland-1.0",
-    // TODO: can't find the package to install to link this
+    // TODO: Vulkan-1.0.gir is incorrect; all records should have pointer="1"
     // "gstvulkanxcb-1.0",
     "gstwebrtc-1.0",
     "gtk-3.0",
@@ -99,9 +100,9 @@ const modules = [_][]const u8{
     "rsvg-2.0",
     "secret-1",
     "soup-3.0",
-    // TODO: can't find the package to install to link this
-    // "tracker-3.0",
-    "vulkan-1.0",
+    "tracker-3.0",
+    // TODO: Vulkan-1.0.gir is incorrect; all records should have pointer="1"
+    // "vulkan-1.0",
     // TODO: "not enough type information available"
     // "webkit2-4.1",
     // TODO: "not enough type information available"
@@ -128,7 +129,7 @@ const module_options = std.ComptimeStringMap(ModuleOptions, .{
     },
     .{
         "cairo-1.0", .{
-            // TODO: the GIR for image_surface_create is incorrect. Issue #18 will fix this.
+            // TODO: the ABI tests don't work for manually created bindings
             .test_abi = false,
         },
     },
