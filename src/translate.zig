@@ -748,8 +748,7 @@ fn translateEnum(allocator: Allocator, @"enum": gir.Enum, ctx: TranslationContex
             try duplicate_members.append(member);
         }
     }
-
-    try out.print("\n", .{});
+    try out.print("_,\n\n", .{});
 
     for (duplicate_members.items) |member| {
         try out.print("pub const $I = $I.$I;\n", .{ member.name, name, seen_values.get(member.value).?.name });
