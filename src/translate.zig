@@ -1865,6 +1865,7 @@ const type_name_escapes = std.ComptimeStringMap([]const u8, .{
     .{ "Iface", "Iface_" },
     .{ "Parent", "Parent_" },
     .{ "Implements", "Implements_" },
+    .{ "Prerequisites", "Prerequisites_" },
 });
 
 /// Escapes a potentially problematic type name (such as Class) with an
