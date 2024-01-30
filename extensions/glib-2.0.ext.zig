@@ -4,8 +4,7 @@ const std = @import("std");
 pub const Bytes = struct {
     /// Returns a new `Bytes` copying the given slice.
     pub fn newFromSlice(bytes: []const u8) *glib.Bytes {
-        // TODO: the const cast is only needed due to a mistranslation of the array type in new
-        return glib.Bytes.new(@constCast(bytes.ptr), bytes.len);
+        return glib.Bytes.new(bytes.ptr, bytes.len);
     }
 };
 

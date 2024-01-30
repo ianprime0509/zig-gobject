@@ -927,7 +927,6 @@ fn translateSignal(allocator: Allocator, signal: gir.Signal, container_name: []c
     // normal connection
     try translateDocumentation(signal.documentation, out);
     try out.print("pub fn connect$L(p_instance: anytype, comptime P_T: type, p_callback: ", .{upper_signal_name});
-    // TODO: verify that P_T is a pointer type or compatible
     try out.print("*const fn (@TypeOf(p_instance)", .{});
     if (signal.parameters.len > 0) {
         try out.print(", ", .{});
@@ -1168,7 +1167,6 @@ fn translateType(allocator: Allocator, @"type": gir.Type, options: TranslateType
             try out.print("const ", .{});
         }
         // Nullability does not apply recursively.
-        // TODO: how does GIR expect to represent nullability more than one level deep?
         return translateType(allocator, .{ .name = name, .c_type = pointer.element }, .{
             .gobject_context = options.gobject_context,
             .override_name = options.override_name,
@@ -1309,8 +1307,8 @@ test "translateType" {
     // Callback types behave as disguised pointer types
     try testTranslateType("gobject.InstanceInitFunc", .{ .name = .{ .ns = "GObject", .local = "InstanceInitFunc" }, .c_type = "GInstanceInitFunc" }, .{ .is_pointer = true, .callback_names = &.{"GObject.InstanceInitFunc"} });
     try testTranslateType("?gobject.InstanceInitFunc", .{ .name = .{ .ns = "GObject", .local = "InstanceInitFunc" }, .c_type = "GInstanceInitFunc" }, .{ .nullable = true, .is_pointer = true, .callback_names = &.{"GObject.InstanceInitFunc"} });
-    // TODO: why is this not an array type in GIR? This inhibits a good translation here.
-    // See the invalidated_properties parameter in Gio and similar.
+    // See the invalidated_properties parameter in Gio, which is unfortunately
+    // not represented in GIR as an array type, inhibiting a good translation.
     try testTranslateType("*const [*:0]const u8", .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = "const gchar* const*" }, .{});
     try testTranslateType("?*const [*:0]const u8", .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = "const gchar* const*" }, .{ .nullable = true });
     // The C code is written using gpointer as the c_type presumably to make it
@@ -1660,7 +1658,6 @@ const CPointerType = struct {
     element: []const u8,
 };
 
-// TODO: we should probably parse the type more robustly
 fn parseCPointerType(c_type: []const u8) ?CPointerType {
     if (!std.mem.endsWith(u8, c_type, "*")) {
         return null;
@@ -1687,7 +1684,6 @@ const TranslateCallbackOptions = struct {
 };
 
 fn translateCallback(allocator: Allocator, callback: gir.Callback, options: TranslateCallbackOptions, ctx: TranslationContext, out: anytype) !void {
-    // TODO: hard-coded workarounds until https://github.com/ziglang/zig/issues/12325 is fixed
     if (options.named) {
         if (mem.eql(u8, callback.name, "ClosureNotify")) {
             try out.print("pub const ClosureNotify = *const fn (p_data: ?*anyopaque, p_closure: *anyopaque) callconv(.C) void;\n\n", .{});
@@ -1736,8 +1732,9 @@ fn translateParameters(allocator: Allocator, parameters: []const gir.Parameter, 
     var force_nullable = std.AutoHashMap(usize, void).init(allocator);
     defer force_nullable.deinit();
     for (parameters) |parameter| {
-        // TODO: GIR is pretty bad about using these attributes correctly, so we might want some extra checks
-        // See https://gitlab.gnome.org/GNOME/gobject-introspection/-/issues/285
+        // The checks to ensure the referenced type is a pointer are due to the
+        // closure and destroy attributes sometimes being used incorrectly:
+        // https://gitlab.gnome.org/GNOME/gobject-introspection/-/issues/285
         if (parameter.closure) |closure| {
             const idx = closure + param_offset;
             if (idx < parameters.len and parameterTypeIsPointer(parameters[idx].type, options.gobject_context, ctx)) {

@@ -419,13 +419,8 @@ pub fn newInstance(comptime T: type, properties: anytype) *T {
         values[i] = gobject.ext.Value.newFrom(@field(properties, field.name));
     }
     defer for (&values) |*value| value.unset();
-    // TODO: the names parameter should actually be [*][*:0]const u8
-    return @ptrCast(@alignCast(gobject.Object.newWithProperties(
-        T.getGObjectType(),
-        n_props,
-        @as([*][*:0]u8, @ptrCast(&names)),
-        &values,
-    )));
+    const instance = gobject.Object.newWithProperties(T.getGObjectType(), n_props, &names, &values);
+    return @ptrCast(@alignCast(instance));
 }
 
 pub const Value = struct {
