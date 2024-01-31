@@ -31,12 +31,14 @@ use [Flatpak](https://flatpak.org/):
 
 1. Install `flatpak`.
 2. Install the base SDK dependencies:
-   - `flatpak install org.freedesktop.Sdk//22.08`
-   - `flatpak install org.gnome.Sdk//44`
+   - `flatpak install org.freedesktop.Sdk//23.08`
+   - `flatpak install org.gnome.Sdk//45`
 3. Install the Zig master extension for the Freedesktop SDK. This is not (yet)
    available on Flathub, so it must be built and installed manually.
    1. Install `flatpak-builder`.
-   2. Clone https://github.com/ianprime0509/org.freedesktop.Sdk.Extension.ziglang-master
+   2. Clone
+      https://github.com/ianprime0509/org.freedesktop.Sdk.Extension.ziglang-master
+      and use the branch corresponding to the Freedesktop SDK installed above.
    3. Inside the clone, run `flatpak-builder --user --install build-dir org.freedesktop.Sdk.Extension.ziglang-master.yml`.
 
 The steps above only need to be done once per GNOME SDK version. To enter a
@@ -57,14 +59,16 @@ get the full set of required GIR files is to set up a Flatpak development
 environment as described in the previous section. Otherwise, a custom set of
 bindings can be built by running the `zig-gobject` binary directly.
 
-To generate all available bindings using the files under `lib/gir-files`, run
-`zig build codegen`. This will generate bindings to the `bindings` directory,
-which can be used as a dependency (using the Zig package manager) in other
-projects.
+The command `zig build codegen -Dgir-profile=profile` can be used to generate
+bindings for a predefined set of GIR files expected to be present at the path
+specified by `-Dgir-files-path`, or `/usr/share/gir-1.0` if not specified. The
+currently supported profiles are `gnome44` and `gnome45`, with the default being
+`gnome45`. This will generate bindings to the `bindings` directory, which can be
+used as a dependency (using the Zig package manager) in other projects.
 
-The underlying `zig-gobject` binary can be built using `zig build` and run
-directly if more control is required over the source of the bindings (for
-example, to run on a different set of GIR files as input).
+If more control is needed over the source GIR files, `zig build` can be used to
+build the `zig-gobject` binding generator executable, and it can be run directly
+with any set of GIR input files and options.
 
 ## Further reading
 
