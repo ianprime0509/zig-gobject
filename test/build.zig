@@ -77,7 +77,6 @@ const modules = [_][]const u8{
     "gstwebrtc-1.0",
     "gtk-3.0",
     "gtk-4.0",
-    "gtksource-4",
     "gtksource-5",
     "gudev-1.0",
     "handy-1",
