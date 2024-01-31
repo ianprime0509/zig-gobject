@@ -187,8 +187,8 @@ fn addCodegenStep(b: *std.Build, codegen_exe: *std.Build.Step.Compile) !*std.Bui
 
     const codegen_cmd = b.addRunArtifact(codegen_exe);
     codegen_cmd.addArgs(&.{ "--gir-dir", try b.build_root.join(b.allocator, &.{"gir-overrides"}) });
-    codegen_cmd.addArg("--gir-dir");
-    codegen_cmd.addDirectoryArg(b.dependency("gir", .{}).path("."));
+    const gir_files_path = b.option([]const u8, "gir-files-path", "Path to GIR files") orelse "/usr/share/gir-1.0";
+    codegen_cmd.addArgs(&.{ "--gir-dir", gir_files_path });
     codegen_cmd.addArgs(&.{ "--bindings-dir", try b.build_root.join(b.allocator, &.{"binding-overrides"}) });
     codegen_cmd.addArgs(&.{ "--extensions-dir", try b.build_root.join(b.allocator, &.{"extensions"}) });
     codegen_cmd.addArgs(&.{ "--output-dir", try b.build_root.join(b.allocator, &.{"bindings"}) });

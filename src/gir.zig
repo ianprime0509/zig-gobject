@@ -3,16 +3,26 @@ const xml = @import("xml");
 const mem = std.mem;
 const Allocator = mem.Allocator;
 
-pub const FindError = error{ InvalidGir, RepositoryNotFound } || Allocator.Error || std.fs.File.OpenError || std.fs.File.ReadError || error{
-    FileSystem,
-    InputOutput,
-    NotSupported,
-    Unseekable,
+pub const Diagnostics = struct {
+    errors: std.ArrayListUnmanaged([]u8) = .{},
+    allocator: Allocator,
+
+    pub fn deinit(diag: *Diagnostics) void {
+        for (diag.errors.items) |err| diag.allocator.free(err);
+        diag.errors.deinit(diag.allocator);
+        diag.* = undefined;
+    }
+
+    fn add(diag: *Diagnostics, comptime fmt: []const u8, args: anytype) Allocator.Error!void {
+        const formatted = try std.fmt.allocPrint(diag.allocator, fmt, args);
+        errdefer diag.allocator.free(formatted);
+        try diag.errors.append(diag.allocator, formatted);
+    }
 };
 
 /// Finds and parses all repositories for the given root libraries, transitively
 /// including dependencies.
-pub fn findRepositories(allocator: Allocator, gir_path: []const std.fs.Dir, roots: []const Include) FindError![]Repository {
+pub fn findRepositories(allocator: Allocator, gir_path: []const std.fs.Dir, roots: []const Include, diag: *Diagnostics) Allocator.Error![]Repository {
     var repos = std.ArrayHashMap(Include, Repository, Include.ArrayContext, true).init(allocator);
     defer repos.deinit();
     errdefer for (repos.values()) |*repo| repo.deinit();
@@ -22,7 +32,10 @@ pub fn findRepositories(allocator: Allocator, gir_path: []const std.fs.Dir, root
     try needed_repos.appendSlice(roots);
     while (needed_repos.popOrNull()) |needed_repo| {
         if (!repos.contains(needed_repo)) {
-            const repo = try findRepository(allocator, gir_path, needed_repo);
+            const repo = findRepository(allocator, gir_path, needed_repo, diag) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.FindFailed => continue,
+            };
             try repos.put(needed_repo, repo);
             try needed_repos.appendSlice(repo.includes);
         }
@@ -31,19 +44,35 @@ pub fn findRepositories(allocator: Allocator, gir_path: []const std.fs.Dir, root
     return try allocator.dupe(Repository, repos.values());
 }
 
-fn findRepository(allocator: Allocator, gir_path: []const std.fs.Dir, include: Include) !Repository {
+fn findRepository(allocator: Allocator, gir_path: []const std.fs.Dir, include: Include, diag: *Diagnostics) !Repository {
     const repo_path = try std.fmt.allocPrintZ(allocator, "{s}-{s}.gir", .{ include.name, include.version });
     defer allocator.free(repo_path);
+
     for (gir_path) |dir| {
         const file = dir.openFile(repo_path, .{}) catch |err| switch (err) {
             error.FileNotFound => continue,
-            else => |other| return other,
+            else => {
+                try diag.add("failed to open GIR file: {s}: {}", .{ repo_path, err });
+                return error.FindFailed;
+            },
         };
         defer file.close();
         var reader = std.io.bufferedReader(file.reader());
-        return try Repository.parse(allocator, reader.reader());
+        return Repository.parse(allocator, reader.reader()) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.InvalidGir => {
+                try diag.add("failed to parse GIR file: {s}", .{repo_path});
+                return error.FindFailed;
+            },
+            else => {
+                try diag.add("failed to read GIR file: {s}: {}", .{ repo_path, err });
+                return error.FindFailed;
+            },
+        };
     }
-    return error.RepositoryNotFound;
+
+    try diag.add("failed to find GIR file: {s}", .{repo_path});
+    return error.FindFailed;
 }
 
 const ns = struct {

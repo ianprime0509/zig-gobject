@@ -9,10 +9,6 @@
         "build.zig.zon",
     },
     .dependencies = .{
-        .gir = .{
-            .url = "git+https://github.com/ianprime0509/gir-files#d0d06238bc0f1759b450cc7113f8fc3637c6533d",
-            .hash = "1220d03206a277aa5adac91667c7ff7236017fde65c2034bdeec3203cfca09a7152e",
-        },
         .xml = .{
             .url = "git+https://github.com/ianprime0509/zig-xml#5d995ef95bb5796f38bf16c0d4750cba06d86549",
             .hash = "1220d70515390ed942a0864fe3aad2f3b485b3fcb9df07d61dbefea9873373647e33",

@@ -52,6 +52,11 @@ development environment:
 
 ## Running the binding generator
 
+Running the binding generator requires GIR files to process. The easiest way to
+get the full set of required GIR files is to set up a Flatpak development
+environment as described in the previous section. Otherwise, a custom set of
+bindings can be built by running the `zig-gobject` binary directly.
+
 To generate all available bindings using the files under `lib/gir-files`, run
 `zig build codegen`. This will generate bindings to the `bindings` directory,
 which can be used as a dependency (using the Zig package manager) in other

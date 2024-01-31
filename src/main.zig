@@ -122,7 +122,18 @@ pub fn main() Allocator.Error!void {
     var src_out_dir = output_dir.?.makeOpenPath("src", .{}) catch |err| fatal("failed to create output src directory: {}", .{err});
     defer src_out_dir.close();
 
-    const repositories = gir.findRepositories(allocator, gir_path.items, roots.items) catch |err| fatal("failed to discover GIR repositories: {}", .{err});
+    const repositories = repositories: {
+        var diag: gir.Diagnostics = .{ .allocator = allocator };
+        defer diag.deinit();
+        const repositories = try gir.findRepositories(allocator, gir_path.items, roots.items, &diag);
+        if (diag.errors.items.len > 0) {
+            for (diag.errors.items) |err| {
+                log.err("{s}", .{err});
+            }
+            fatal("failed to find and parse GIR repositories", .{});
+        }
+        break :repositories repositories;
+    };
     defer allocator.free(repositories);
     defer for (repositories) |*repository| repository.deinit();
     translate.createBindings(allocator, repositories, bindings_path.items, extensions_path.items, src_out_dir) catch |err| fatal("failed to create bindings: {}", .{err});
