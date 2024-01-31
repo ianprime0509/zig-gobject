@@ -5,15 +5,16 @@ introspection data.
 
 ## Usage
 
-To use the bindings, add the `bindings` branch of this repository to
-`build.zig.zon` and use the `addBindingModule` function exposed by `build.zig`:
+To use the bindings, find the [latest release of this
+project](https://github.com/ianprime0509/zig-gobject/releases) and add the
+desired bindings artifact as a dependency in `build.zig.zon`. Then, the exposed
+bindings can be used as modules. For example:
 
 ```zig
-// exe is the compilation step for your applicaton
-exe.addModule("gtk", zig_gobject.addBindingModule(b, exe, "gtk-4.0"));
+const gobject = b.dependency("gobject", .{});
+exe.root_module.addImport("gtk", gobject.module("gtk-4.0"));
+exe.root_module.addImport("adw", gobject.module("adw-1"));
 ```
-
-There are examples of this pattern in the `examples` and `test` subprojects.
 
 ## Examples
 
