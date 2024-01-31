@@ -350,62 +350,66 @@ pub const impl_helpers = struct {
 /// Safely casts a type or type class instance to an instance of `T`,
 /// emitting a compilation error if the safety of the cast cannot be
 /// guaranteed.
-pub fn as(comptime T: type, self: anytype) *T {
+pub inline fn as(comptime T: type, self: anytype) *T {
     const self_info = @typeInfo(@TypeOf(self));
     if (self_info != .Pointer or self_info.Pointer.size != .One) {
         @compileError("cannot cast a non-pointer type");
     }
-
     const Self = self_info.Pointer.child;
-    if (T == Self) {
-        return self;
+
+    if (isAssignableFrom(T, Self)) {
+        return @ptrCast(@alignCast(self));
     }
 
-    if (@hasDecl(Self, "Instance")) {
-        comptime var curr_type = Self;
-        inline while (@hasDecl(curr_type.Instance, "Parent") and @hasDecl(curr_type.Instance.Parent, "Class")) {
-            curr_type = curr_type.Instance.Parent.Class;
-            if (curr_type == T) {
-                return @ptrCast(@alignCast(self));
+    @compileError(@typeName(Self) ++ " is not guaranteed to be assignable to " ++ @typeName(T));
+}
+
+/// Returns whether `Dest` is assignable from `Src`, that is, if it is
+/// guaranteed to be safe to cast an instance of `Src` to `Dest`.
+pub inline fn isAssignableFrom(comptime Dest: type, comptime Src: type) bool {
+    if (Src == Dest) return true;
+
+    if (@hasDecl(Src, "Instance")) {
+        // This is a class or interface struct type.
+        if (@hasDecl(Src.Instance, "Parent")) {
+            if (@hasDecl(Src.Instance.Parent, "Class")) {
+                return isAssignableFrom(Dest, Src.Instance.Parent.Class);
+            } else if (@hasDecl(Src.Instance.Parent, "Iface")) {
+                return isAssignableFrom(Dest, Src.Instance.Parent.Iface);
+            } else if (Src.Instance.Parent == gobject.TypeInstance) {
+                return Dest == gobject.TypeClass;
             }
         }
-        if (T == gobject.TypeClass) {
-            // TypeClass is not currently linked to TypeInstance via a Class
-            // decl, so it would not be possible to upcast to TypeClass without
-            // this check.
-            return @ptrCast(@alignCast(self));
-        }
-
-        @compileError(@typeName(Self) ++ " is not a subtype of " ++ @typeName(T));
+        return false;
     }
 
-    if (@hasDecl(Self, "Implements")) {
-        inline for (Self.Implements) |implements| {
-            if (implements == T) {
-                return @ptrCast(@alignCast(self));
-            }
+    if (@hasDecl(Src, "Implements")) {
+        inline for (Src.Implements) |Implements| {
+            if (isAssignableFrom(Dest, Implements)) return true;
         }
     }
 
-    comptime var curr_type = Self;
-    inline while (@hasDecl(curr_type, "Parent")) {
-        curr_type = curr_type.Parent;
-        if (curr_type == T) {
-            return @ptrCast(@alignCast(self));
+    if (@hasDecl(Src, "Prerequisites")) {
+        inline for (Src.Prerequisites) |Prerequisite| {
+            if (isAssignableFrom(Dest, Prerequisite)) return true;
         }
     }
 
-    @compileError(@typeName(Self) ++ " is not a subtype of " ++ @typeName(T));
+    if (@hasDecl(Src, "Parent")) {
+        return isAssignableFrom(Dest, Src.Parent);
+    }
+
+    return false;
 }
 
 /// Casts a type instance to another type, or returns null if it is not an instance of the type.
 pub fn cast(comptime T: type, self: anytype) ?*T {
-    return if (as(gobject.TypeInstance, self.isA(T))) @ptrCast(@alignCast(self)) else null;
+    return if (isA(self, T)) @ptrCast(@alignCast(self)) else null;
 }
 
 /// Returns whether a type instance is an instance of the given type or some sub-type.
 pub fn isA(self: anytype, comptime T: type) bool {
-    return gobject.typeCheckInstanceIsA(as(gobject.TypeInstance, self), gobject.ext.typeFor(T));
+    return gobject.typeCheckInstanceIsA(as(gobject.TypeInstance, self), typeFor(*T)) != 0;
 }
 
 /// Creates a new instance of an object type with the given properties.

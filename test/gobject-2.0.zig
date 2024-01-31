@@ -3,11 +3,28 @@ const gobject = @import("gobject");
 const std = @import("std");
 const bindings = @import("bindings.zig");
 const testing = std.testing;
+const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 const expectEqualStrings = testing.expectEqualStrings;
 
 test "bindings" {
     bindings.refAllBindings(gobject);
+}
+
+test "isAssignableFrom" {
+    try expect(gobject.ext.isAssignableFrom(gobject.Object, gobject.Object));
+    try expect(gobject.ext.isAssignableFrom(gobject.TypeInstance, gobject.Object));
+    try expect(!gobject.ext.isAssignableFrom(gobject.Object, gobject.TypeInstance));
+    try expect(gobject.ext.isAssignableFrom(gobject.Object, gobject.InitiallyUnowned));
+    try expect(!gobject.ext.isAssignableFrom(gobject.InitiallyUnowned, gobject.Object));
+    try expect(gobject.ext.isAssignableFrom(gobject.TypeInstance, gobject.InitiallyUnowned));
+    try expect(gobject.ext.isAssignableFrom(gobject.Object, gobject.TypePlugin));
+    try expect(gobject.ext.isAssignableFrom(gobject.Object, gobject.TypeModule));
+    try expect(gobject.ext.isAssignableFrom(gobject.Object.Class, gobject.InitiallyUnowned.Class));
+    try expect(gobject.ext.isAssignableFrom(gobject.TypeClass, gobject.InitiallyUnowned.Class));
+    try expect(!gobject.ext.isAssignableFrom(gobject.Object.Class, gobject.TypeClass));
+    try expect(gobject.ext.isAssignableFrom(gobject.Object.Class, gobject.InitiallyUnowned.Class));
+    try expect(!gobject.ext.isAssignableFrom(gobject.InitiallyUnowned.Class, gobject.Object.Class));
 }
 
 test "Value.new" {
@@ -117,4 +134,6 @@ test "Object subclass" {
     const obj = Subclass.new();
     defer obj.unref();
     try expectEqual(@as(i32, 123), obj.getSomeValue());
+    try expect(gobject.ext.isA(obj, gobject.Object));
+    try expect(gobject.ext.cast(gobject.Object, obj) != null);
 }
