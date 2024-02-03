@@ -1,125 +1,23 @@
 const std = @import("std");
 const gobject_build = @import("gobject");
 
-const modules = [_][]const u8{
-    "adw-1",
-    "appstreamglib-1.0",
-    "atk-1.0",
-    "atspi-2.0",
-    "cairo-1.0",
-    "dbus-1.0",
-    // Can't link within the GNOME 44 SDK
-    // "dbusglib-1.0",
-    "fontconfig-2.0",
-    "freetype2-2.0",
-    "gcab-1.0",
-    // TODO: "not enough type information available"
-    // "gck-1",
-    // TODO: "not enough type information available"
-    // "gck-2",
-    "gcr-3",
-    "gcr-4",
-    "gcrui-3",
-    "gdesktopenums-3.0",
-    "gdk-3.0",
-    "gdk-4.0",
-    "gdkpixbuf-2.0",
-    "gdkpixdata-2.0",
-    "gdkwayland-4.0",
-    "gdkx11-3.0",
-    "gdkx11-4.0",
-    // TODO: the GIR has many issues, including referencing completely undefined
-    // types (HazardPointerNode) and types with the wrong name (FutureMapFunc).
-    // It seems to be generated from Vala rather than C, so maybe that's why.
-    // "gee-0.8",
-    "geoclue-2.0",
-    "gio-2.0",
-    "girepository-2.0",
-    "gl-1.0",
-    "glib-2.0",
-    "gmodule-2.0",
-    "gobject-2.0",
-    "graphene-1.0",
-    "gsk-4.0",
-    // TODO: va_list erroneously marked as nullable
-    //"gst-1.0",
-    "gstallocators-1.0",
-    "gstapp-1.0",
-    "gstaudio-1.0",
-    "gstbadaudio-1.0",
-    "gstbase-1.0",
-    "gstcheck-1.0",
-    // TODO: "not enough type information available"
-    // "gstcodecs-1.0",
-    "gstcontroller-1.0",
-    "gstgl-1.0",
-    "gstglegl-1.0",
-    "gstglwayland-1.0",
-    "gstglx11-1.0",
-    "gstinsertbin-1.0",
-    "gstmpegts-1.0",
-    "gstnet-1.0",
-    "gstpbutils-1.0",
-    "gstplay-1.0",
-    "gstplayer-1.0",
-    "gstrtp-1.0",
-    "gstrtsp-1.0",
-    "gstsdp-1.0",
-    "gsttag-1.0",
-    "gsttranscoder-1.0",
-    "gstvideo-1.0",
-    // TODO: Vulkan-1.0.gir is incorrect; all records should have pointer="1"
-    // "gstvulkan-1.0",
-    // TODO: Vulkan-1.0.gir is incorrect; all records should have pointer="1"
-    // "gstvulkanwayland-1.0",
-    // TODO: Vulkan-1.0.gir is incorrect; all records should have pointer="1"
-    // "gstvulkanxcb-1.0",
-    "gstwebrtc-1.0",
-    "gtk-3.0",
-    "gtk-4.0",
-    "gtksource-5",
-    "gudev-1.0",
-    "handy-1",
-    "harfbuzz-0.0",
-    "ibus-1.0",
-    "javascriptcore-4.1",
-    "javascriptcore-6.0",
-    "json-1.0",
-    "libintl-0.0",
-    "libxml2-2.0",
-    "manette-0.2",
-    "nice-0.1",
-    "notify-0.7",
-    "pango-1.0",
-    "pangocairo-1.0",
-    "pangofc-1.0",
-    "pangoft2-1.0",
-    "pangoot-1.0",
-    "polkit-1.0",
-    "rsvg-2.0",
-    "secret-1",
-    "soup-3.0",
-    "tracker-3.0",
-    // TODO: Vulkan-1.0.gir is incorrect; all records should have pointer="1"
-    // "vulkan-1.0",
-    // TODO: "not enough type information available"
-    // "webkit2-4.1",
-    // TODO: "not enough type information available"
-    // "webkit2webextension-4.1",
-    "webkit-6.0",
-    "webkitwebprocessextension-6.0",
-    "win32-1.0",
-    "xfixes-4.0",
-    "xft-2.0",
-    "xlib-2.0",
-    "xrandr-1.3",
-};
-
 const ModuleOptions = struct {
     test_abi: bool = true,
 };
 
 const module_options = std.ComptimeStringMap(ModuleOptions, .{
+    .{
+        "appstream-1.0", .{
+            // TODO: https://github.com/ianprime0509/zig-gobject/issues/40
+            .test_abi = false,
+        },
+    },
+    .{
+        "appstreamcompose-1.0", .{
+            // TODO: have to define I_KNOW_THE_APPSTREAM_COMPOSE_API_IS_SUBJECT_TO_CHANGE
+            .test_abi = false,
+        },
+    },
     .{
         "atspi-2.0", .{
             // TODO: incorrect translation of time_added field in Application
@@ -129,6 +27,12 @@ const module_options = std.ComptimeStringMap(ModuleOptions, .{
     .{
         "cairo-1.0", .{
             // TODO: the ABI tests don't work for manually created bindings
+            .test_abi = false,
+        },
+    },
+    .{
+        "dex-1", .{
+            // Header file libdex.h not found
             .test_abi = false,
         },
     },
@@ -338,8 +242,220 @@ pub fn build(b: *std.Build) !void {
 
     const test_step = b.step("test", "Run binding tests");
 
-    const test_modules = b.option([]const []const u8, "modules", "Modules to test") orelse &modules;
-    for (test_modules) |module| {
+    const GirProfile = enum { gnome44, gnome45 };
+    const gir_profile = b.option(GirProfile, "gir-profile", "Predefined GIR profile for tests") orelse .gnome45;
+    const test_modules: []const []const u8 = b.option([]const []const u8, "modules", "Modules to test") orelse switch (gir_profile) {
+        .gnome44 => &.{
+            "Adw-1",
+            "AppStreamGlib-1.0",
+            "Atk-1.0",
+            "Atspi-2.0",
+            "cairo-1.0",
+            "DBus-1.0",
+            // "DBusGLib-1.0", // Unable to find system library
+            "fontconfig-2.0",
+            "freetype2-2.0",
+            "GCab-1.0",
+            // "Gck-1", // Not enough type information available to translate
+            // "Gck-2", // Not enough type information available to translate
+            "Gcr-3",
+            "Gcr-4",
+            "GcrUi-3",
+            "GDesktopEnums-3.0",
+            "Gdk-3.0",
+            "Gdk-4.0",
+            "GdkPixbuf-2.0",
+            "GdkPixdata-2.0",
+            "GdkWayland-4.0",
+            "GdkX11-3.0",
+            "GdkX11-4.0",
+            // "Gee-0.8", // Several GIR issues, including referencing undefined types
+            "Geoclue-2.0",
+            "Gio-2.0",
+            "GIRepository-2.0",
+            "GL-1.0",
+            "GLib-2.0",
+            "GModule-2.0",
+            "GObject-2.0",
+            "Graphene-1.0",
+            "Gsk-4.0",
+            // "Gst-1.0", // GIR incorrectly marks va_list as nullable
+            "GstAllocators-1.0",
+            "GstApp-1.0",
+            "GstAudio-1.0",
+            "GstBadAudio-1.0",
+            "GstBase-1.0",
+            "GstCheck-1.0",
+            // "GstCodecs-1.0", // Unable to find system library
+            "GstController-1.0",
+            "GstGL-1.0",
+            "GstGLEGL-1.0",
+            "GstGLWayland-1.0",
+            "GstGLX11-1.0",
+            "GstInsertBin-1.0",
+            "GstMpegts-1.0",
+            "GstNet-1.0",
+            "GstPbutils-1.0",
+            "GstPlay-1.0",
+            "GstPlayer-1.0",
+            "GstRtp-1.0",
+            "GstRtsp-1.0",
+            "GstSdp-1.0",
+            "GstTag-1.0",
+            "GstTranscoder-1.0",
+            "GstVideo-1.0",
+            // "GstVulkan-1.0", // Vulkan GIR is incorrect; all records should have pointer="1"
+            // "GstVulkanWayland-1.0", // Vulkan GIR is incorrect; all records should have pointer="1"
+            // "GstVulkanXCB-1.0", // Vulkan GIR is incorrect; all records should have pointer="1"
+            "GstWebRTC-1.0",
+            "Gtk-3.0",
+            "Gtk-4.0",
+            "GtkSource-4",
+            "GtkSource-5",
+            "GUdev-1.0",
+            "Handy-1",
+            "HarfBuzz-0.0",
+            "IBus-1.0",
+            "JavaScriptCore-4.1",
+            "JavaScriptCore-6.0",
+            "Json-1.0",
+            "libxml2-2.0",
+            "Manette-0.2",
+            "Nice-0.1",
+            "Notify-0.7",
+            "Pango-1.0",
+            "PangoCairo-1.0",
+            "PangoFc-1.0",
+            "PangoFT2-1.0",
+            "PangoOT-1.0",
+            "Polkit-1.0",
+            "Rsvg-2.0",
+            "Secret-1",
+            "Soup-3.0",
+            "Tracker-3.0",
+            "Vulkan-1.0",
+            // "WebKit2-4.1", // Not enough type information available to translate
+            // "WebKit2WebExtension-4.1", // Not enough type information available to translate
+            "WebKit-6.0",
+            "WebKitWebProcessExtension-6.0",
+            "win32-1.0",
+            "xfixes-4.0",
+            "xft-2.0",
+            "xlib-2.0",
+            "xrandr-1.3",
+        },
+        .gnome45 => &.{
+            "Adw-1",
+            "AppStream-1.0",
+            "AppStreamCompose-1.0",
+            "AppStreamGlib-1.0",
+            "Atk-1.0",
+            "Atspi-2.0",
+            "Avahi-0.6",
+            "AvahiCore-0.6",
+            "cairo-1.0",
+            "CudaGst-1.0",
+            "DBus-1.0",
+            // "DBusGLib-1.0", // Unable to find system library
+            "Dex-1",
+            "fontconfig-2.0",
+            "freetype2-2.0",
+            "GCab-1.0",
+            // "Gck-1", // Not enough type information available to translate
+            // "Gck-2", // Not enough type information available to translate
+            "Gcr-3",
+            "Gcr-4",
+            "GcrUi-3",
+            "GDesktopEnums-3.0",
+            "Gdk-3.0",
+            "Gdk-4.0",
+            "GdkPixbuf-2.0",
+            "GdkPixdata-2.0",
+            "GdkWayland-4.0",
+            "GdkX11-3.0",
+            "GdkX11-4.0",
+            // "Gee-0.8", // Several GIR issues, including referencing undefined types
+            "Geoclue-2.0",
+            "Gio-2.0",
+            "GIRepository-2.0",
+            "GL-1.0",
+            "GLib-2.0",
+            "GModule-2.0",
+            // "GObject-2.0", // TODO: https://github.com/ianprime0509/zig-gobject/issues/37
+            "Graphene-1.0",
+            "Gsk-4.0",
+            // "Gst-1.0", // GIR incorrectly marks va_list as nullable
+            "GstAllocators-1.0",
+            "GstApp-1.0",
+            "GstAudio-1.0",
+            "GstBadAudio-1.0",
+            "GstBase-1.0",
+            "GstCheck-1.0",
+            // "GstCodecs-1.0", // Unable to find system library
+            "GstController-1.0",
+            "GstCuda-1.0",
+            // "GstGL-1.0", // TODO: https://github.com/ianprime0509/zig-gobject/issues/36
+            "GstGLEGL-1.0",
+            "GstGLWayland-1.0",
+            "GstGLX11-1.0",
+            "GstInsertBin-1.0",
+            "GstMpegts-1.0",
+            "GstNet-1.0",
+            "GstPbutils-1.0",
+            "GstPlay-1.0",
+            "GstPlayer-1.0",
+            "GstRtp-1.0",
+            "GstRtsp-1.0",
+            "GstSdp-1.0",
+            "GstTag-1.0",
+            "GstTranscoder-1.0",
+            "GstVa-1.0",
+            "GstVideo-1.0",
+            // "GstVulkan-1.0", // Vulkan GIR is incorrect; all records should have pointer="1"
+            // "GstVulkanWayland-1.0", // Vulkan GIR is incorrect; all records should have pointer="1"
+            // "GstVulkanXCB-1.0", // Vulkan GIR is incorrect; all records should have pointer="1"
+            "GstWebRTC-1.0",
+            "Gtk-3.0",
+            "Gtk-4.0",
+            "GtkSource-5",
+            "GUdev-1.0",
+            "Handy-1",
+            "HarfBuzz-0.0",
+            "IBus-1.0",
+            "JavaScriptCore-4.1",
+            "JavaScriptCore-6.0",
+            "Json-1.0",
+            "Libproxy-1.0",
+            "libxml2-2.0",
+            "Manette-0.2",
+            "Nice-0.1",
+            "Notify-0.7",
+            "Pango-1.0",
+            "PangoCairo-1.0",
+            "PangoFc-1.0",
+            "PangoFT2-1.0",
+            "PangoOT-1.0",
+            "Polkit-1.0",
+            "Rsvg-2.0",
+            "Secret-1",
+            "Soup-3.0",
+            "Tracker-3.0",
+            "Vulkan-1.0",
+            // "WebKit2-4.1", // Not enough type information available to translate
+            // "WebKit2WebExtension-4.1", // Not enough type information available to translate
+            "WebKit-6.0",
+            "WebKitWebProcessExtension-6.0",
+            "win32-1.0",
+            "xfixes-4.0",
+            "xft-2.0",
+            "xlib-2.0",
+            "Xmlb-2.0",
+            "xrandr-1.3",
+        },
+    };
+
+    for (test_modules) |test_module| {
+        const module = try std.ascii.allocLowerString(b.allocator, test_module);
         const options = module_options.get(module) orelse ModuleOptions{};
         const dash_index = std.mem.indexOfScalar(u8, module, '-').?;
         const local_name = module[0..dash_index];

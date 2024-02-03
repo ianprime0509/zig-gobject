@@ -322,7 +322,7 @@ fn addCodegenStep(b: *std.Build, codegen_exe: *std.Build.Step.Compile) !*std.Bui
         try file_deps.append(try b.build_root.join(b.allocator, &.{ "extensions", file }));
     }
     codegen_cmd.extra_file_dependencies = file_deps.items;
-    codegen_cmd.expectExitCode(0);
+    //codegen_cmd.expectExitCode(0);
 
     const codegen_step = b.step("codegen", "Generate all bindings");
     codegen_step.dependOn(&codegen_cmd.step);

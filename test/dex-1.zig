@@ -1,6 +1,6 @@
-const gst = @import("gst");
+const dex = @import("dex");
 const bindings = @import("bindings.zig");
 
 test "bindings" {
-    bindings.refAllBindings(gst);
+    bindings.refAllBindings(dex);
 }
