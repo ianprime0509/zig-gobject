@@ -19,9 +19,9 @@ exe.root_module.addImport("adw", gobject.module("adw-1"));
 ## Examples
 
 There are several examples in the `examples` directory, which is itself a
-runnable project (depending on the `bindings` directory as a dependency). To
-ensure the bindings are generated and run the example project launcher, run
-`zig build run-example`.
+runnable project (depending on the `bindings` directory as a dependency). After
+generating the bindings, the examples can be run using `zig build run` in the
+`examples` directory.
 
 ## Development environment
 
@@ -45,10 +45,14 @@ use [Flatpak](https://flatpak.org/):
 The steps above only need to be done once per GNOME SDK version. To enter a
 development environment:
 
-1. Run `flatpak run --filesystem=home --share=network org.gnome.Sdk//44`
-   (the `--filesystem=home` part of the command makes your home directory
-   available within the container, and the `--share=network` part of the command
-   allows network access to fetch dependencies from `build.zig.zon`).
+1. Run `flatpak run --filesystem=home --share=network --share=ipc --socket=fallback-x11 --socket=wayland --device=dri --socket=session-bus org.gnome.Sdk//44`
+   - `--filesystem=home` - makes the user's home directory available within the
+     container
+   - `--share=network` - allows network access (needed to fetch `build.zig.zon`
+     dependencies)
+   - `--share=ipc --socket=fallback-x11 --socket=wayland --device=dri` - allows
+     graphical display through X11 or Wayland
+  - `--socket=session-bus` - allows access to the session bus
 2. Within the spawned shell, run `. /usr/lib/sdk/ziglang-master/enable.sh` to
    add Zig to your `PATH` (don't forget the `.` at the beginning of that
    command).
@@ -64,8 +68,9 @@ The command `zig build codegen -Dgir-profile=profile` can be used to generate
 bindings for a predefined set of GIR files expected to be present at the path
 specified by `-Dgir-files-path`, or `/usr/share/gir-1.0` if not specified. The
 currently supported profiles are `gnome44` and `gnome45`, with the default being
-`gnome45`. This will generate bindings to the `bindings` directory, which can be
-used as a dependency (using the Zig package manager) in other projects.
+`gnome45`. This will generate bindings to the `bindings` directory (within the
+build output prefix, `zig-out` by default), which can be used as a dependency
+(using the Zig package manager) in other projects.
 
 If more control is needed over the source GIR files, `zig build` can be used to
 build the `zig-gobject` binding generator executable, and it can be run directly

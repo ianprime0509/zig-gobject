@@ -26,7 +26,7 @@ pub fn build(b: *std.Build) !void {
     const run_step = b.step("run", "Run the binding generator");
     run_step.dependOn(&run_cmd.step);
 
-    const codegen_step = try addCodegenStep(b, exe);
+    try addCodegenStep(b, exe);
 
     // Tests
     const test_step = b.step("test", "Run all tests");
@@ -42,33 +42,9 @@ pub fn build(b: *std.Build) !void {
     const test_exe_step = b.step("test-exe", "Run tests for the binding generator");
     test_exe_step.dependOn(&b.addRunArtifact(exe_tests).step);
     test_step.dependOn(test_exe_step);
-
-    const skip_binding_tests = b.option(bool, "skip-binding-tests", "Skip tests for generated bindings") orelse false;
-    if (!skip_binding_tests) {
-        const test_bindings_cmd = b.addSystemCommand(&.{ b.zig_exe, "build", "test" });
-        test_bindings_cmd.cwd = .{ .path = "test" };
-        if (b.option([]const []const u8, "binding-test-modules", "Binding modules to test")) |binding_test_modules| {
-            for (binding_test_modules) |module| {
-                test_bindings_cmd.addArg(b.fmt("-Dmodules={s}", .{module}));
-            }
-        }
-        test_bindings_cmd.step.dependOn(codegen_step);
-
-        const test_bindings_step = b.step("test-bindings", "Run binding tests");
-        test_bindings_step.dependOn(&test_bindings_cmd.step);
-        test_step.dependOn(test_bindings_step);
-    }
-
-    // Examples
-    const run_example_cmd = b.addSystemCommand(&.{ b.zig_exe, "build", "run" });
-    run_example_cmd.cwd = .{ .path = "examples" };
-    run_example_cmd.step.dependOn(codegen_step);
-
-    const run_example_step = b.step("run-example", "Run the example launcher");
-    run_example_step.dependOn(&run_example_cmd.step);
 }
 
-fn addCodegenStep(b: *std.Build, codegen_exe: *std.Build.Step.Compile) !*std.Build.Step {
+fn addCodegenStep(b: *std.Build, codegen_exe: *std.Build.Step.Compile) !void {
     const GirProfile = enum { gnome44, gnome45 };
     const gir_profile = b.option(GirProfile, "gir-profile", "Predefined GIR profile for codegen") orelse .gnome45;
     const gir: []const []const u8 = switch (gir_profile) {
@@ -333,5 +309,4 @@ fn addCodegenStep(b: *std.Build, codegen_exe: *std.Build.Step.Compile) !*std.Bui
 
     const codegen_step = b.step("codegen", "Generate all bindings");
     codegen_step.dependOn(&install_bindings.step);
-    return codegen_step;
 }
