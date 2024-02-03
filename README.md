@@ -18,10 +18,10 @@ exe.root_module.addImport("adw", gobject.module("adw-1"));
 
 ## Examples
 
-There are several examples in the `examples` directory, which is itself a
+There are several examples in the `example` directory, which is itself a
 runnable project (depending on the `bindings` directory as a dependency). After
 generating the bindings, the examples can be run using `zig build run` in the
-`examples` directory.
+`example` directory.
 
 ## Development environment
 
