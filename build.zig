@@ -303,7 +303,8 @@ fn addCodegenStep(b: *std.Build, codegen_exe: *std.Build.Step.Compile) !*std.Bui
     codegen_cmd.addArgs(&.{ "--gir-dir", gir_files_path });
     codegen_cmd.addArgs(&.{ "--bindings-dir", try b.build_root.join(b.allocator, &.{"binding-overrides"}) });
     codegen_cmd.addArgs(&.{ "--extensions-dir", try b.build_root.join(b.allocator, &.{"extensions"}) });
-    codegen_cmd.addArgs(&.{ "--output-dir", try b.build_root.join(b.allocator, &.{"bindings"}) });
+    codegen_cmd.addArg("--output-dir");
+    const bindings_dir = codegen_cmd.addOutputFileArg("bindings");
     codegen_cmd.addArgs(&.{ "--abi-test-output-dir", try b.build_root.join(b.allocator, &.{ "test", "abi" }) });
 
     var file_deps = std.ArrayList([]const u8).init(b.allocator);
@@ -322,9 +323,15 @@ fn addCodegenStep(b: *std.Build, codegen_exe: *std.Build.Step.Compile) !*std.Bui
         try file_deps.append(try b.build_root.join(b.allocator, &.{ "extensions", file }));
     }
     codegen_cmd.extra_file_dependencies = file_deps.items;
-    //codegen_cmd.expectExitCode(0);
+    codegen_cmd.expectExitCode(0);
+
+    const install_bindings = b.addInstallDirectory(.{
+        .source_dir = bindings_dir,
+        .install_dir = .prefix,
+        .install_subdir = "bindings",
+    });
 
     const codegen_step = b.step("codegen", "Generate all bindings");
-    codegen_step.dependOn(&codegen_cmd.step);
+    codegen_step.dependOn(&install_bindings.step);
     return codegen_step;
 }
