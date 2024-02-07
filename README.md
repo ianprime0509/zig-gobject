@@ -72,9 +72,13 @@ currently supported profiles are `gnome44` and `gnome45`, with the default being
 build output prefix, `zig-out` by default), which can be used as a dependency
 (using the Zig package manager) in other projects.
 
-If more control is needed over the source GIR files, `zig build` can be used to
-build the `zig-gobject` binding generator executable, and it can be run directly
-with any set of GIR input files and options.
+If an entire profile is not desirable, codegen can be run on a custom set of
+modules by passing `-Dmodules=module` repeatedly rather than using the
+`gir-profile` option.
+
+If even more control is needed over the codegen process, `zig build` can be used
+to build the `zig-gobject` binding generator executable, and it can be run
+directly with any set of GIR input files and options.
 
 ## Further reading
 
