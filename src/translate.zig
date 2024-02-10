@@ -2055,6 +2055,8 @@ pub fn createBuildFile(allocator: Allocator, repositories: []const gir.Repositor
         \\    const gresources_c = compile_resources.addOutputFileArg("gresources.c");
         \\    compile_resources.addArg("--sourcedir");
         \\    compile_resources.addDirectoryArg(path.dirname());
+        \\    compile_resources.addArg("--dependency-file");
+        \\    _ = compile_resources.addDepFileOutputArg("gresources-deps");
         \\    compile_resources.addFileArg(path);
         \\
         \\    const module = b.createModule(.{ .target = target });
