@@ -394,7 +394,7 @@ pub fn build(b: *std.Build) !void {
             // "GstCodecs-1.0", // Unable to find system library
             "GstController-1.0",
             "GstCuda-1.0",
-            // "GstGL-1.0", // TODO: https://github.com/ianprime0509/zig-gobject/issues/36
+            "GstGL-1.0",
             "GstGLEGL-1.0",
             "GstGLWayland-1.0",
             "GstGLX11-1.0",
