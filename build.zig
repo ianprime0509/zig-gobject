@@ -1,7 +1,7 @@
 const std = @import("std");
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
-pub fn build(b: *std.Build) !void {
+pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
@@ -26,7 +26,7 @@ pub fn build(b: *std.Build) !void {
     const run_step = b.step("run", "Run the binding generator");
     run_step.dependOn(&run_cmd.step);
 
-    try addCodegenStep(b, exe);
+    addCodegenStep(b, exe);
 
     // Tests
     const test_step = b.step("test", "Run all tests");
@@ -44,7 +44,7 @@ pub fn build(b: *std.Build) !void {
     test_step.dependOn(test_exe_step);
 }
 
-fn addCodegenStep(b: *std.Build, codegen_exe: *std.Build.Step.Compile) !void {
+fn addCodegenStep(b: *std.Build, codegen_exe: *std.Build.Step.Compile) void {
     const GirProfile = enum { gnome44, gnome45 };
     const gir_profile = b.option(GirProfile, "gir-profile", "Predefined GIR profile for codegen") orelse .gnome45;
     const codegen_modules: []const []const u8 = b.option([]const []const u8, "modules", "Modules to codegen") orelse switch (gir_profile) {
@@ -276,31 +276,28 @@ fn addCodegenStep(b: *std.Build, codegen_exe: *std.Build.Step.Compile) !void {
     });
 
     const codegen_cmd = b.addRunArtifact(codegen_exe);
-    codegen_cmd.addArgs(&.{ "--gir-dir", try b.build_root.join(b.allocator, &.{"gir-overrides"}) });
+    codegen_cmd.addArgs(&.{ "--gir-dir", b.pathFromRoot("gir-overrides") });
     const gir_files_path = b.option([]const u8, "gir-files-path", "Path to GIR files") orelse "/usr/share/gir-1.0";
     codegen_cmd.addArgs(&.{ "--gir-dir", gir_files_path });
-    codegen_cmd.addArgs(&.{ "--bindings-dir", try b.build_root.join(b.allocator, &.{"binding-overrides"}) });
-    codegen_cmd.addArgs(&.{ "--extensions-dir", try b.build_root.join(b.allocator, &.{"extensions"}) });
+    codegen_cmd.addArgs(&.{ "--bindings-dir", b.pathFromRoot("binding-overrides") });
+    codegen_cmd.addArgs(&.{ "--extensions-dir", b.pathFromRoot("extensions") });
     codegen_cmd.addArg("--output-dir");
     const bindings_dir = codegen_cmd.addOutputFileArg("bindings");
-    codegen_cmd.addArgs(&.{ "--abi-test-output-dir", try b.build_root.join(b.allocator, &.{ "test", "abi" }) });
+    codegen_cmd.addArgs(&.{ "--abi-test-output-dir", b.pathFromRoot("test/abi") });
 
     var file_deps = std.ArrayList([]const u8).init(b.allocator);
     for (codegen_modules) |module| {
         codegen_cmd.addArg(module);
-        const file_name = b.fmt("{s}.gir", .{module});
         if (gir_override_modules.has(module)) {
-            try file_deps.append(try b.build_root.join(b.allocator, &.{ "gir-overrides", file_name }));
+            file_deps.append(b.pathFromRoot(b.fmt("gir-overrides/{s}.gir", .{module}))) catch @panic("OOM");
         } else {
-            try file_deps.append(b.pathJoin(&.{ gir_files_path, file_name }));
+            file_deps.append(b.pathJoin(&.{ gir_files_path, b.fmt("{s}.gir", .{module}) })) catch @panic("OOM");
         }
         if (binding_override_modules.has(module)) {
-            const binding_file_name = b.fmt("{s}.zig", .{module});
-            try file_deps.append(try b.build_root.join(b.allocator, &.{ "binding-overrides", binding_file_name }));
+            file_deps.append(b.pathFromRoot(b.fmt("binding-overrides/{s}.zig", .{module}))) catch @panic("OOM");
         }
         if (extension_modules.has(module)) {
-            const extension_file_name = b.fmt("{s}.ext.zig", .{module});
-            try file_deps.append(try b.build_root.join(b.allocator, &.{ "extensions", extension_file_name }));
+            file_deps.append(b.pathFromRoot(b.fmt("extensions/{s}.ext.zig", .{module}))) catch @panic("OOM");
         }
     }
     codegen_cmd.extra_file_dependencies = file_deps.items;
