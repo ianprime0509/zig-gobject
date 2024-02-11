@@ -2488,9 +2488,3 @@ fn containsBitField(layout_elements: []const gir.LayoutElement) bool {
         if (layout_element == .field and layout_element.field.bits != null) break true;
     } else false;
 }
-
-fn containsAnonymousField(layout_elements: []const gir.LayoutElement) bool {
-    return for (layout_elements) |layout_element| {
-        if (layout_element != .field) break true;
-    } else false;
-}
