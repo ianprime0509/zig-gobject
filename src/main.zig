@@ -22,9 +22,9 @@ const usage =
 
 var log_tty_config: std.io.tty.Config = undefined; // Will be initialized immediately in main
 
-pub const std_options = struct {
-    pub const log_level = if (builtin.mode == .Debug) log.Level.debug else log.Level.info;
-    pub const logFn = logImpl;
+pub const std_options: std.Options = .{
+    .log_level = if (builtin.mode == .Debug) log.Level.debug else log.Level.info,
+    .logFn = logImpl,
 };
 
 pub fn logImpl(
