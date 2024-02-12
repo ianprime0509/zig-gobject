@@ -46,8 +46,8 @@ pub fn build(b: *std.Build) void {
 
 fn addCodegenStep(b: *std.Build, codegen_exe: *std.Build.Step.Compile) void {
     const GirProfile = enum { gnome44, gnome45 };
-    const gir_profile = b.option(GirProfile, "gir-profile", "Predefined GIR profile for codegen") orelse .gnome45;
-    const codegen_modules: []const []const u8 = b.option([]const []const u8, "modules", "Modules to codegen") orelse switch (gir_profile) {
+    const gir_profile = b.option(GirProfile, "gir-profile", "Predefined GIR profile for codegen");
+    const codegen_modules: []const []const u8 = b.option([]const []const u8, "modules", "Modules to codegen") orelse if (gir_profile) |profile| switch (profile) {
         .gnome44 => &.{
             "Adw-1",
             "AppStreamGlib-1.0",
@@ -257,7 +257,7 @@ fn addCodegenStep(b: *std.Build, codegen_exe: *std.Build.Step.Compile) void {
             "Xmlb-2.0",
             "xrandr-1.3",
         },
-    };
+    } else @panic("No modules or GIR profile defined to codegen");
 
     const binding_override_modules = std.ComptimeStringMap(void, .{
         .{"cairo-1.0"},
@@ -275,9 +275,30 @@ fn addCodegenStep(b: *std.Build, codegen_exe: *std.Build.Step.Compile) void {
         .{"libintl-0.0"},
     });
 
-    const codegen_cmd = b.addRunArtifact(codegen_exe);
-    codegen_cmd.addArgs(&.{ "--gir-dir", b.pathFromRoot("gir-overrides") });
     const gir_files_path = b.option([]const u8, "gir-files-path", "Path to GIR files") orelse "/usr/share/gir-1.0";
+
+    const codegen_cmd = b.addRunArtifact(codegen_exe);
+
+    // Occasionally, there are unavoidable fixups needed in the upstream GIR
+    // files which cannot (cleanly) be worked around in codegen or by a blanket
+    // GIR override. These fixups result in an output directory which needs to
+    // be prepended to the GIR search path.
+    //
+    // The fixup scripts unfortunately require the xmlstarlet command to be
+    // installed at this time.
+    const fixup_script = b.option([]const u8, "fixup-script", "Path to fixup script") orelse if (gir_profile) |profile|
+        b.pathFromRoot(b.fmt("gir-fixes/{}.sh", .{profile}))
+    else
+        null;
+    if (fixup_script) |script| {
+        const fixup_cmd = b.addSystemCommand(&.{script});
+        fixup_cmd.addArg(gir_files_path);
+        const fixup_out_dir = fixup_cmd.addOutputFileArg("fixups");
+        codegen_cmd.addArg("--gir-dir");
+        codegen_cmd.addDirectoryArg(fixup_out_dir);
+    }
+
+    codegen_cmd.addArgs(&.{ "--gir-dir", b.pathFromRoot("gir-overrides") });
     codegen_cmd.addArgs(&.{ "--gir-dir", gir_files_path });
     codegen_cmd.addArgs(&.{ "--bindings-dir", b.pathFromRoot("binding-overrides") });
     codegen_cmd.addArgs(&.{ "--extensions-dir", b.pathFromRoot("extensions") });
