@@ -59,26 +59,37 @@ development environment:
 
 ## Running the binding generator
 
-Running the binding generator requires GIR files to process. The easiest way to
-get the full set of required GIR files is to set up a Flatpak development
-environment as described in the previous section. Otherwise, a custom set of
-bindings can be built by running the `zig-gobject` binary directly.
+The binding generator can be invoked using `zig build codegen`, which accepts
+several useful options and is described further below, or by building the
+`zig-gobject` binary using `zig build` and invoking it directly.
 
-The command `zig build codegen -Dgir-profile=profile` can be used to generate
-bindings for a predefined set of GIR files expected to be present at the path
-specified by `-Dgir-files-path`, or `/usr/share/gir-1.0` if not specified. The
-currently supported profiles are `gnome44` and `gnome45`, with the default being
-`gnome45`. This will generate bindings to the `bindings` directory (within the
-build output prefix, `zig-out` by default), which can be used as a dependency
-(using the Zig package manager) in other projects.
+`zig build codegen` requires a set of modules to be used as input. The input
+modules can be specified using `-Dmodules` to provide an explicit list of root
+modules for codegen (the codegen process will also discover any necessary
+dependencies): for example, `zig build codegen -Dmodules=Gtk-4.0` will generate
+bindings for GTK 4 and anything else it depends on (Gio, GObject, GLib, and many
+others).
 
-If an entire profile is not desirable, codegen can be run on a custom set of
-modules by passing `-Dmodules=module` repeatedly rather than using the
-`gir-profile` option.
+Alternatively, if a Flatpak development environment is set up (see the section
+above), a predefined GIR profile can be selected using `-Dgir-profile=gnome44`
+or `-Dgir-profile=gnome45`, which includes all the modules available in the
+respective GNOME SDK.
 
-If even more control is needed over the codegen process, `zig build` can be used
-to build the `zig-gobject` binding generator executable, and it can be run
-directly with any set of GIR input files and options.
+GIR files are assumed to be located in `/usr/share/gir-1.0` unless this is
+overridden via `-Dgir-files-path`.
+
+The bindings are generated to the `bindings` directory under the build prefix
+(by default, `zig-out`).
+
+## Running tests
+
+`zig build test` will run the binding generator's tests. If bindings have been
+generated, the `test` project directory contains a package depending on them
+which runs tests on the generated bindings. The `zig build test` command in the
+`test` project accepts the same `modules` and `gir-profile` options as the
+codegen command to specify which modules to test (unlike codegen, the `modules`
+option here specifies a complete list of modules to test: there is no discovery
+and testing of dependency modules).
 
 ## Further reading
 

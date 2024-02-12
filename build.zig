@@ -46,8 +46,8 @@ pub fn build(b: *std.Build) void {
 
 fn addCodegenStep(b: *std.Build, codegen_exe: *std.Build.Step.Compile) void {
     const GirProfile = enum { gnome44, gnome45 };
-    const gir_profile = b.option(GirProfile, "gir-profile", "Predefined GIR profile for codegen") orelse .gnome45;
-    const codegen_modules: []const []const u8 = b.option([]const []const u8, "modules", "Modules to codegen") orelse switch (gir_profile) {
+    const gir_profile = b.option(GirProfile, "gir-profile", "Predefined GIR profile for codegen");
+    const codegen_modules: []const []const u8 = b.option([]const []const u8, "modules", "Modules to codegen") orelse if (gir_profile) |profile| switch (profile) {
         .gnome44 => &.{
             "Adw-1",
             "AppStreamGlib-1.0",
@@ -257,7 +257,7 @@ fn addCodegenStep(b: *std.Build, codegen_exe: *std.Build.Step.Compile) void {
             "Xmlb-2.0",
             "xrandr-1.3",
         },
-    };
+    } else @panic("No modules or GIR profile defined to codegen");
 
     const binding_override_modules = std.ComptimeStringMap(void, .{
         .{"cairo-1.0"},

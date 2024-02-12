@@ -243,8 +243,8 @@ pub fn build(b: *std.Build) !void {
     const test_step = b.step("test", "Run binding tests");
 
     const GirProfile = enum { gnome44, gnome45 };
-    const gir_profile = b.option(GirProfile, "gir-profile", "Predefined GIR profile for tests") orelse .gnome45;
-    const test_modules: []const []const u8 = b.option([]const []const u8, "modules", "Modules to test") orelse switch (gir_profile) {
+    const gir_profile = b.option(GirProfile, "gir-profile", "Predefined GIR profile for tests");
+    const test_modules: []const []const u8 = b.option([]const []const u8, "modules", "Modules to test") orelse if (gir_profile) |profile| switch (profile) {
         .gnome44 => &.{
             "Adw-1",
             "AppStreamGlib-1.0",
@@ -452,7 +452,7 @@ pub fn build(b: *std.Build) !void {
             "Xmlb-2.0",
             "xrandr-1.3",
         },
-    };
+    } else @panic("No modules or GIR profile defined to test");
 
     for (test_modules) |test_module| {
         const module = try std.ascii.allocLowerString(b.allocator, test_module);
