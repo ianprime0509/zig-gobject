@@ -6,6 +6,13 @@ pub const Bytes = struct {
     pub fn newFromSlice(bytes: []const u8) *glib.Bytes {
         return glib.Bytes.new(bytes.ptr, bytes.len);
     }
+
+    /// Returns the byte data in `bytes` as a slice.
+    pub fn getDataSlice(bytes: *glib.Bytes) []const u8 {
+        var size: usize = undefined;
+        const maybe_ptr = bytes.getData(&size);
+        return if (maybe_ptr) |ptr| ptr[0..size] else &.{};
+    }
 };
 
 pub const Variant = struct {
