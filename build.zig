@@ -280,9 +280,11 @@ pub fn build(b: *std.Build) void {
     // XML semantically).
     const gir_fixes: []const []const u8 = b.option([]const []const u8, "gir-fixes", "GIR fixes to apply") orelse if (gir_profile) |profile| switch (profile) {
         .gnome44 => &.{
+            fix(b, "AppStream-1.0", "common"),
             fix(b, "freetype2-2.0", "common"),
         },
         .gnome45 => &.{
+            fix(b, "AppStream-1.0", "common"),
             fix(b, "freetype2-2.0", "common"),
             fix(b, "GObject-2.0", "gnome45"),
         },

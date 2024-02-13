@@ -12,19 +12,10 @@
     </xsl:copy>
   </xsl:template>
 
-  <xsl:template match="core:alias[@name='Int32']">
-    <!-- https://github.com/ianprime0509/zig-gobject/issues/44 -->
+  <xsl:template match="core:bitfield[@name='SearchTokenMatch']">
+    <!-- https://github.com/ianprime0509/zig-gobject/issues/47 -->
     <xsl:copy>
-      <xsl:copy-of select="@*" />
-
-      <type name="gint32" c:type="gint32" />
-    </xsl:copy>
-  </xsl:template>
-
-  <xsl:template match="core:record[@name='Face'] | core:record[@name='Library']">
-    <!-- https://github.com/ianprime0509/zig-gobject/issues/45 -->
-    <xsl:copy>
-      <xsl:attribute name="pointer">1</xsl:attribute>
+      <xsl:attribute name="bits">16</xsl:attribute>
 
       <xsl:copy-of select="@* | node()" />
     </xsl:copy>

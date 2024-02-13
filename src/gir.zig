@@ -781,8 +781,7 @@ pub const LayoutElement = union(enum) {
 pub const Field = struct {
     name: []const u8,
     type: FieldType,
-    // I haven't seen GIR go above 32 bits, but Zig supports up to u65535 😎
-    bits: ?u16,
+    bits: ?u16 = null,
     documentation: ?Documentation = null,
 
     fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Field {
@@ -877,6 +876,8 @@ pub const AnonymousUnion = struct {
 pub const BitField = struct {
     name: Name,
     c_type: ?[]const u8 = null,
+    /// Extension: the number of bits in the integer type backing the bit field.
+    bits: ?u16 = null,
     members: []const Member,
     functions: []const Function = &.{},
     get_type: ?[]const u8 = null,
@@ -885,6 +886,7 @@ pub const BitField = struct {
     fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !BitField {
         var name: ?Name = null;
         var c_type: ?[]const u8 = null;
+        var bits: ?u16 = null;
         var members = std.ArrayList(Member).init(allocator);
         var functions = std.ArrayList(Function).init(allocator);
         var get_type: ?[]const u8 = null;
@@ -895,6 +897,8 @@ pub const BitField = struct {
                 name = try Name.parse(allocator, attr.value, current_ns);
             } else if (attr.name.is(ns.c, "type")) {
                 c_type = try allocator.dupe(u8, attr.value);
+            } else if (attr.name.is(null, "bits")) {
+                bits = std.fmt.parseInt(u16, attr.value, 10) catch return error.InvalidGir;
             } else if (attr.name.is(ns.glib, "get-type")) {
                 get_type = try allocator.dupe(u8, attr.value);
             }
@@ -918,6 +922,7 @@ pub const BitField = struct {
         return .{
             .name = name orelse return error.InvalidGir,
             .c_type = c_type,
+            .bits = bits,
             .members = try members.toOwnedSlice(),
             .functions = try functions.toOwnedSlice(),
             .get_type = get_type,
@@ -929,6 +934,8 @@ pub const BitField = struct {
 pub const Enum = struct {
     name: Name,
     c_type: ?[]const u8 = null,
+    /// Extension: the number of bits in the integer type backing the enum.
+    bits: ?u16 = null,
     members: []const Member = &.{},
     functions: []const Function = &.{},
     get_type: ?[]const u8 = null,
@@ -937,6 +944,7 @@ pub const Enum = struct {
     fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Enum {
         var name: ?Name = null;
         var c_type: ?[]const u8 = null;
+        var bits: ?u16 = null;
         var members = std.ArrayList(Member).init(allocator);
         var functions = std.ArrayList(Function).init(allocator);
         var get_type: ?[]const u8 = null;
@@ -947,6 +955,8 @@ pub const Enum = struct {
                 name = try Name.parse(allocator, attr.value, current_ns);
             } else if (attr.name.is(ns.c, "type")) {
                 c_type = try allocator.dupe(u8, attr.value);
+            } else if (attr.name.is(null, "bits")) {
+                bits = std.fmt.parseInt(u16, attr.value, 10) catch return error.InvalidGir;
             } else if (attr.name.is(ns.glib, "get-type")) {
                 get_type = try allocator.dupe(u8, attr.value);
             }
@@ -970,6 +980,7 @@ pub const Enum = struct {
         return .{
             .name = name orelse return error.InvalidGir,
             .c_type = c_type,
+            .bits = bits,
             .members = try members.toOwnedSlice(),
             .functions = try functions.toOwnedSlice(),
             .get_type = get_type,

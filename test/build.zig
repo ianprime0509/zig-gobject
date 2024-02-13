@@ -7,12 +7,6 @@ const ModuleOptions = struct {
 
 const module_options = std.ComptimeStringMap(ModuleOptions, .{
     .{
-        "appstream-1.0", .{
-            // TODO: https://github.com/ianprime0509/zig-gobject/issues/40
-            .test_abi = false,
-        },
-    },
-    .{
         "appstreamcompose-1.0", .{
             // TODO: have to define I_KNOW_THE_APPSTREAM_COMPOSE_API_IS_SUBJECT_TO_CHANGE
             .test_abi = false,

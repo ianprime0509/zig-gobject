@@ -699,7 +699,14 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: Transla
             }
         }
     }
-    const backing_int = if (needs_u64) "u64" else "c_uint";
+
+    var backing_int_buf: [16]u8 = undefined;
+    const backing_int, const backing_int_bits = if (bit_field.bits) |bits|
+        .{ std.fmt.bufPrint(&backing_int_buf, "u{}", .{bits}) catch unreachable, bits }
+    else if (needs_u64)
+        .{ "u64", 64 }
+    else
+        .{ "c_uint", 32 };
 
     try translateDocumentation(bit_field.documentation, out);
     const name = escapeTypeName(bit_field.name.local);
@@ -707,7 +714,7 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: Transla
     for (members, 0..) |maybe_member, i| {
         if (maybe_member) |member| {
             try out.print("$I: bool = false,\n", .{member.name});
-        } else if (needs_u64 or i < 32) {
+        } else if (i < backing_int_bits) {
             try out.print("_padding$L: bool = false,\n", .{i});
         }
     }
@@ -744,7 +751,14 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: Transla
 fn translateEnum(allocator: Allocator, @"enum": gir.Enum, ctx: TranslationContext, out: anytype) !void {
     try translateDocumentation(@"enum".documentation, out);
     const name = escapeTypeName(@"enum".name.local);
-    try out.print("pub const $I = enum(c_int) {\n", .{name});
+
+    var backing_int_buf: [16]u8 = undefined;
+    const backing_int = if (@"enum".bits) |bits|
+        std.fmt.bufPrint(&backing_int_buf, "u{}", .{bits}) catch unreachable
+    else
+        "c_int";
+
+    try out.print("pub const $I = enum($L) {\n", .{ name, backing_int });
 
     // Zig does not allow enums to have multiple fields with the same value, so
     // we must translate any duplicate values as constants referencing the
