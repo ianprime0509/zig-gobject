@@ -260,7 +260,6 @@ pub fn build(b: *std.Build) void {
     });
 
     const gir_override_modules = std.ComptimeStringMap(void, .{
-        .{"freetype2-2.0"},
         .{"libintl-0.0"},
     });
 
@@ -280,8 +279,13 @@ pub fn build(b: *std.Build) void {
     // using XSLT (deemed the most straightforward and complete way to transform
     // XML semantically).
     const gir_fixes: []const []const u8 = b.option([]const []const u8, "gir-fixes", "GIR fixes to apply") orelse if (gir_profile) |profile| switch (profile) {
-        .gnome44 => &.{},
-        .gnome45 => &.{b.fmt("GObject-2.0={s}", .{b.pathFromRoot("gir-fixes/gnome45/GObject-2.0.xslt")})},
+        .gnome44 => &.{
+            fix(b, "freetype2-2.0", "common"),
+        },
+        .gnome45 => &.{
+            fix(b, "freetype2-2.0", "common"),
+            fix(b, "GObject-2.0", "gnome45"),
+        },
     } else &.{};
     if (gir_fixes.len > 0) gir_fixes: {
         const xslt = b.lazyDependency("xslt", .{
@@ -346,4 +350,9 @@ pub fn build(b: *std.Build) void {
 
     const codegen_step = b.step("codegen", "Generate all bindings");
     codegen_step.dependOn(&install_bindings.step);
+}
+
+fn fix(b: *std.Build, module: []const u8, category: []const u8) []const u8 {
+    const path = b.pathFromRoot(b.fmt("gir-fixes/{s}/{s}.xslt", .{ category, module }));
+    return b.fmt("{s}={s}", .{ module, path });
 }
