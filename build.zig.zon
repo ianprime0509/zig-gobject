@@ -13,5 +13,10 @@
             .url = "git+https://github.com/ianprime0509/zig-xml#5d995ef95bb5796f38bf16c0d4750cba06d86549",
             .hash = "1220d70515390ed942a0864fe3aad2f3b485b3fcb9df07d61dbefea9873373647e33",
         },
+        .xslt = .{
+            .url = "git+https://github.com/ianprime0509/zig-build-libxslt#5e2c2c675174f6393f7caf222ff545efefaaa2d5",
+            .hash = "12207966d5c5c9b0cdee2eb1cff961db383ac6cfe036ac6c1cc758e01c71b451916c",
+            .lazy = true,
+        },
     },
 }

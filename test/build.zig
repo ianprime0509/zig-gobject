@@ -381,7 +381,7 @@ pub fn build(b: *std.Build) !void {
             "GL-1.0",
             "GLib-2.0",
             "GModule-2.0",
-            // "GObject-2.0", // TODO: https://github.com/ianprime0509/zig-gobject/issues/37
+            "GObject-2.0",
             "Graphene-1.0",
             "Gsk-4.0",
             // "Gst-1.0", // GIR incorrectly marks va_list as nullable

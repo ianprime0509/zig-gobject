@@ -81,6 +81,33 @@ overridden via `-Dgir-files-path`.
 The bindings are generated to the `bindings` directory under the build prefix
 (by default, `zig-out`).
 
+### Fixing broken GIR files
+
+Sometimes, there are errors in GIR files which result in incorrect or incomplete
+bindings. One approach to such errors is to completely rewrite the underlying
+GIR file; there are some examples of this in `gir-overrides`. For larger GIR
+files, however, this is not feasible, as copying the entire GIR file and
+manually editing it would make it very difficult to maintain over time. The
+codegen process handles this by allowing GIR files to be transformed at build
+time using XSLT: providing the `-Dgir-fixes=module=transform.xslt` will cause
+the GIR for `module` to be transformed using `transform.xslt` prior to codegen.
+This transformation is not destructive: it writes the transformed GIR to a
+temporary directory and prepends the directory to the GIR search path.
+
+Fixes for known GIR issues are maintained in `gir-fixes`.
+
+### Writing bindings by hand
+
+While the binding generator is capable of generating good bindings from GIR
+input, it is sometimes necessary or desirable to bypass GIR for everything
+except build-related metadata (library dependencies, etc.) and write Zig
+bindings by hand. This is the strategy taken for Cairo, using the Cairo bindings
+in `binding-overrides`.
+
+Any manual binding files present in `binding-overrides` will cause codegen of
+bindings to be skipped for the corresponding modules, using the manual bindings
+instead.
+
 ## Running tests
 
 `zig build test` will run the binding generator's tests. If bindings have been

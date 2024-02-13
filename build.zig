@@ -26,8 +26,6 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the binding generator");
     run_step.dependOn(&run_cmd.step);
 
-    addCodegenStep(b, exe);
-
     // Tests
     const test_step = b.step("test", "Run all tests");
 
@@ -42,9 +40,7 @@ pub fn build(b: *std.Build) void {
     const test_exe_step = b.step("test-exe", "Run tests for the binding generator");
     test_exe_step.dependOn(&b.addRunArtifact(exe_tests).step);
     test_step.dependOn(test_exe_step);
-}
 
-fn addCodegenStep(b: *std.Build, codegen_exe: *std.Build.Step.Compile) void {
     const GirProfile = enum { gnome44, gnome45 };
     const gir_profile = b.option(GirProfile, "gir-profile", "Predefined GIR profile for codegen");
     const codegen_modules: []const []const u8 = b.option([]const []const u8, "modules", "Modules to codegen") orelse if (gir_profile) |profile| switch (profile) {
@@ -275,9 +271,48 @@ fn addCodegenStep(b: *std.Build, codegen_exe: *std.Build.Step.Compile) void {
         .{"libintl-0.0"},
     });
 
-    const codegen_cmd = b.addRunArtifact(codegen_exe);
-    codegen_cmd.addArgs(&.{ "--gir-dir", b.pathFromRoot("gir-overrides") });
     const gir_files_path = b.option([]const u8, "gir-files-path", "Path to GIR files") orelse "/usr/share/gir-1.0";
+
+    const codegen_cmd = b.addRunArtifact(exe);
+
+    // GIR fixes are handled by prepending a directory containing all the fixed
+    // GIRs to the search path. Fixed GIRs are produced from their originals
+    // using XSLT (deemed the most straightforward and complete way to transform
+    // XML semantically).
+    const gir_fixes: []const []const u8 = b.option([]const []const u8, "gir-fixes", "GIR fixes to apply") orelse if (gir_profile) |profile| switch (profile) {
+        .gnome44 => &.{},
+        .gnome45 => &.{b.fmt("GObject-2.0={s}", .{b.pathFromRoot("gir-fixes/gnome45/GObject-2.0.xslt")})},
+    } else &.{};
+    if (gir_fixes.len > 0) gir_fixes: {
+        const xslt = b.lazyDependency("xslt", .{
+            .target = target,
+            .optimize = optimize,
+        }) orelse break :gir_fixes;
+        const xsltproc = xslt.artifact("xsltproc");
+        const fixed_files = b.addWriteFiles();
+
+        for (gir_fixes) |gir_fix| {
+            const sep_pos = std.mem.indexOfScalar(u8, gir_fix, '=') orelse @panic("Invalid GIR fix provided (format: module=xslt-path)");
+            const target_gir = b.fmt("{s}.gir", .{gir_fix[0..sep_pos]});
+            const source_gir_path = b.pathJoin(&.{ gir_files_path, target_gir });
+            const xslt_path = gir_fix[sep_pos + 1 ..];
+
+            const run_xsltproc = b.addRunArtifact(xsltproc);
+            run_xsltproc.addArg("-o");
+            const output_gir = run_xsltproc.addOutputFileArg("gir-fix");
+            run_xsltproc.addArg(xslt_path);
+            run_xsltproc.addArg(source_gir_path);
+            run_xsltproc.extra_file_dependencies = b.dupeStrings(&.{ xslt_path, source_gir_path });
+            run_xsltproc.expectExitCode(0);
+
+            _ = fixed_files.addCopyFile(output_gir, target_gir);
+        }
+
+        codegen_cmd.addArg("--gir-dir");
+        codegen_cmd.addDirectoryArg(fixed_files.getDirectory());
+    }
+
+    codegen_cmd.addArgs(&.{ "--gir-dir", b.pathFromRoot("gir-overrides") });
     codegen_cmd.addArgs(&.{ "--gir-dir", gir_files_path });
     codegen_cmd.addArgs(&.{ "--bindings-dir", b.pathFromRoot("binding-overrides") });
     codegen_cmd.addArgs(&.{ "--extensions-dir", b.pathFromRoot("extensions") });
