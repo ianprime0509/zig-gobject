@@ -16,6 +16,11 @@ exe.root_module.addImport("gtk", gobject.module("gtk-4.0"));
 exe.root_module.addImport("adw", gobject.module("adw-1"));
 ```
 
+## Companion projects
+
+- [zig-libintl](https://github.com/ianprime0509/zig-libintl) - libintl bindings
+  for Zig, which provide `gettext` functions for internationalization.
+
 ## Examples
 
 There are several examples in the `example` directory, which is itself a
@@ -84,15 +89,12 @@ The bindings are generated to the `bindings` directory under the build prefix
 ### Fixing broken GIR files
 
 Sometimes, there are errors in GIR files which result in incorrect or incomplete
-bindings. One approach to such errors is to completely rewrite the underlying
-GIR file; there are some examples of this in `gir-overrides`. For larger GIR
-files, however, this is not feasible, as copying the entire GIR file and
-manually editing it would make it very difficult to maintain over time. The
-codegen process handles this by allowing GIR files to be transformed at build
-time using XSLT: providing the `-Dgir-fixes=module=transform.xslt` will cause
-the GIR for `module` to be transformed using `transform.xslt` prior to codegen.
-This transformation is not destructive: it writes the transformed GIR to a
-temporary directory and prepends the directory to the GIR search path.
+bindings. The codegen process handles this by allowing GIR files to be
+transformed at build time using XSLT: providing the
+`-Dgir-fixes=module=transform.xslt` will cause the GIR for `module` to be
+transformed using `transform.xslt` prior to codegen.  This transformation is not
+destructive: it writes the transformed GIR to a temporary directory and prepends
+the directory to the GIR search path.
 
 Fixes for known GIR issues are maintained in `gir-fixes`.
 

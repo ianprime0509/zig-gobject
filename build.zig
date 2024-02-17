@@ -118,7 +118,6 @@ pub fn build(b: *std.Build) void {
             "JavaScriptCore-4.1",
             "JavaScriptCore-6.0",
             "Json-1.0",
-            "libintl-0.0",
             "libxml2-2.0",
             "Manette-0.2",
             "Nice-0.1",
@@ -226,7 +225,6 @@ pub fn build(b: *std.Build) void {
             "JavaScriptCore-6.0",
             "Json-1.0",
             "Libproxy-1.0",
-            "libintl-0.0",
             "libxml2-2.0",
             "Manette-0.2",
             "Nice-0.1",
@@ -259,15 +257,10 @@ pub fn build(b: *std.Build) void {
         .{"cairo-1.0"},
     });
 
-    const gir_override_modules = std.ComptimeStringMap(void, .{
-        .{"libintl-0.0"},
-    });
-
     const extension_modules = std.ComptimeStringMap(void, .{
         .{"glib-2.0"},
         .{"gtk-4.0"},
         .{"gobject-2.0"},
-        .{"libintl-0.0"},
     });
 
     const gir_files_path = b.option([]const u8, "gir-files-path", "Path to GIR files") orelse "/usr/share/gir-1.0";
@@ -317,7 +310,6 @@ pub fn build(b: *std.Build) void {
         codegen_cmd.addDirectoryArg(fixed_files.getDirectory());
     }
 
-    codegen_cmd.addArgs(&.{ "--gir-dir", b.pathFromRoot("gir-overrides") });
     codegen_cmd.addArgs(&.{ "--gir-dir", gir_files_path });
     codegen_cmd.addArgs(&.{ "--bindings-dir", b.pathFromRoot("binding-overrides") });
     codegen_cmd.addArgs(&.{ "--extensions-dir", b.pathFromRoot("extensions") });
@@ -328,11 +320,7 @@ pub fn build(b: *std.Build) void {
     var file_deps = std.ArrayList([]const u8).init(b.allocator);
     for (codegen_modules) |module| {
         codegen_cmd.addArg(module);
-        if (gir_override_modules.has(module)) {
-            file_deps.append(b.pathFromRoot(b.fmt("gir-overrides/{s}.gir", .{module}))) catch @panic("OOM");
-        } else {
-            file_deps.append(b.pathJoin(&.{ gir_files_path, b.fmt("{s}.gir", .{module}) })) catch @panic("OOM");
-        }
+        file_deps.append(b.pathJoin(&.{ gir_files_path, b.fmt("{s}.gir", .{module}) })) catch @panic("OOM");
         if (binding_override_modules.has(module)) {
             file_deps.append(b.pathFromRoot(b.fmt("binding-overrides/{s}.zig", .{module}))) catch @panic("OOM");
         }
