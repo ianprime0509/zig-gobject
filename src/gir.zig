@@ -2,27 +2,16 @@ const std = @import("std");
 const xml = @import("xml");
 const mem = std.mem;
 const Allocator = mem.Allocator;
-
-pub const Diagnostics = struct {
-    errors: std.ArrayListUnmanaged([]u8) = .{},
-    allocator: Allocator,
-
-    pub fn deinit(diag: *Diagnostics) void {
-        for (diag.errors.items) |err| diag.allocator.free(err);
-        diag.errors.deinit(diag.allocator);
-        diag.* = undefined;
-    }
-
-    fn add(diag: *Diagnostics, comptime fmt: []const u8, args: anytype) Allocator.Error!void {
-        const formatted = try std.fmt.allocPrint(diag.allocator, fmt, args);
-        errdefer diag.allocator.free(formatted);
-        try diag.errors.append(diag.allocator, formatted);
-    }
-};
+const Diagnostics = @import("main.zig").Diagnostics;
 
 /// Finds and parses all repositories for the given root libraries, transitively
 /// including dependencies.
-pub fn findRepositories(allocator: Allocator, gir_path: []const std.fs.Dir, roots: []const Include, diag: *Diagnostics) Allocator.Error![]Repository {
+pub fn findRepositories(
+    allocator: Allocator,
+    gir_dir_paths: []const []const u8,
+    roots: []const Include,
+    diag: *Diagnostics,
+) Allocator.Error![]Repository {
     var repos = std.ArrayHashMap(Include, Repository, Include.ArrayContext, true).init(allocator);
     defer repos.deinit();
     errdefer for (repos.values()) |*repo| repo.deinit();
@@ -32,7 +21,7 @@ pub fn findRepositories(allocator: Allocator, gir_path: []const std.fs.Dir, root
     try needed_repos.appendSlice(roots);
     while (needed_repos.popOrNull()) |needed_repo| {
         if (!repos.contains(needed_repo)) {
-            const repo = findRepository(allocator, gir_path, needed_repo, diag) catch |err| switch (err) {
+            const repo = findRepository(allocator, gir_dir_paths, needed_repo, diag) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.FindFailed => continue,
             };
@@ -44,21 +33,29 @@ pub fn findRepositories(allocator: Allocator, gir_path: []const std.fs.Dir, root
     return try allocator.dupe(Repository, repos.values());
 }
 
-fn findRepository(allocator: Allocator, gir_path: []const std.fs.Dir, include: Include, diag: *Diagnostics) !Repository {
+fn findRepository(
+    allocator: Allocator,
+    gir_dir_paths: []const []const u8,
+    include: Include,
+    diag: *Diagnostics,
+) !Repository {
     const repo_path = try std.fmt.allocPrintZ(allocator, "{s}-{s}.gir", .{ include.name, include.version });
     defer allocator.free(repo_path);
 
-    for (gir_path) |dir| {
-        const file = dir.openFile(repo_path, .{}) catch |err| switch (err) {
+    for (gir_dir_paths) |gir_dir_path| {
+        const path = try std.fs.path.join(allocator, &.{ gir_dir_path, repo_path });
+        defer allocator.free(path);
+
+        const file = std.fs.cwd().openFile(path, .{}) catch |err| switch (err) {
             error.FileNotFound => continue,
             else => {
-                try diag.add("failed to open GIR file: {s}: {}", .{ repo_path, err });
+                try diag.add("failed to open GIR file: {s}: {}", .{ path, err });
                 return error.FindFailed;
             },
         };
         defer file.close();
         var reader = std.io.bufferedReader(file.reader());
-        return Repository.parse(allocator, reader.reader()) catch |err| switch (err) {
+        return Repository.parse(allocator, reader.reader(), path) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.InvalidGir => {
                 try diag.add("failed to parse GIR file: {s}", .{repo_path});
@@ -82,19 +79,20 @@ const ns = struct {
 };
 
 pub const Repository = struct {
+    path: []const u8,
     includes: []const Include = &.{},
     packages: []const Package = &.{},
     c_includes: []const CInclude = &.{},
     namespace: Namespace,
     arena: std.heap.ArenaAllocator,
 
-    pub fn parse(allocator: Allocator, reader: anytype) (error{InvalidGir} || @TypeOf(reader).Error || Allocator.Error)!Repository {
+    pub fn parse(allocator: Allocator, reader: anytype, path: []const u8) (error{InvalidGir} || @TypeOf(reader).Error || Allocator.Error)!Repository {
         var r = xml.reader(allocator, reader, .{
             .DecoderType = xml.encoding.Utf8Decoder,
             .enable_normalization = false,
         });
         defer r.deinit();
-        return parseXml(allocator, &r) catch |err| switch (err) {
+        return parseXml(allocator, &r, path) catch |err| switch (err) {
             error.CannotUndeclareNsPrefix,
             error.DoctypeNotSupported,
             error.DuplicateAttribute,
@@ -120,12 +118,12 @@ pub const Repository = struct {
         repository.arena.deinit();
     }
 
-    fn parseXml(allocator: Allocator, reader: anytype) !Repository {
+    fn parseXml(allocator: Allocator, reader: anytype, path: []const u8) !Repository {
         var repository: ?Repository = null;
         while (try reader.next()) |event| {
             switch (event) {
                 .element_start => |e| if (e.name.is(ns.core, "repository")) {
-                    repository = try parseInternal(allocator, reader.children());
+                    repository = try parseInternal(allocator, reader.children(), path);
                 } else {
                     try reader.children().skip();
                 },
@@ -135,7 +133,7 @@ pub const Repository = struct {
         return repository orelse error.InvalidGir;
     }
 
-    fn parseInternal(a: Allocator, children: anytype) !Repository {
+    fn parseInternal(a: Allocator, children: anytype, path: []const u8) !Repository {
         var arena = std.heap.ArenaAllocator.init(a);
         const allocator = arena.allocator();
 
@@ -162,6 +160,7 @@ pub const Repository = struct {
         }
 
         return .{
+            .path = try allocator.dupe(u8, path),
             .includes = try includes.toOwnedSlice(),
             .packages = try packages.toOwnedSlice(),
             .c_includes = try c_includes.toOwnedSlice(),

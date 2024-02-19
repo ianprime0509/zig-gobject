@@ -2,6 +2,7 @@ const std = @import("std");
 const zigWriter = @import("zig_writer.zig").zigWriter;
 const mem = std.mem;
 const Allocator = mem.Allocator;
+const Diagnostics = @import("main.zig").Diagnostics;
 
 const gir = @import("gir.zig");
 
@@ -157,12 +158,18 @@ const TranslationContext = struct {
     };
 };
 
-pub const CreateBindingsError = Allocator.Error || std.fs.File.OpenError || std.fs.File.WriteError || std.fs.Dir.CopyFileError || error{
-    FileSystem,
-    NotSupported,
-};
+pub fn createBindings(
+    allocator: Allocator,
+    repositories: []const gir.Repository,
+    bindings_path: []const []const u8,
+    extensions_path: []const []const u8,
+    output_dir_path: []const u8,
+    diag: *Diagnostics,
+) Allocator.Error!void {
+    var output_dir = std.fs.cwd().makeOpenPath(output_dir_path, .{}) catch |err|
+        return diag.add("failed to create output directory {s}: {}", .{ output_dir_path, err });
+    defer output_dir.close();
 
-pub fn createBindings(allocator: Allocator, repositories: []const gir.Repository, bindings_path: []const std.fs.Dir, extensions_path: []const std.fs.Dir, output_dir: std.fs.Dir) CreateBindingsError!void {
     var repository_map = RepositoryMap.init(allocator);
     defer repository_map.deinit();
     for (repositories) |repo| {
@@ -170,42 +177,117 @@ pub fn createBindings(allocator: Allocator, repositories: []const gir.Repository
     }
 
     for (repositories) |repo| {
-        const manual_bindings = try copyBindingsFile(allocator, repo.namespace.name, repo.namespace.version, bindings_path, output_dir);
-        const extensions_file = try copyExtensionsFile(allocator, repo.namespace.name, repo.namespace.version, extensions_path, output_dir);
+        const manual_bindings = copyBindingsFile(
+            allocator,
+            repo.namespace.name,
+            repo.namespace.version,
+            bindings_path,
+            output_dir,
+            diag,
+        ) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.CopyFailed => {
+                try diag.add("failed to translate {s}-{s}", .{ repo.namespace.name, repo.namespace.version });
+                return;
+            },
+        };
+
+        const extensions_file = copyExtensionsFile(
+            allocator,
+            repo.namespace.name,
+            repo.namespace.version,
+            extensions_path,
+            output_dir,
+            diag,
+        ) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.CopyFailed => {
+                try diag.add("failed to translate {s}-{s}", .{ repo.namespace.name, repo.namespace.version });
+                return;
+            },
+        };
         defer allocator.free(extensions_file);
+
         if (!manual_bindings) {
             var ctx = TranslationContext.init(allocator);
             defer ctx.deinit();
             try ctx.addRepositoryAndDependencies(repo, repository_map);
-            try translateRepository(allocator, repo, extensions_file, repository_map, ctx, output_dir);
+            translateRepository(
+                allocator,
+                repo,
+                extensions_file,
+                repository_map,
+                ctx,
+                output_dir,
+                diag,
+            ) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.TranslateFailed => {
+                    try diag.add("failed to translate {s}-{s}", .{ repo.namespace.name, repo.namespace.version });
+                    return;
+                },
+            };
         }
     }
 }
 
-fn copyBindingsFile(allocator: Allocator, name: []const u8, version: []const u8, bindings_path: []const std.fs.Dir, output_dir: std.fs.Dir) !bool {
+fn copyBindingsFile(
+    allocator: Allocator,
+    name: []const u8,
+    version: []const u8,
+    bindings_dir_paths: []const []const u8,
+    output_dir: std.fs.Dir,
+    diag: *Diagnostics,
+) !bool {
     const bindings_name = try fileNameAlloc(allocator, name, version);
     defer allocator.free(bindings_name);
-    for (bindings_path) |bindings_dir| {
-        bindings_dir.copyFile(bindings_name, output_dir, bindings_name, .{}) catch |err| switch (err) {
+
+    for (bindings_dir_paths) |bindings_dir_path| {
+        const bindings_path = try std.fs.path.join(allocator, &.{ bindings_dir_path, bindings_name });
+        defer allocator.free(bindings_path);
+
+        std.fs.cwd().copyFile(bindings_path, output_dir, bindings_name, .{}) catch |err| switch (err) {
             error.FileNotFound => continue,
-            else => |other_err| return other_err,
+            else => {
+                try diag.add("failed to copy bindings file {s}: {}", .{ bindings_path, err });
+                return error.CopyFailed;
+            },
         };
         return true;
     }
+
     return false;
 }
 
-fn copyExtensionsFile(allocator: Allocator, name: []const u8, version: []const u8, extensions_path: []const std.fs.Dir, output_dir: std.fs.Dir) ![]u8 {
+fn copyExtensionsFile(
+    allocator: Allocator,
+    name: []const u8,
+    version: []const u8,
+    extensions_dir_paths: []const []const u8,
+    output_dir: std.fs.Dir,
+    diag: *Diagnostics,
+) ![]u8 {
     const extensions_name = try extensionsFileNameAlloc(allocator, name, version);
     errdefer allocator.free(extensions_name);
-    for (extensions_path) |extensions_dir| {
-        extensions_dir.copyFile(extensions_name, output_dir, extensions_name, .{}) catch |err| switch (err) {
+
+    for (extensions_dir_paths) |extensions_dir_path| {
+        const extensions_path = try std.fs.path.join(allocator, &.{ extensions_dir_path, extensions_name });
+        defer allocator.free(extensions_path);
+
+        std.fs.cwd().copyFile(extensions_path, output_dir, extensions_name, .{}) catch |err| switch (err) {
             error.FileNotFound => continue,
-            else => |other_err| return other_err,
+            else => {
+                try diag.add("failed to copy extensions file {s}: {}", .{ extensions_path, err });
+                return error.CopyFailed;
+            },
         };
         return extensions_name;
     }
-    try output_dir.writeFile(extensions_name, "");
+
+    output_dir.writeFile(extensions_name, "") catch |err| {
+        try diag.add("failed to create extensions file {s}: {}", .{ extensions_name, err });
+        return error.CopyFailed;
+    };
     return extensions_name;
 }
 
@@ -215,7 +297,15 @@ fn extensionsFileNameAlloc(allocator: Allocator, name: []const u8, version: []co
     return file_name;
 }
 
-fn translateRepository(allocator: Allocator, repo: gir.Repository, extensions_path: []const u8, repository_map: RepositoryMap, ctx: TranslationContext, output_dir: std.fs.Dir) !void {
+fn translateRepository(
+    allocator: Allocator,
+    repo: gir.Repository,
+    extensions_path: []const u8,
+    repository_map: RepositoryMap,
+    ctx: TranslationContext,
+    output_dir: std.fs.Dir,
+    diag: *Diagnostics,
+) !void {
     var raw_source = std.ArrayList(u8).init(allocator);
     defer raw_source.deinit();
     var out = zigWriter(raw_source.writer());
@@ -232,7 +322,10 @@ fn translateRepository(allocator: Allocator, repo: gir.Repository, extensions_pa
     defer allocator.free(fmt_source);
     const file_name = try fileNameAlloc(allocator, repo.namespace.name, repo.namespace.version);
     defer allocator.free(file_name);
-    try output_dir.writeFile(file_name, fmt_source);
+    output_dir.writeFile(file_name, fmt_source) catch |err| {
+        try diag.add("failed to write output source file {s}: {}", .{ file_name, err });
+        return error.TranslateFailed;
+    };
 }
 
 fn translateIncludes(allocator: Allocator, ns: gir.Namespace, repository_map: RepositoryMap, out: anytype) !void {
@@ -1091,7 +1184,7 @@ fn typeIsPointer(@"type": gir.Type, gobject_context: bool, ctx: TranslationConte
     return gobject_context and ctx.isObjectType(name);
 }
 
-fn translateType(allocator: Allocator, @"type": gir.Type, options: TranslateTypeOptions, ctx: TranslationContext, out: anytype) CreateBindingsError!void {
+fn translateType(allocator: Allocator, @"type": gir.Type, options: TranslateTypeOptions, ctx: TranslationContext, out: anytype) Allocator.Error!void {
     if (options.nullable and typeIsPointer(@"type", options.gobject_context, ctx)) {
         try out.print("?", .{});
     }
@@ -1937,12 +2030,16 @@ fn testToCamelCase(expected: []const u8, input: []const u8, word_sep: []const u8
     try std.testing.expectEqualStrings(expected, actual);
 }
 
-pub const CreateBuildFileError = Allocator.Error || std.fs.File.OpenError || std.fs.File.WriteError || error{
-    FileSystem,
-    NotSupported,
-};
+pub fn createBuildFile(
+    allocator: Allocator,
+    repositories: []const gir.Repository,
+    output_dir_path: []const u8,
+    diag: *Diagnostics,
+) Allocator.Error!void {
+    var output_dir = std.fs.cwd().makeOpenPath(output_dir_path, .{}) catch |err|
+        return diag.add("failed to create output directory {s}: {}", .{ output_dir_path, err });
+    defer output_dir.close();
 
-pub fn createBuildFile(allocator: Allocator, repositories: []const gir.Repository, output_dir: std.fs.Dir) CreateBuildFileError!void {
     var repository_map = RepositoryMap.init(allocator);
     defer repository_map.deinit();
     for (repositories) |repo| {
@@ -2088,25 +2185,24 @@ pub fn createBuildFile(allocator: Allocator, repositories: []const gir.Repositor
     defer ast.deinit(allocator);
     const fmt_source = try ast.render(allocator);
     defer allocator.free(fmt_source);
-    try output_dir.writeFile("build.zig", fmt_source);
+    output_dir.writeFile("build.zig", fmt_source) catch |err|
+        return diag.add("failed to write build.zig: {}", .{err});
 }
 
-pub const CreateAbiTestsError = Allocator.Error || std.fs.File.OpenError || std.fs.File.WriteError || error{
-    FileSystem,
-    NotSupported,
-};
+pub fn createAbiTests(
+    allocator: Allocator,
+    repositories: []const gir.Repository,
+    output_dir_path: []const u8,
+    diag: *Diagnostics,
+) Allocator.Error!void {
+    var output_dir = std.fs.cwd().makeOpenPath(output_dir_path, .{}) catch |err|
+        return diag.add("failed to create output directory {s}: {}", .{ output_dir_path, err });
+    defer output_dir.close();
 
-pub fn createAbiTests(allocator: Allocator, repositories: []const gir.Repository, output_dir: std.fs.Dir) CreateAbiTestsError!void {
     for (repositories) |repo| {
-        var output_file = output_file: {
-            const name = try std.fmt.allocPrint(allocator, "{s}-{s}.abi.zig", .{ repo.namespace.name, repo.namespace.version });
-            defer allocator.free(name);
-            _ = std.ascii.lowerString(name, name);
-            break :output_file try output_dir.createFile(name, .{});
-        };
-        defer output_file.close();
-        var bw = std.io.bufferedWriter(output_file.writer());
-        var out = zigWriter(bw.writer());
+        var raw_source = std.ArrayList(u8).init(allocator);
+        defer raw_source.deinit();
+        var out = zigWriter(raw_source.writer());
 
         const ns = repo.namespace;
         const pkg = try std.ascii.allocLowerString(allocator, ns.name);
@@ -2453,8 +2549,17 @@ pub fn createAbiTests(allocator: Allocator, repositories: []const gir.Repository
             try out.print("}\n\n", .{});
         }
 
-        try bw.flush();
-        try output_file.sync();
+        try raw_source.append(0);
+        var ast = try std.zig.Ast.parse(allocator, raw_source.items[0 .. raw_source.items.len - 1 :0], .zig);
+        defer ast.deinit(allocator);
+        const fmt_source = try ast.render(allocator);
+        defer allocator.free(fmt_source);
+        const file_name = try std.fmt.allocPrint(allocator, "{s}-{s}.abi.zig", .{ repo.namespace.name, repo.namespace.version });
+        defer allocator.free(file_name);
+        output_dir.writeFile(file_name, fmt_source) catch |err| {
+            try diag.add("failed to write output source file {s}: {}", .{ file_name, err });
+            try diag.add("failed to create ABI tests for {s}-{s}", .{ repo.namespace.name, repo.namespace.version });
+        };
     }
 }
 

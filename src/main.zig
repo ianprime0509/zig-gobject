@@ -57,28 +57,18 @@ pub fn main() Allocator.Error!void {
 
     const allocator = std.heap.c_allocator;
 
-    var gir_path = std.ArrayList(std.fs.Dir).init(allocator);
-    defer gir_path.deinit();
-    defer for (gir_path.items) |*dir| dir.close();
-    var bindings_path = std.ArrayList(std.fs.Dir).init(allocator);
-    defer bindings_path.deinit();
-    defer for (bindings_path.items) |*dir| dir.close();
-    var extensions_path = std.ArrayList(std.fs.Dir).init(allocator);
-    defer extensions_path.deinit();
-    defer for (extensions_path.items) |*dir| dir.close();
-    var output_dir: ?std.fs.Dir = null;
-    defer if (output_dir) |*dir| dir.close();
-    var abi_test_output_dir: ?std.fs.Dir = null;
-    defer if (abi_test_output_dir) |*dir| dir.close();
-    var roots = std.ArrayList(gir.Include).init(allocator);
-    defer roots.deinit();
-    defer for (roots.items) |root| {
-        allocator.free(root.name);
-        allocator.free(root.version);
-    };
+    var cli_arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer cli_arena_state.deinit();
+    const cli_arena = cli_arena_state.allocator();
 
-    var args: ArgIterator = .{ .args = try std.process.argsWithAllocator(allocator) };
-    defer args.deinit();
+    var gir_dir_paths = std.ArrayList([]u8).init(cli_arena);
+    var bindings_dir_paths = std.ArrayList([]u8).init(cli_arena);
+    var extensions_dir_paths = std.ArrayList([]u8).init(cli_arena);
+    var maybe_output_dir_path: ?[]u8 = null;
+    var maybe_abi_test_output_dir_path: ?[]u8 = null;
+    var roots = std.ArrayList(gir.Include).init(cli_arena);
+
+    var args: ArgIterator = .{ .args = try std.process.argsWithAllocator(cli_arena) };
     _ = args.next();
     while (args.next()) |arg| {
         switch (arg) {
@@ -87,28 +77,25 @@ pub fn main() Allocator.Error!void {
                 std.process.exit(0);
             } else if (option.is(null, "bindings-dir")) {
                 const path = args.optionValue() orelse fatal("expected value for --bindings-dir", .{});
-                const dir = std.fs.cwd().openDir(path, .{}) catch |err| fatal("failed to open bindings directory {s}: {}", .{ path, err });
-                try bindings_path.append(dir);
+                try bindings_dir_paths.append(try cli_arena.dupe(u8, path));
             } else if (option.is(null, "extensions-dir")) {
                 const path = args.optionValue() orelse fatal("expected value for --extensions-dir", .{});
-                const dir = std.fs.cwd().openDir(path, .{}) catch |err| fatal("failed to open extensions directory {s}: {}", .{ path, err });
-                try extensions_path.append(dir);
+                try extensions_dir_paths.append(try cli_arena.dupe(u8, path));
             } else if (option.is(null, "gir-dir")) {
                 const path = args.optionValue() orelse fatal("expected value for --gir-dir", .{});
-                const dir = std.fs.cwd().openDir(path, .{}) catch |err| fatal("failed to open GIR directory {s}: {}", .{ path, err });
-                try gir_path.append(dir);
+                try gir_dir_paths.append(try cli_arena.dupe(u8, path));
             } else if (option.is(null, "output-dir")) {
                 const path = args.optionValue() orelse fatal("expected value for --output-dir", .{});
-                output_dir = std.fs.cwd().makeOpenPath(path, .{}) catch |err| fatal("failed to open output directory {s}: {}", .{ path, err });
+                maybe_output_dir_path = try cli_arena.dupe(u8, path);
             } else if (option.is(null, "abi-test-output-dir")) {
                 const path = args.optionValue() orelse fatal("expected value for --abi-test-output-dir", .{});
-                abi_test_output_dir = std.fs.cwd().makeOpenPath(path, .{}) catch |err| fatal("failed to open ABI test output directory {s}: {}", .{ path, err });
+                maybe_abi_test_output_dir_path = try cli_arena.dupe(u8, path);
             },
             .param => |param| {
                 const sep_pos = mem.indexOfScalar(u8, param, '-') orelse fatal("invalid GIR repository name: {s}", .{param});
                 try roots.append(.{
-                    .name = try allocator.dupe(u8, param[0..sep_pos]),
-                    .version = try allocator.dupe(u8, param[sep_pos + 1 ..]),
+                    .name = try cli_arena.dupe(u8, param[0..sep_pos]),
+                    .version = try cli_arena.dupe(u8, param[sep_pos + 1 ..]),
                 });
             },
             .unexpected_value => |unexpected_value| fatal("unexpected value to --{s}: {s}", .{
@@ -118,30 +105,46 @@ pub fn main() Allocator.Error!void {
         }
     }
 
-    if (output_dir == null) fatal("no output directory provided", .{});
-    var src_out_dir = output_dir.?.makeOpenPath("src", .{}) catch |err| fatal("failed to create output src directory: {}", .{err});
-    defer src_out_dir.close();
-
+    const output_dir_path = maybe_output_dir_path orelse fatal("no output directory provided", .{});
     if (roots.items.len == 0) fatal("no modules specified to codegen", .{});
 
     const repositories = repositories: {
-        var diag: gir.Diagnostics = .{ .allocator = allocator };
+        var diag: Diagnostics = .{ .allocator = allocator };
         defer diag.deinit();
-        const repositories = try gir.findRepositories(allocator, gir_path.items, roots.items, &diag);
-        if (diag.errors.items.len > 0) {
-            for (diag.errors.items) |err| {
-                log.err("{s}", .{err});
-            }
-            fatal("failed to find and parse GIR repositories", .{});
-        }
+        const repositories = try gir.findRepositories(allocator, gir_dir_paths.items, roots.items, &diag);
+        diag.report("failed to find and parse GIR repositories", .{});
         break :repositories repositories;
     };
     defer allocator.free(repositories);
     defer for (repositories) |*repository| repository.deinit();
-    translate.createBindings(allocator, repositories, bindings_path.items, extensions_path.items, src_out_dir) catch |err| fatal("failed to create bindings: {}", .{err});
-    translate.createBuildFile(allocator, repositories, output_dir.?) catch |err| fatal("failed to create build file: {}", .{err});
-    if (abi_test_output_dir) |dir| {
-        translate.createAbiTests(allocator, repositories, dir) catch |err| fatal("failed to create ABI tests: {}", .{err});
+
+    {
+        var diag: Diagnostics = .{ .allocator = allocator };
+        defer diag.deinit();
+        try translate.createBuildFile(allocator, repositories, output_dir_path, &diag);
+        diag.report("failed to create build file", .{});
+    }
+
+    {
+        const src_output_dir_path = try std.fs.path.join(cli_arena, &.{ output_dir_path, "src" });
+        var diag: Diagnostics = .{ .allocator = allocator };
+        defer diag.deinit();
+        try translate.createBindings(
+            allocator,
+            repositories,
+            bindings_dir_paths.items,
+            extensions_dir_paths.items,
+            src_output_dir_path,
+            &diag,
+        );
+        diag.report("failed to translate source files", .{});
+    }
+
+    if (maybe_abi_test_output_dir_path) |abi_test_output_dir_path| {
+        var diag: Diagnostics = .{ .allocator = allocator };
+        defer diag.deinit();
+        try translate.createAbiTests(allocator, repositories, abi_test_output_dir_path, &diag);
+        diag.report("failed to create ABI tests", .{});
     }
 }
 
@@ -149,6 +152,33 @@ fn fatal(comptime format: []const u8, args: anytype) noreturn {
     log.err(format, args);
     std.process.exit(1);
 }
+
+pub const Diagnostics = struct {
+    errors: std.ArrayListUnmanaged([]u8) = .{},
+    allocator: Allocator,
+
+    pub fn deinit(diag: *Diagnostics) void {
+        for (diag.errors.items) |err| diag.allocator.free(err);
+        diag.errors.deinit(diag.allocator);
+        diag.* = undefined;
+    }
+
+    pub fn add(diag: *Diagnostics, comptime fmt: []const u8, args: anytype) Allocator.Error!void {
+        const formatted = try std.fmt.allocPrint(diag.allocator, fmt, args);
+        errdefer diag.allocator.free(formatted);
+        try diag.errors.append(diag.allocator, formatted);
+    }
+
+    /// Report any errors present and fail if any are present.
+    fn report(diag: Diagnostics, comptime fmt: []const u8, args: anytype) void {
+        if (diag.errors.items.len > 0) {
+            for (diag.errors.items) |err| {
+                log.err("{s}", .{err});
+            }
+            fatal(fmt, args);
+        }
+    }
+};
 
 // Inspired by https://github.com/judofyr/parg
 const ArgIterator = struct {
