@@ -20,6 +20,8 @@ exe.root_module.addImport("adw", gobject.module("adw-1"));
 
 - [zig-libintl](https://github.com/ianprime0509/zig-libintl) - libintl bindings
   for Zig, which provide `gettext` functions for internationalization.
+- [Nonograms](https://github.com/ianprime0509/nonograms) - a full application
+  written using these bindings.
 
 ## Examples
 
