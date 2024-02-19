@@ -18,6 +18,7 @@ const usage =
     \\      --gir-dir DIR                   Add a directory to the GIR search path
     \\      --output-dir DIR                Set the output directory
     \\      --abi-test-output-dir DIR       Set the output directory for ABI tests
+    \\
 ;
 
 var log_tty_config: std.io.tty.Config = undefined; // Will be initialized immediately in main
@@ -90,6 +91,8 @@ pub fn main() Allocator.Error!void {
             } else if (option.is(null, "abi-test-output-dir")) {
                 const path = args.optionValue() orelse fatal("expected value for --abi-test-output-dir", .{});
                 maybe_abi_test_output_dir_path = try cli_arena.dupe(u8, path);
+            } else {
+                fatal("unrecognized option: {}", .{option});
             },
             .param => |param| {
                 const sep_pos = mem.indexOfScalar(u8, param, '-') orelse fatal("invalid GIR repository name: {s}", .{param});
