@@ -18,6 +18,7 @@ const usage =
     \\      --gir-dir DIR                   Add a directory to the GIR search path
     \\      --output-dir DIR                Set the output directory
     \\      --abi-test-output-dir DIR       Set the output directory for ABI tests
+    \\      --dependency-file PATH          Generate a dependency file
     \\
 ;
 
@@ -67,6 +68,7 @@ pub fn main() Allocator.Error!void {
     var extensions_dir_paths = std.ArrayList([]u8).init(cli_arena);
     var maybe_output_dir_path: ?[]u8 = null;
     var maybe_abi_test_output_dir_path: ?[]u8 = null;
+    var maybe_dependency_file_path: ?[]u8 = null;
     var roots = std.ArrayList(gir.Include).init(cli_arena);
 
     var args: ArgIterator = .{ .args = try std.process.argsWithAllocator(cli_arena) };
@@ -91,6 +93,9 @@ pub fn main() Allocator.Error!void {
             } else if (option.is(null, "abi-test-output-dir")) {
                 const path = args.optionValue() orelse fatal("expected value for --abi-test-output-dir", .{});
                 maybe_abi_test_output_dir_path = try cli_arena.dupe(u8, path);
+            } else if (option.is(null, "dependency-file")) {
+                const path = args.optionValue() orelse fatal("expected value for --dependency-file", .{});
+                maybe_dependency_file_path = try cli_arena.dupe(u8, path);
             } else {
                 fatal("unrecognized option: {}", .{option});
             },
@@ -121,10 +126,19 @@ pub fn main() Allocator.Error!void {
     defer allocator.free(repositories);
     defer for (repositories) |*repository| repository.deinit();
 
+    var deps = Dependencies.init(allocator);
+    defer deps.deinit();
+
     {
         var diag: Diagnostics = .{ .allocator = allocator };
         defer diag.deinit();
-        try translate.createBuildFile(allocator, repositories, output_dir_path, &diag);
+        try translate.createBuildFile(
+            allocator,
+            repositories,
+            output_dir_path,
+            &deps,
+            &diag,
+        );
         diag.report("failed to create build file", .{});
     }
 
@@ -138,6 +152,7 @@ pub fn main() Allocator.Error!void {
             bindings_dir_paths.items,
             extensions_dir_paths.items,
             src_output_dir_path,
+            &deps,
             &diag,
         );
         diag.report("failed to translate source files", .{});
@@ -146,8 +161,21 @@ pub fn main() Allocator.Error!void {
     if (maybe_abi_test_output_dir_path) |abi_test_output_dir_path| {
         var diag: Diagnostics = .{ .allocator = allocator };
         defer diag.deinit();
-        try translate.createAbiTests(allocator, repositories, abi_test_output_dir_path, &diag);
+        try translate.createAbiTests(
+            allocator,
+            repositories,
+            abi_test_output_dir_path,
+            &deps,
+            &diag,
+        );
         diag.report("failed to create ABI tests", .{});
+    }
+
+    if (maybe_dependency_file_path) |dependency_file_path| {
+        var diag: Diagnostics = .{ .allocator = allocator };
+        defer diag.deinit();
+        try writeDependencies(dependency_file_path, deps, &diag);
+        diag.report("failed to create dependency file", .{});
     }
 }
 
@@ -155,6 +183,52 @@ fn fatal(comptime format: []const u8, args: anytype) noreturn {
     log.err(format, args);
     std.process.exit(1);
 }
+
+fn writeDependencies(path: []const u8, deps: Dependencies, diag: *Diagnostics) !void {
+    var file = std.fs.cwd().createFile(path, .{}) catch |err|
+        return diag.add("failed to create dependency file {s}: {}", .{ path, err });
+    defer file.close();
+
+    var buffered_writer = std.io.bufferedWriter(file.writer());
+    deps.write(buffered_writer.writer()) catch |err|
+        return diag.add("failed to write dependency file {s}: {}", .{ path, err });
+    buffered_writer.flush() catch |err|
+        return diag.add("failed to write dependency file {s}: {}", .{ path, err });
+}
+
+pub const Dependencies = struct {
+    paths: std.StringArrayHashMapUnmanaged(std.ArrayListUnmanaged([]u8)) = .{},
+    arena: std.heap.ArenaAllocator,
+
+    pub fn init(allocator: Allocator) Dependencies {
+        return .{ .arena = std.heap.ArenaAllocator.init(allocator) };
+    }
+
+    pub fn deinit(deps: *Dependencies) void {
+        deps.arena.deinit();
+        deps.* = undefined;
+    }
+
+    pub fn add(deps: *Dependencies, target: []const u8, dependency: []const u8) Allocator.Error!void {
+        const arena = deps.arena.allocator();
+        const gop = try deps.paths.getOrPut(arena, target);
+        if (!gop.found_existing) {
+            gop.key_ptr.* = try arena.dupe(u8, target);
+            gop.value_ptr.* = .{};
+        }
+        try gop.value_ptr.append(arena, try arena.dupe(u8, dependency));
+    }
+
+    pub fn write(deps: Dependencies, writer: anytype) @TypeOf(writer).Error!void {
+        for (deps.paths.keys(), deps.paths.values()) |target, prereqs| {
+            try writer.print("{s}:", .{target});
+            for (prereqs.items) |prereq| {
+                try writer.print(" {s}", .{prereq});
+            }
+            try writer.writeByte('\n');
+        }
+    }
+};
 
 pub const Diagnostics = struct {
     errors: std.ArrayListUnmanaged([]u8) = .{},

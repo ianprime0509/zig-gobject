@@ -253,16 +253,6 @@ pub fn build(b: *std.Build) void {
         },
     } else &.{};
 
-    const binding_override_modules = std.ComptimeStringMap(void, .{
-        .{"cairo-1.0"},
-    });
-
-    const extension_modules = std.ComptimeStringMap(void, .{
-        .{"glib-2.0"},
-        .{"gtk-4.0"},
-        .{"gobject-2.0"},
-    });
-
     const gir_files_path = b.option([]const u8, "gir-files-path", "Path to GIR files") orelse "/usr/share/gir-1.0";
 
     const codegen_cmd = b.addRunArtifact(exe);
@@ -316,19 +306,11 @@ pub fn build(b: *std.Build) void {
     codegen_cmd.addArg("--output-dir");
     const bindings_dir = codegen_cmd.addOutputFileArg("bindings");
     codegen_cmd.addArgs(&.{ "--abi-test-output-dir", b.pathFromRoot("test/abi") });
-
-    var file_deps = std.ArrayList([]const u8).init(b.allocator);
-    for (codegen_modules) |module| {
-        codegen_cmd.addArg(module);
-        file_deps.append(b.pathJoin(&.{ gir_files_path, b.fmt("{s}.gir", .{module}) })) catch @panic("OOM");
-        if (binding_override_modules.has(module)) {
-            file_deps.append(b.pathFromRoot(b.fmt("binding-overrides/{s}.zig", .{module}))) catch @panic("OOM");
-        }
-        if (extension_modules.has(module)) {
-            file_deps.append(b.pathFromRoot(b.fmt("extensions/{s}.ext.zig", .{module}))) catch @panic("OOM");
-        }
-    }
-    codegen_cmd.extra_file_dependencies = file_deps.items;
+    codegen_cmd.addArg("--dependency-file");
+    _ = codegen_cmd.addDepFileOutputArg("codegen-deps");
+    codegen_cmd.addArgs(codegen_modules);
+    // This is needed to tell Zig that the command run can be cached despite
+    // having output files.
     codegen_cmd.expectExitCode(0);
 
     const install_bindings = b.addInstallDirectory(.{
