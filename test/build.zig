@@ -446,7 +446,7 @@ pub fn build(b: *std.Build) !void {
             "Xmlb-2.0",
             "xrandr-1.3",
         },
-    } else @panic("No modules or GIR profile defined to test");
+    } else &.{};
 
     for (test_modules) |test_module| {
         const module = try std.ascii.allocLowerString(b.allocator, test_module);

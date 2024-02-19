@@ -251,7 +251,7 @@ pub fn build(b: *std.Build) void {
             "Xmlb-2.0",
             "xrandr-1.3",
         },
-    } else @panic("No modules or GIR profile defined to codegen");
+    } else &.{};
 
     const binding_override_modules = std.ComptimeStringMap(void, .{
         .{"cairo-1.0"},

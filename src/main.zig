@@ -122,6 +122,8 @@ pub fn main() Allocator.Error!void {
     var src_out_dir = output_dir.?.makeOpenPath("src", .{}) catch |err| fatal("failed to create output src directory: {}", .{err});
     defer src_out_dir.close();
 
+    if (roots.items.len == 0) fatal("no modules specified to codegen", .{});
+
     const repositories = repositories: {
         var diag: gir.Diagnostics = .{ .allocator = allocator };
         defer diag.deinit();
