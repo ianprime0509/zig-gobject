@@ -511,6 +511,7 @@ pub const Class = struct {
 
 pub const Interface = struct {
     name: Name,
+    c_type: ?[]const u8 = null,
     prerequisites: []const Prerequisite = &.{},
     functions: []const Function = &.{},
     constructors: []const Constructor = &.{},
@@ -525,6 +526,7 @@ pub const Interface = struct {
 
     fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Interface {
         var name: ?Name = null;
+        var c_type: ?[]const u8 = null;
         var prerequisites = std.ArrayList(Prerequisite).init(allocator);
         var functions = std.ArrayList(Function).init(allocator);
         var constructors = std.ArrayList(Constructor).init(allocator);
@@ -540,6 +542,8 @@ pub const Interface = struct {
         for (start.attributes) |attr| {
             if (attr.name.is(null, "name")) {
                 name = try Name.parse(allocator, attr.value, current_ns);
+            } else if (attr.name.is(ns.c, "type")) {
+                c_type = try allocator.dupe(u8, attr.value);
             } else if (attr.name.is(ns.glib, "get-type")) {
                 get_type = try allocator.dupe(u8, attr.value);
             } else if (attr.name.is(ns.glib, "type-struct")) {
@@ -576,6 +580,7 @@ pub const Interface = struct {
 
         return .{
             .name = name orelse return error.InvalidGir,
+            .c_type = c_type,
             .prerequisites = try prerequisites.toOwnedSlice(),
             .functions = try functions.toOwnedSlice(),
             .constructors = try constructors.toOwnedSlice(),
@@ -1221,12 +1226,14 @@ pub const Signal = struct {
 
 pub const Constant = struct {
     name: []const u8,
+    c_identifier: ?[]const u8 = null,
     value: []const u8,
     type: AnyType,
     documentation: ?Documentation = null,
 
     fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Constant {
         var name: ?[]const u8 = null;
+        var c_identifier: ?[]const u8 = null;
         var value: ?[]const u8 = null;
         var @"type": ?AnyType = null;
         var documentation: ?Documentation = null;
@@ -1234,6 +1241,8 @@ pub const Constant = struct {
         for (start.attributes) |attr| {
             if (attr.name.is(null, "name")) {
                 name = try allocator.dupe(u8, attr.value);
+            } else if (attr.name.is(ns.c, "identifier")) {
+                c_identifier = try allocator.dupe(u8, attr.value);
             } else if (attr.name.is(null, "value")) {
                 value = try allocator.dupe(u8, attr.value);
             }
@@ -1256,6 +1265,7 @@ pub const Constant = struct {
 
         return .{
             .name = name orelse return error.InvalidGir,
+            .c_identifier = c_identifier,
             .value = value orelse return error.InvalidGir,
             .type = @"type" orelse return error.InvalidGir,
             .documentation = documentation,
@@ -1344,6 +1354,7 @@ pub const ArrayType = struct {
 
 pub const Callback = struct {
     name: []const u8,
+    c_type: ?[]const u8 = null,
     parameters: []const Parameter,
     return_value: ReturnValue,
     throws: bool = false,
@@ -1351,6 +1362,7 @@ pub const Callback = struct {
 
     fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Callback {
         var name: ?[]const u8 = null;
+        var c_type: ?[]const u8 = null;
         var parameters = std.ArrayList(Parameter).init(allocator);
         var return_value: ?ReturnValue = null;
         var throws = false;
@@ -1359,6 +1371,8 @@ pub const Callback = struct {
         for (start.attributes) |attr| {
             if (attr.name.is(null, "name")) {
                 name = try allocator.dupe(u8, attr.value);
+            } else if (attr.name.is(ns.c, "type")) {
+                c_type = try allocator.dupe(u8, attr.value);
             } else if (attr.name.is(null, "throws")) {
                 throws = mem.eql(u8, attr.value, "1");
             }
@@ -1381,6 +1395,7 @@ pub const Callback = struct {
 
         return .{
             .name = name orelse return error.InvalidGir,
+            .c_type = c_type,
             .parameters = try parameters.toOwnedSlice(),
             .return_value = return_value orelse return error.InvalidGir,
             .throws = throws,

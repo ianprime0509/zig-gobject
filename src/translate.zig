@@ -14,12 +14,19 @@ const RepositoryMap = std.HashMap(gir.Include, gir.Repository, gir.Include.Conte
 const RepositorySet = std.HashMap(gir.Include, void, gir.Include.Context, std.hash_map.default_max_load_percentage);
 
 const TranslationContext = struct {
-    namespaces: std.StringHashMapUnmanaged(Namespace) = .{},
+    /// The namespaces in the current context, by (untranslated) name.
+    namespaces: std.StringHashMapUnmanaged(Namespace),
+    /// All C symbols in the current context, by identifier.
+    c_symbols: std.StringHashMapUnmanaged(Symbol),
     arena: std.heap.ArenaAllocator,
 
     fn init(allocator: Allocator) TranslationContext {
         const arena = std.heap.ArenaAllocator.init(allocator);
-        return .{ .arena = arena };
+        return .{
+            .namespaces = .{},
+            .c_symbols = .{},
+            .arena = arena,
+        };
     }
 
     fn deinit(ctx: TranslationContext) void {
@@ -50,43 +57,118 @@ const TranslationContext = struct {
         var aliases = std.StringHashMap(gir.Alias).init(allocator);
         for (repository.namespace.aliases) |alias| {
             try aliases.put(alias.name.local, alias);
+            if (alias.c_type) |c_type| {
+                try ctx.c_symbols.put(allocator, c_type, .{ .alias = .{
+                    .ns = .{ .explicit = repository.namespace.name },
+                    .name = alias.name.local,
+                } });
+            }
         }
+
         var classes = std.StringHashMap(gir.Class).init(allocator);
         for (repository.namespace.classes) |class| {
             try classes.put(class.name.local, class);
+            if (class.c_type) |c_type| {
+                try ctx.c_symbols.put(allocator, c_type, .{ .class = .{
+                    .ns = .{ .explicit = repository.namespace.name },
+                    .name = class.name.local,
+                } });
+            }
+            try ctx.addFunctionSymbols(repository.namespace.name, class.name.local, class.functions);
+            try ctx.addConstructorSymbols(repository.namespace.name, class.name.local, class.constructors);
+            try ctx.addMethodSymbols(repository.namespace.name, class.name.local, class.methods);
+            try ctx.addConstantSymbols(repository.namespace.name, class.name.local, class.constants);
         }
+
         var interfaces = std.StringHashMap(gir.Interface).init(allocator);
         for (repository.namespace.interfaces) |interface| {
             try interfaces.put(interface.name.local, interface);
+            if (interface.c_type) |c_type| {
+                try ctx.c_symbols.put(allocator, c_type, .{ .iface = .{
+                    .ns = .{ .explicit = repository.namespace.name },
+                    .name = interface.name.local,
+                } });
+            }
+            try ctx.addFunctionSymbols(repository.namespace.name, interface.name.local, interface.functions);
+            try ctx.addConstructorSymbols(repository.namespace.name, interface.name.local, interface.constructors);
+            try ctx.addMethodSymbols(repository.namespace.name, interface.name.local, interface.methods);
+            try ctx.addConstantSymbols(repository.namespace.name, interface.name.local, interface.constants);
         }
+
         var records = std.StringHashMap(gir.Record).init(allocator);
         for (repository.namespace.records) |record| {
             try records.put(record.name.local, record);
+            if (record.c_type) |c_type| {
+                try ctx.c_symbols.put(allocator, c_type, .{ .@"struct" = .{
+                    .ns = .{ .explicit = repository.namespace.name },
+                    .name = record.name.local,
+                } });
+            }
+            try ctx.addFunctionSymbols(repository.namespace.name, record.name.local, record.functions);
+            try ctx.addConstructorSymbols(repository.namespace.name, record.name.local, record.constructors);
+            try ctx.addMethodSymbols(repository.namespace.name, record.name.local, record.methods);
         }
+
         var unions = std.StringHashMap(gir.Union).init(allocator);
         for (repository.namespace.unions) |@"union"| {
             try unions.put(@"union".name.local, @"union");
+            if (@"union".c_type) |c_type| {
+                try ctx.c_symbols.put(allocator, c_type, .{ .@"struct" = .{
+                    .ns = .{ .explicit = repository.namespace.name },
+                    .name = @"union".name.local,
+                } });
+            }
+            try ctx.addFunctionSymbols(repository.namespace.name, @"union".name.local, @"union".functions);
+            try ctx.addConstructorSymbols(repository.namespace.name, @"union".name.local, @"union".constructors);
+            try ctx.addMethodSymbols(repository.namespace.name, @"union".name.local, @"union".methods);
         }
+
         var bit_fields = std.StringHashMap(gir.BitField).init(allocator);
         for (repository.namespace.bit_fields) |bit_field| {
             try bit_fields.put(bit_field.name.local, bit_field);
+            if (bit_field.c_type) |c_type| {
+                try ctx.c_symbols.put(allocator, c_type, .{ .flags = .{
+                    .ns = .{ .explicit = repository.namespace.name },
+                    .name = bit_field.name.local,
+                } });
+            }
+            try ctx.addFunctionSymbols(repository.namespace.name, bit_field.name.local, bit_field.functions);
         }
+
         var enums = std.StringHashMap(gir.Enum).init(allocator);
         for (repository.namespace.enums) |@"enum"| {
             try enums.put(@"enum".name.local, @"enum");
+            if (@"enum".c_type) |c_type| {
+                try ctx.c_symbols.put(allocator, c_type, .{ .@"enum" = .{
+                    .ns = .{ .explicit = repository.namespace.name },
+                    .name = @"enum".name.local,
+                } });
+            }
+            try ctx.addFunctionSymbols(repository.namespace.name, @"enum".name.local, @"enum".functions);
         }
+
         var functions = std.StringHashMap(gir.Function).init(allocator);
         for (repository.namespace.functions) |function| {
             try functions.put(function.name, function);
         }
+        try ctx.addFunctionSymbols(repository.namespace.name, null, repository.namespace.functions);
+
         var callbacks = std.StringHashMap(gir.Callback).init(allocator);
         for (repository.namespace.callbacks) |callback| {
             try callbacks.put(callback.name, callback);
+            if (callback.c_type) |c_type| {
+                try ctx.c_symbols.put(allocator, c_type, .{ .callback = .{
+                    .ns = .{ .explicit = repository.namespace.name },
+                    .name = callback.name,
+                } });
+            }
         }
+
         var constants = std.StringHashMap(gir.Constant).init(allocator);
         for (repository.namespace.constants) |constant| {
             try constants.put(constant.name, constant);
         }
+        try ctx.addConstantSymbols(repository.namespace.name, null, repository.namespace.constants);
 
         try ctx.namespaces.put(allocator, repository.namespace.name, .{
             .name = repository.namespace.name,
@@ -102,6 +184,48 @@ const TranslationContext = struct {
             .callbacks = callbacks.unmanaged,
             .constants = constants.unmanaged,
         });
+    }
+
+    fn addFunctionSymbols(ctx: *TranslationContext, ns: []const u8, container: ?[]const u8, functions: []const gir.Function) !void {
+        for (functions) |function| {
+            try ctx.c_symbols.put(ctx.arena.allocator(), function.c_identifier, .{ .func = .{
+                .ns = .{ .explicit = ns },
+                .container = container,
+                .name = function.name,
+            } });
+        }
+    }
+
+    fn addConstructorSymbols(ctx: *TranslationContext, ns: []const u8, container: []const u8, constructors: []const gir.Constructor) !void {
+        for (constructors) |constructor| {
+            try ctx.c_symbols.put(ctx.arena.allocator(), constructor.c_identifier, .{ .ctor = .{
+                .ns = .{ .explicit = ns },
+                .container = container,
+                .name = constructor.name,
+            } });
+        }
+    }
+
+    fn addMethodSymbols(ctx: *TranslationContext, ns: []const u8, container: []const u8, methods: []const gir.Method) !void {
+        for (methods) |method| {
+            try ctx.c_symbols.put(ctx.arena.allocator(), method.c_identifier, .{ .method = .{
+                .ns = .{ .explicit = ns },
+                .container = container,
+                .name = method.name,
+            } });
+        }
+    }
+
+    fn addConstantSymbols(ctx: *TranslationContext, ns: []const u8, container: ?[]const u8, constants: []const gir.Constant) !void {
+        for (constants) |constant| {
+            if (constant.c_identifier) |c_identifier| {
+                try ctx.c_symbols.put(ctx.arena.allocator(), c_identifier, .{ .@"const" = .{
+                    .ns = .{ .explicit = ns },
+                    .container = container,
+                    .name = constant.name,
+                } });
+            }
+        }
     }
 
     /// Returns whether the type with the given name is "object-like" in a
@@ -2221,7 +2345,9 @@ fn translateDocumentation(allocator: Allocator, documentation: ?gir.Documentatio
                         }
                         const symbol = Symbol.parse(link_content, ctx) orelse continue;
                         try out.print("$L", .{line[start..pos]});
+                        try out.print("`", .{});
                         try translateSymbolLink(allocator, symbol, ctx, out);
+                        try out.print("`", .{});
                         start = link_end + 1;
                         pos = link_end;
                     },
@@ -2236,9 +2362,6 @@ fn translateDocumentation(allocator: Allocator, documentation: ?gir.Documentatio
 }
 
 fn translateSymbolLink(allocator: Allocator, symbol: Symbol, ctx: TranslationContext, out: anytype) !void {
-    _ = ctx;
-
-    try out.print("`", .{});
     switch (symbol) {
         .alias,
         .callback,
@@ -2326,10 +2449,13 @@ fn translateSymbolLink(allocator: Allocator, symbol: Symbol, ctx: TranslationCon
 
         .id,
         => |id| {
-            try out.print("$I", .{id});
+            if (ctx.c_symbols.get(id)) |resolved| {
+                try translateSymbolLink(allocator, resolved, ctx, out);
+            } else {
+                try out.print("$I", .{id});
+            }
         },
     }
-    try out.print("`", .{});
 }
 
 const type_name_escapes = std.ComptimeStringMap([]const u8, .{
