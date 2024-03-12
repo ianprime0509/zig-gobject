@@ -923,8 +923,8 @@ fn translateFunction(allocator: Allocator, function: gir.Function, options: Tran
     const needs_rename = !std.mem.eql(u8, fnName, function.c_identifier);
 
     // extern declaration
+    try translateDocumentation(function.documentation, out);
     if (!needs_rename) {
-        try translateDocumentation(function.documentation, out);
         try out.print("pub ", .{});
     }
     try out.print("extern fn $I(", .{function.c_identifier});
@@ -940,7 +940,6 @@ fn translateFunction(allocator: Allocator, function: gir.Function, options: Tran
 
     // function rename
     if (needs_rename) {
-        try translateDocumentation(function.documentation, out);
         try out.print("pub const $I = $I;\n\n", .{ fnName, function.c_identifier });
     }
 }
