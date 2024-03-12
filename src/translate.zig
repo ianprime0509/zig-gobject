@@ -2258,8 +2258,6 @@ fn translateSymbolLink(allocator: Allocator, symbol: Symbol, ctx: TranslationCon
         },
 
         .@"const",
-        .property,
-        .signal,
         => |member| {
             switch (member.ns) {
                 .implicit => {},
@@ -2274,7 +2272,6 @@ fn translateSymbolLink(allocator: Allocator, symbol: Symbol, ctx: TranslationCon
         .ctor,
         .func,
         .method,
-        .vfunc,
         => |func| {
             switch (func.ns) {
                 .implicit => {},
@@ -2286,6 +2283,45 @@ fn translateSymbolLink(allocator: Allocator, symbol: Symbol, ctx: TranslationCon
             const func_name = try toCamelCase(allocator, func.name, "_");
             defer allocator.free(func_name);
             try out.print("$I", .{func_name});
+        },
+
+        .property => |property| {
+            switch (property.ns) {
+                .implicit => {},
+                .explicit => |ns| try translateNameNs(allocator, ns, out),
+            }
+            if (property.container) |container| {
+                try out.print("$I.", .{container});
+            }
+            const property_name = try allocator.dupe(u8, property.name);
+            defer allocator.free(property_name);
+            mem.replaceScalar(u8, property_name, '-', '_');
+            try out.print("Properties.$I", .{property_name});
+        },
+
+        .signal => |signal| {
+            switch (signal.ns) {
+                .implicit => {},
+                .explicit => |ns| try translateNameNs(allocator, ns, out),
+            }
+            if (signal.container) |container| {
+                try out.print("$I.", .{container});
+            }
+            const signal_name = try allocator.dupe(u8, signal.name);
+            defer allocator.free(signal_name);
+            mem.replaceScalar(u8, signal_name, '-', '_');
+            try out.print("Signals.$I", .{signal_name});
+        },
+
+        .vfunc => |func| {
+            switch (func.ns) {
+                .implicit => {},
+                .explicit => |ns| try translateNameNs(allocator, ns, out),
+            }
+            if (func.container) |container| {
+                try out.print("$I.", .{container});
+            }
+            try out.print("VirtualMethods.$I", .{func.name});
         },
 
         .id,
