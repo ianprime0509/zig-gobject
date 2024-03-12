@@ -2,6 +2,9 @@ const std = @import("std");
 const zigWriter = @import("zig_writer.zig").zigWriter;
 const mem = std.mem;
 const Allocator = mem.Allocator;
+const expect = std.testing.expect;
+const expectEqualDeep = std.testing.expectEqualDeep;
+const expectEqualStrings = std.testing.expectEqualStrings;
 const Dependencies = @import("main.zig").Dependencies;
 const Diagnostics = @import("main.zig").Diagnostics;
 
@@ -11,15 +14,12 @@ const RepositoryMap = std.HashMap(gir.Include, gir.Repository, gir.Include.Conte
 const RepositorySet = std.HashMap(gir.Include, void, gir.Include.Context, std.hash_map.default_max_load_percentage);
 
 const TranslationContext = struct {
-    namespaces: std.StringHashMapUnmanaged(Namespace),
+    namespaces: std.StringHashMapUnmanaged(Namespace) = .{},
     arena: std.heap.ArenaAllocator,
 
     fn init(allocator: Allocator) TranslationContext {
         const arena = std.heap.ArenaAllocator.init(allocator);
-        return .{
-            .namespaces = .{},
-            .arena = arena,
-        };
+        return .{ .arena = arena };
     }
 
     fn deinit(ctx: TranslationContext) void {
@@ -425,12 +425,12 @@ fn translateNamespace(allocator: Allocator, ns: gir.Namespace, ctx: TranslationC
         try translateCallback(allocator, callback, .{ .named = true }, ctx, out);
     }
     for (ns.constants) |constant| {
-        try translateConstant(constant, out);
+        try translateConstant(allocator, constant, ctx, out);
     }
 }
 
 fn translateAlias(allocator: Allocator, alias: gir.Alias, ctx: TranslationContext, out: anytype) !void {
-    try translateDocumentation(alias.documentation, out);
+    try translateDocumentation(allocator, alias.documentation, ctx, out);
     try out.print("pub const $I = ", .{escapeTypeName(alias.name.local)});
     try translateType(allocator, alias.type, .{}, ctx, out);
     try out.print(";\n\n", .{});
@@ -438,7 +438,7 @@ fn translateAlias(allocator: Allocator, alias: gir.Alias, ctx: TranslationContex
 
 fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContext, out: anytype) !void {
     // class type
-    try translateDocumentation(class.documentation, out);
+    try translateDocumentation(allocator, class.documentation, ctx, out);
     const name = escapeTypeName(class.name.local);
     try out.print("pub const $I = ", .{name});
     if (class.isOpaque()) {
@@ -492,7 +492,7 @@ fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContex
     }
     for (class.constants) |constant| {
         try member_names.put(constant.name, {});
-        try translateConstant(constant, out);
+        try translateConstant(allocator, constant, ctx, out);
     }
 
     try translateGetTypeFunction(allocator, "get_g_object_type", class.get_type, ctx, out);
@@ -535,7 +535,7 @@ fn classDerivesFromObject(class: gir.Class, ctx: TranslationContext) bool {
 
 fn translateInterface(allocator: Allocator, interface: gir.Interface, ctx: TranslationContext, out: anytype) !void {
     // interface type
-    try translateDocumentation(interface.documentation, out);
+    try translateDocumentation(allocator, interface.documentation, ctx, out);
     const name = escapeTypeName(interface.name.local);
     try out.print("pub const $I = opaque {\n", .{name});
 
@@ -580,7 +580,7 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, ctx: Trans
     }
     for (interface.constants) |constant| {
         try member_names.put(constant.name, {});
-        try translateConstant(constant, out);
+        try translateConstant(allocator, constant, ctx, out);
     }
 
     try translateGetTypeFunction(allocator, "get_g_object_type", interface.get_type, ctx, out);
@@ -617,7 +617,7 @@ fn interfaceDerivesFromObject(interface: gir.Interface, ctx: TranslationContext)
 
 fn translateRecord(allocator: Allocator, record: gir.Record, ctx: TranslationContext, out: anytype) !void {
     // record type
-    try translateDocumentation(record.documentation, out);
+    try translateDocumentation(allocator, record.documentation, ctx, out);
     const name = escapeTypeName(record.name.local);
     try out.print("pub const $I = ", .{name});
     if (record.isPointer()) {
@@ -680,7 +680,7 @@ fn translateRecord(allocator: Allocator, record: gir.Record, ctx: TranslationCon
 }
 
 fn translateUnion(allocator: Allocator, @"union": gir.Union, ctx: TranslationContext, out: anytype) !void {
-    try translateDocumentation(@"union".documentation, out);
+    try translateDocumentation(allocator, @"union".documentation, ctx, out);
     const name = escapeTypeName(@"union".name.local);
     try out.print("pub const $I = ", .{name});
     if (@"union".isOpaque()) {
@@ -727,7 +727,7 @@ fn translateLayoutElements(allocator: Allocator, layout_elements: []const gir.La
                 if (bit_field_offset == 0) {
                     try out.print("bitfields$L: packed struct(c_uint) {\n", .{n_bit_fields});
                 }
-                try translateDocumentation(field.documentation, out);
+                try translateDocumentation(allocator, field.documentation, ctx, out);
                 try out.print("$I: u$L,\n", .{ field.name, bits });
                 bit_field_offset += bits;
                 // This implementation does not handle bit fields with members
@@ -740,7 +740,7 @@ fn translateLayoutElements(allocator: Allocator, layout_elements: []const gir.La
                     n_bit_fields += 1;
                 }
             } else {
-                try translateDocumentation(field.documentation, out);
+                try translateDocumentation(allocator, field.documentation, ctx, out);
                 try out.print("$I: @compileError(\"can't translate bitfields unless backed by guint\"),\n", .{field.name});
             }
         } else {
@@ -753,7 +753,7 @@ fn translateLayoutElements(allocator: Allocator, layout_elements: []const gir.La
             }
             switch (layout_element) {
                 .field => |field| {
-                    try translateDocumentation(field.documentation, out);
+                    try translateDocumentation(allocator, field.documentation, ctx, out);
                     try out.print("$I: ", .{field.name});
                     try translateFieldType(allocator, field.type, ctx, out);
                     try out.print(",\n", .{});
@@ -824,7 +824,7 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: Transla
     else
         .{ "c_uint", 32 };
 
-    try translateDocumentation(bit_field.documentation, out);
+    try translateDocumentation(allocator, bit_field.documentation, ctx, out);
     const name = escapeTypeName(bit_field.name.local);
     try out.print("pub const $I = packed struct($L) {\n", .{ name, backing_int });
     for (members, 0..) |maybe_member, i| {
@@ -865,7 +865,7 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: Transla
 }
 
 fn translateEnum(allocator: Allocator, @"enum": gir.Enum, ctx: TranslationContext, out: anytype) !void {
-    try translateDocumentation(@"enum".documentation, out);
+    try translateDocumentation(allocator, @"enum".documentation, ctx, out);
     const name = escapeTypeName(@"enum".name.local);
 
     var backing_int_buf: [16]u8 = undefined;
@@ -930,7 +930,7 @@ fn translateFunction(allocator: Allocator, function: gir.Function, options: Tran
     const needs_rename = !std.mem.eql(u8, fnName, function.c_identifier);
 
     // extern declaration
-    try translateDocumentation(function.documentation, out);
+    try translateDocumentation(allocator, function.documentation, ctx, out);
     if (!needs_rename) {
         try out.print("pub ", .{});
     }
@@ -1043,7 +1043,7 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
         upper_method_name[0] = std.ascii.toUpper(upper_method_name[0]);
     }
 
-    try translateDocumentation(virtual_method.documentation, out);
+    try translateDocumentation(allocator, virtual_method.documentation, ctx, out);
     try out.print("pub fn implement$L(p_class: anytype, p_implementation: ", .{upper_method_name});
     try out.print("*const fn (", .{});
     try translateParameters(allocator, virtual_method.parameters, .{
@@ -1067,7 +1067,7 @@ fn translateSignal(allocator: Allocator, signal: gir.Signal, container_name: []c
     }
 
     // normal connection
-    try translateDocumentation(signal.documentation, out);
+    try translateDocumentation(allocator, signal.documentation, ctx, out);
     try out.print("pub fn connect$L(p_instance: anytype, comptime P_T: type, p_callback: ", .{upper_signal_name});
     try out.print("*const fn (@TypeOf(p_instance)", .{});
     if (signal.parameters.len > 0) {
@@ -1084,8 +1084,8 @@ fn translateSignal(allocator: Allocator, signal: gir.Signal, container_name: []c
     try out.print("}\n\n", .{});
 }
 
-fn translateConstant(constant: gir.Constant, out: anytype) !void {
-    try translateDocumentation(constant.documentation, out);
+fn translateConstant(allocator: Allocator, constant: gir.Constant, ctx: TranslationContext, out: anytype) !void {
+    try translateDocumentation(allocator, constant.documentation, ctx, out);
     if (constant.type == .simple and constant.type.simple.name != null and mem.eql(u8, constant.type.simple.name.?.local, "utf8")) {
         try out.print("pub const $I = $S;\n", .{ constant.name, constant.value });
     } else {
@@ -1570,7 +1570,7 @@ fn testTranslateType(expected: []const u8, @"type": gir.Type, options: TestTrans
     defer buf.deinit();
     var out = zigWriter(buf.writer());
     try translateType(std.testing.allocator, @"type", options.toTranslateTypeOptions(), ctx, &out);
-    try std.testing.expectEqualStrings(expected, buf.items);
+    try expectEqualStrings(expected, buf.items);
 }
 
 fn arrayTypeIsPointer(@"type": gir.ArrayType, gobject_context: bool, ctx: TranslationContext) bool {
@@ -1781,7 +1781,7 @@ fn testTranslateArrayType(expected: []const u8, @"type": gir.ArrayType, options:
     defer buf.deinit();
     var out = zigWriter(buf.writer());
     try translateArrayType(std.testing.allocator, @"type", options.toTranslateTypeOptions(), ctx, &out);
-    try std.testing.expectEqualStrings(expected, buf.items);
+    try expectEqualStrings(expected, buf.items);
 }
 
 fn zigTypeIsPointer(expected: []const u8) bool {
@@ -1833,7 +1833,7 @@ fn translateCallback(allocator: Allocator, callback: gir.Callback, options: Tran
     }
 
     if (options.named) {
-        try translateDocumentation(callback.documentation, out);
+        try translateDocumentation(allocator, callback.documentation, ctx, out);
         try out.print("pub const $I = ", .{escapeTypeName(callback.name)});
     }
 
@@ -1978,13 +1978,322 @@ fn translateReturnValue(allocator: Allocator, return_value: gir.ReturnValue, opt
     }
 }
 
-fn translateDocumentation(documentation: ?gir.Documentation, out: anytype) !void {
+/// A symbol that can be linked to in documentation.
+///
+/// Corresponds to the [qualifier fragments supported by
+/// gi-docgen](https://gnome.pages.gitlab.gnome.org/gi-docgen/linking.html).
+const Symbol = union(enum) {
+    alias: TopLevel,
+    callback: TopLevel,
+    class: TopLevel,
+    @"const": Member,
+    ctor: Member,
+    @"enum": TopLevel,
+    @"error": TopLevel,
+    flags: TopLevel,
+    func: Member,
+    iface: TopLevel,
+    method: Member,
+    property: Member,
+    signal: Member,
+    @"struct": TopLevel,
+    vfunc: Member,
+    type: TopLevel,
+    id: []const u8,
+
+    const Namespace = union(enum) {
+        implicit,
+        explicit: []const u8,
+    };
+
+    const TopLevel = struct {
+        ns: Namespace,
+        name: []const u8,
+    };
+
+    const Member = struct {
+        ns: Namespace,
+        container: ?[]const u8,
+        name: []const u8,
+    };
+
+    fn parse(link: []const u8, ctx: TranslationContext) ?Symbol {
+        const at_pos = mem.indexOfScalar(u8, link, '@') orelse return null;
+        const fragment = link[0..at_pos];
+        const argument = link[at_pos + 1 ..];
+        if (mem.eql(u8, fragment, "alias")) {
+            return .{ .alias = parseTopLevel(argument) };
+        } else if (mem.eql(u8, fragment, "callback")) {
+            return .{ .callback = parseTopLevel(argument) };
+        } else if (mem.eql(u8, fragment, "class")) {
+            return .{ .class = parseTopLevel(argument) };
+        } else if (mem.eql(u8, fragment, "const")) {
+            return .{ .@"const" = parseMember(argument, ctx) };
+        } else if (mem.eql(u8, fragment, "ctor")) {
+            return .{ .ctor = parseMember(argument, ctx) };
+        } else if (mem.eql(u8, fragment, "enum")) {
+            return .{ .@"enum" = parseTopLevel(argument) };
+        } else if (mem.eql(u8, fragment, "error")) {
+            return .{ .@"error" = parseTopLevel(argument) };
+        } else if (mem.eql(u8, fragment, "flags")) {
+            return .{ .flags = parseTopLevel(argument) };
+        } else if (mem.eql(u8, fragment, "func")) {
+            return .{ .func = parseMember(argument, ctx) };
+        } else if (mem.eql(u8, fragment, "iface")) {
+            return .{ .iface = parseTopLevel(argument) };
+        } else if (mem.eql(u8, fragment, "method")) {
+            return .{ .method = parseMember(argument, ctx) };
+        } else if (mem.eql(u8, fragment, "property")) {
+            return .{ .property = parseProperty(argument) orelse return null };
+        } else if (mem.eql(u8, fragment, "signal")) {
+            return .{ .signal = parseSignal(argument) orelse return null };
+        } else if (mem.eql(u8, fragment, "struct")) {
+            return .{ .@"struct" = parseTopLevel(argument) };
+        } else if (mem.eql(u8, fragment, "vfunc")) {
+            return .{ .vfunc = parseMember(argument, ctx) };
+        } else if (mem.eql(u8, fragment, "type")) {
+            return .{ .type = parseTopLevel(argument) };
+        } else if (mem.eql(u8, fragment, "id")) {
+            return .{ .id = argument };
+        } else {
+            return null;
+        }
+    }
+
+    test parse {
+        var ctx = TranslationContext.init(std.testing.allocator);
+        defer ctx.deinit();
+        try ctx.addRepository(.{
+            .path = "Gtk-4.0.gir",
+            .namespace = .{
+                .name = "Gtk",
+                .version = "4.0",
+            },
+            .arena = undefined, // Fine since we're not attempting to deinit this
+        });
+
+        try expectEqualDeep(Symbol{ .class = .{
+            .ns = .implicit,
+            .name = "Window",
+        } }, parse("class@Window", ctx));
+        try expectEqualDeep(Symbol{ .class = .{
+            .ns = .{ .explicit = "Gtk" },
+            .name = "Window",
+        } }, parse("class@Gtk.Window", ctx));
+        try expectEqualDeep(Symbol{ .method = .{
+            .ns = .implicit,
+            .container = "Widget",
+            .name = "show",
+        } }, parse("method@Widget.show", ctx));
+        try expectEqualDeep(Symbol{ .method = .{
+            .ns = .{ .explicit = "Gtk" },
+            .container = "Widget",
+            .name = "show",
+        } }, parse("method@Gtk.Widget.show", ctx));
+        try expectEqualDeep(Symbol{ .func = .{
+            .ns = .implicit,
+            .container = null,
+            .name = "init",
+        } }, parse("func@init", ctx));
+        try expectEqualDeep(Symbol{ .func = .{
+            .ns = .{ .explicit = "Gtk" },
+            .container = null,
+            .name = "init",
+        } }, parse("func@Gtk.init", ctx));
+        try expectEqualDeep(Symbol{ .property = .{
+            .ns = .implicit,
+            .container = "Orientable",
+            .name = "orientation",
+        } }, parse("property@Orientable:orientation", ctx));
+        try expectEqualDeep(Symbol{ .property = .{
+            .ns = .{ .explicit = "Gtk" },
+            .container = "Orientable",
+            .name = "orientation",
+        } }, parse("property@Gtk.Orientable:orientation", ctx));
+        try expectEqualDeep(Symbol{ .signal = .{
+            .ns = .implicit,
+            .container = "RecentManager",
+            .name = "changed",
+        } }, parse("signal@RecentManager::changed", ctx));
+        try expectEqualDeep(Symbol{ .signal = .{
+            .ns = .{ .explicit = "Gtk" },
+            .container = "RecentManager",
+            .name = "changed",
+        } }, parse("signal@Gtk.RecentManager::changed", ctx));
+        try expectEqualDeep(Symbol{ .id = "gtk_window_new" }, parse("id@gtk_window_new", ctx));
+    }
+
+    fn parseTopLevel(argument: []const u8) TopLevel {
+        if (mem.indexOfScalar(u8, argument, '.')) |dot_pos| {
+            return .{
+                .ns = .{ .explicit = argument[0..dot_pos] },
+                .name = argument[dot_pos + 1 ..],
+            };
+        } else {
+            return .{
+                .ns = .implicit,
+                .name = argument,
+            };
+        }
+    }
+
+    fn parseMember(argument: []const u8, ctx: TranslationContext) Member {
+        const first_dot_pos = mem.indexOfScalar(u8, argument, '.') orelse return .{
+            .ns = .implicit,
+            .container = null,
+            .name = argument,
+        };
+        if (mem.indexOfScalarPos(u8, argument, first_dot_pos + 1, '.')) |second_dot_pos| {
+            return .{
+                .ns = .{ .explicit = argument[0..first_dot_pos] },
+                .container = argument[first_dot_pos + 1 .. second_dot_pos],
+                .name = argument[second_dot_pos + 1 ..],
+            };
+        }
+        const first_part = argument[0..first_dot_pos];
+        const second_part = argument[first_dot_pos + 1 ..];
+        if (ctx.namespaces.contains(first_part)) {
+            return .{
+                .ns = .{ .explicit = first_part },
+                .container = null,
+                .name = second_part,
+            };
+        } else {
+            return .{
+                .ns = .implicit,
+                .container = first_part,
+                .name = second_part,
+            };
+        }
+    }
+
+    fn parseProperty(argument: []const u8) ?Member {
+        const ns: Namespace, const rest = if (mem.indexOfScalar(u8, argument, '.')) |dot_pos|
+            .{ .{ .explicit = argument[0..dot_pos] }, argument[dot_pos + 1 ..] }
+        else
+            .{ .implicit, argument };
+        const sep_pos = mem.indexOfScalar(u8, rest, ':') orelse return null;
+        return .{
+            .ns = ns,
+            .container = rest[0..sep_pos],
+            .name = rest[sep_pos + 1 ..],
+        };
+    }
+
+    fn parseSignal(argument: []const u8) ?Member {
+        const ns: Namespace, const rest = if (mem.indexOfScalar(u8, argument, '.')) |dot_pos|
+            .{ .{ .explicit = argument[0..dot_pos] }, argument[dot_pos + 1 ..] }
+        else
+            .{ .implicit, argument };
+        const sep_pos = mem.indexOf(u8, rest, "::") orelse return null;
+        return .{
+            .ns = ns,
+            .container = rest[0..sep_pos],
+            .name = rest[sep_pos + "::".len ..],
+        };
+    }
+};
+
+comptime {
+    _ = Symbol; // Ensure nested tests are run
+}
+
+fn translateDocumentation(allocator: Allocator, documentation: ?gir.Documentation, ctx: TranslationContext, out: anytype) !void {
     if (documentation) |doc| {
         var lines = mem.split(u8, doc.text, "\n");
         while (lines.next()) |line| {
-            try out.print("/// $L\n", .{line});
+            try out.print("/// ", .{});
+
+            var start: usize = 0;
+            var pos = start;
+            while (pos < line.len) : (pos += 1) {
+                switch (line[pos]) {
+                    '\\' => pos += 1,
+                    '[' => {
+                        const link_end = mem.indexOfScalarPos(u8, line, pos, ']') orelse continue;
+                        if (link_end + 1 < line.len and line[link_end + 1] == '(') continue; // Normal Markdown link
+                        var link_content = line[pos + 1 .. link_end];
+                        if (link_content.len >= 2 and
+                            link_content[0] == '`' and
+                            link_content[link_content.len - 1] == '`')
+                        {
+                            link_content = link_content[1 .. link_content.len - 1];
+                        }
+                        const symbol = Symbol.parse(link_content, ctx) orelse continue;
+                        try out.print("$L", .{line[start..pos]});
+                        try translateSymbolLink(allocator, symbol, ctx, out);
+                        start = link_end + 1;
+                        pos = link_end;
+                    },
+                    else => {},
+                }
+            }
+            try out.print("$L", .{line[start..]});
+
+            try out.print("\n", .{});
         }
     }
+}
+
+fn translateSymbolLink(allocator: Allocator, symbol: Symbol, ctx: TranslationContext, out: anytype) !void {
+    _ = ctx;
+
+    try out.print("`", .{});
+    switch (symbol) {
+        .alias,
+        .callback,
+        .class,
+        .@"enum",
+        .@"error",
+        .flags,
+        .iface,
+        .@"struct",
+        .type,
+        => |top_level| {
+            switch (top_level.ns) {
+                .implicit => {},
+                .explicit => |ns| try translateNameNs(allocator, ns, out),
+            }
+            try out.print("$I", .{top_level.name});
+        },
+
+        .@"const",
+        .property,
+        .signal,
+        => |member| {
+            switch (member.ns) {
+                .implicit => {},
+                .explicit => |ns| try translateNameNs(allocator, ns, out),
+            }
+            if (member.container) |container| {
+                try out.print("$I.", .{container});
+            }
+            try out.print("$I", .{member.name});
+        },
+
+        .ctor,
+        .func,
+        .method,
+        .vfunc,
+        => |func| {
+            switch (func.ns) {
+                .implicit => {},
+                .explicit => |ns| try translateNameNs(allocator, ns, out),
+            }
+            if (func.container) |container| {
+                try out.print("$I.", .{container});
+            }
+            const func_name = try toCamelCase(allocator, func.name, "_");
+            defer allocator.free(func_name);
+            try out.print("$I", .{func_name});
+        },
+
+        .id,
+        => |id| {
+            try out.print("$I", .{id});
+        },
+    }
+    try out.print("`", .{});
 }
 
 const type_name_escapes = std.ComptimeStringMap([]const u8, .{
@@ -2049,7 +2358,7 @@ test "toCamelCase" {
 fn testToCamelCase(expected: []const u8, input: []const u8, word_sep: []const u8) !void {
     const actual = try toCamelCase(std.testing.allocator, input, word_sep);
     defer std.testing.allocator.free(actual);
-    try std.testing.expectEqualStrings(expected, actual);
+    try expectEqualStrings(expected, actual);
 }
 
 pub fn createBuildFile(
