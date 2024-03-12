@@ -168,9 +168,6 @@ pub fn createBindings(
     deps: *Dependencies,
     diag: *Diagnostics,
 ) Allocator.Error!void {
-    std.fs.cwd().makePath(output_dir_path) catch |err|
-        return diag.add("failed to create output directory {s}: {}", .{ output_dir_path, err });
-
     var repository_map = RepositoryMap.init(allocator);
     defer repository_map.deinit();
     for (repositories) |repo| {
@@ -178,19 +175,29 @@ pub fn createBindings(
     }
 
     for (repositories) |repo| {
+        const module_name = try moduleNameAlloc(allocator, repo.namespace.name, repo.namespace.version);
+        defer allocator.free(module_name);
+        const module_output_dir_path = try std.fs.path.join(allocator, &.{ output_dir_path, module_name });
+        defer allocator.free(module_output_dir_path);
+
+        std.fs.cwd().makePath(module_output_dir_path) catch |err| {
+            try diag.add("failed to create output directory {s}: {}", .{ module_output_dir_path, err });
+            continue;
+        };
+
         const manual_bindings = copyBindingsFile(
             allocator,
             repo.namespace.name,
             repo.namespace.version,
             bindings_path,
-            output_dir_path,
+            module_output_dir_path,
             deps,
             diag,
         ) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.CopyFailed => {
                 try diag.add("failed to translate {s}-{s}", .{ repo.namespace.name, repo.namespace.version });
-                return;
+                continue;
             },
         };
 
@@ -199,14 +206,14 @@ pub fn createBindings(
             repo.namespace.name,
             repo.namespace.version,
             extensions_path,
-            output_dir_path,
+            module_output_dir_path,
             deps,
             diag,
         ) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.CopyFailed => {
                 try diag.add("failed to translate {s}-{s}", .{ repo.namespace.name, repo.namespace.version });
-                return;
+                continue;
             },
         };
         defer allocator.free(extensions_file);
@@ -221,14 +228,14 @@ pub fn createBindings(
                 extensions_file,
                 repository_map,
                 ctx,
-                output_dir_path,
+                module_output_dir_path,
                 deps,
                 diag,
             ) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.TranslateFailed => {
                     try diag.add("failed to translate {s}-{s}", .{ repo.namespace.name, repo.namespace.version });
-                    return;
+                    continue;
                 },
             };
         }
@@ -2084,12 +2091,12 @@ pub fn createBuildFile(
 
         try out.print(
             \\const $I = b.addModule($S, .{
-            \\    .root_source_file = .{ .path = b.pathJoin(&.{ "src", $S ++ ".zig" }) },
+            \\    .root_source_file = .{ .path = b.pathJoin(&.{ "src", $S, $S ++ ".zig" }) },
             \\    .target = target,
             \\    .optimize = optimize,
             \\});
             \\
-        , .{ module_name, module_name, module_name });
+        , .{ module_name, module_name, module_name, module_name });
 
         try out.print("$I.link_libc = true;\n", .{module_name});
         for (repo.packages) |package| {
