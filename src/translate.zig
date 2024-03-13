@@ -2,6 +2,7 @@ const std = @import("std");
 const zigWriter = @import("zig_writer.zig").zigWriter;
 const mem = std.mem;
 const Allocator = mem.Allocator;
+const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqualDeep = std.testing.expectEqualDeep;
 const expectEqualStrings = std.testing.expectEqualStrings;
@@ -2351,6 +2352,152 @@ fn translateDocumentation(allocator: Allocator, documentation: ?gir.Documentatio
                         start = link_end + 1;
                         pos = link_end;
                     },
+                    '@' => {
+                        pos += 1;
+                        const param_start = pos;
+                        while (pos < line.len) : (pos += 1) {
+                            switch (line[pos]) {
+                                'A'...'Z', 'a'...'z', '0'...'9', '_' => {},
+                                else => break,
+                            }
+                        }
+                        const param_end = pos;
+                        pos -= 1;
+                        const param = line[param_start..param_end];
+                        if (param.len == 0) continue;
+                        try out.print("$L", .{line[start .. param_start - 1]});
+
+                        try out.print("`$L`", .{param});
+                        start = param_end;
+                    },
+                    '%' => {
+                        pos += 1;
+                        const symbol_start = pos;
+                        while (pos < line.len) : (pos += 1) {
+                            switch (line[pos]) {
+                                'A'...'Z', 'a'...'z', '0'...'9', '_' => {},
+                                else => break,
+                            }
+                        }
+                        const symbol_end = pos;
+                        pos -= 1;
+                        const symbol = line[symbol_start..symbol_end];
+                        if (symbol.len == 0) continue;
+                        try out.print("$L", .{line[start .. symbol_start - 1]});
+
+                        if (ctx.c_symbols.get(symbol)) |resolved| {
+                            try out.print("`", .{});
+                            try translateSymbolLink(allocator, resolved, ctx, out);
+                            try out.print("`", .{});
+                        } else {
+                            try out.print("`$I`", .{symbol});
+                        }
+                        start = symbol_end;
+                    },
+                    '#' => {
+                        pos += 1;
+                        const symbol_start = pos;
+                        while (pos < line.len) : (pos += 1) {
+                            switch (line[pos]) {
+                                'A'...'Z', 'a'...'z', '0'...'9', '_' => {},
+                                else => break,
+                            }
+                        }
+                        const symbol_end = pos;
+                        const symbol = line[symbol_start..symbol_end];
+                        if (symbol.len == 0) {
+                            pos -= 1;
+                            continue;
+                        }
+                        try out.print("$L", .{line[start .. symbol_start - 1]});
+
+                        if (ctx.c_symbols.get(symbol)) |resolved| {
+                            try out.print("`", .{});
+                            try translateSymbolLink(allocator, resolved, ctx, out);
+                        } else {
+                            try out.print("`$I", .{symbol});
+                        }
+
+                        const RefType = enum {
+                            member,
+                            signal,
+                            property,
+                        };
+                        const ref_type: RefType = if (mem.startsWith(u8, line[pos..], ".")) rt: {
+                            pos += 1;
+                            break :rt .member;
+                        } else if (mem.startsWith(u8, line[pos..], "::")) rt: {
+                            pos += 2;
+                            break :rt .signal;
+                        } else if (mem.startsWith(u8, line[pos..], ":")) rt: {
+                            pos += 1;
+                            break :rt .property;
+                        } else {
+                            pos -= 1;
+                            try out.print("`", .{});
+                            start = symbol_end;
+                            continue;
+                        };
+
+                        const rest_start = pos;
+                        while (pos < line.len) : (pos += 1) {
+                            switch (line[pos]) {
+                                'A'...'Z', 'a'...'z', '0'...'9', '_' => {},
+                                else => break,
+                            }
+                        }
+                        const rest_end = pos;
+                        const rest = line[rest_start..rest_end];
+                        if (rest.len == 0) {
+                            pos -= 1;
+                            start = pos; // We still need to process the terminator character.
+                            try out.print("`", .{});
+                            continue;
+                        }
+
+                        switch (ref_type) {
+                            .member => {
+                                if (mem.startsWith(u8, line[pos..], "()")) {
+                                    pos += 2;
+                                    try out.print(".VirtualMethods.$I`", .{rest});
+                                } else {
+                                    try out.print(".$I`", .{rest});
+                                }
+                            },
+                            .signal => try out.print(".Signals.$I`", .{rest}),
+                            .property => try out.print(".Properties.$I`", .{rest}),
+                        }
+
+                        pos -= 1;
+                        start = rest_end;
+                    },
+                    '(' => {
+                        if (pos + 1 == line.len or line[pos + 1] != ')') continue;
+                        const func_end = pos;
+                        var func_start = pos;
+                        while (func_start > 0) : (func_start -= 1) {
+                            switch (line[func_start - 1]) {
+                                'A'...'Z', 'a'...'z', '0'...'9', '_' => {},
+                                else => break,
+                            }
+                        }
+                        const func = line[func_start..func_end];
+                        if (func.len == 0) continue;
+                        if (func_start > start) {
+                            try out.print("$L", .{line[start..func_start]});
+                        }
+
+                        if (ctx.c_symbols.get(func)) |resolved| {
+                            try out.print("`", .{});
+                            try translateSymbolLink(allocator, resolved, ctx, out);
+                            try out.print("`", .{});
+                        } else {
+                            try out.print("`$I`", .{func});
+                        }
+
+                        pos += 1;
+                        start = func_end + "()".len;
+                    },
                     else => {},
                 }
             }
@@ -2450,6 +2597,7 @@ fn translateSymbolLink(allocator: Allocator, symbol: Symbol, ctx: TranslationCon
         .id,
         => |id| {
             if (ctx.c_symbols.get(id)) |resolved| {
+                assert(resolved != .id);
                 try translateSymbolLink(allocator, resolved, ctx, out);
             } else {
                 try out.print("$I", .{id});
