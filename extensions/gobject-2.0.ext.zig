@@ -124,7 +124,7 @@ pub fn DefineTypeOptions(comptime Self: type) type {
 /// may depend on base class methods being present.
 pub fn defineType(comptime Self: type, comptime options: DefineTypeOptions(Self)) fn () callconv(.C) gobject.Type {
     const self_info = @typeInfo(Self);
-    if (self_info != .Struct or self_info.Struct.layout != .Extern) {
+    if (self_info != .Struct or self_info.Struct.layout != .@"extern") {
         @compileError("an instance type must be an extern struct");
     }
 
@@ -132,7 +132,7 @@ pub fn defineType(comptime Self: type, comptime options: DefineTypeOptions(Self)
         @compileError("a class type must have a declaration named Parent pointing to the parent type");
     }
     const parent_info = @typeInfo(Self.Parent);
-    if (parent_info != .Struct or parent_info.Struct.layout != .Extern or !@hasDecl(Self.Parent, "getGObjectType")) {
+    if (parent_info != .Struct or parent_info.Struct.layout != .@"extern" or !@hasDecl(Self.Parent, "getGObjectType")) {
         @compileError("the defined parent type " ++ @typeName(Self.Parent) ++ " does not appear to be a GObject class type");
     }
     if (self_info.Struct.fields.len == 0 or self_info.Struct.fields[0].type != Self.Parent) {
@@ -143,7 +143,7 @@ pub fn defineType(comptime Self: type, comptime options: DefineTypeOptions(Self)
         @compileError("a class type must have a member named Class pointing to the class record");
     }
     const class_info = @typeInfo(Self.Class);
-    if (class_info != .Struct or class_info.Struct.layout != .Extern) {
+    if (class_info != .Struct or class_info.Struct.layout != .@"extern") {
         @compileError("a class type must be an extern struct");
     }
     if (!@hasDecl(Self.Class, "Instance") or Self.Class.Instance != Self) {

@@ -2932,7 +2932,7 @@ pub fn createAbiTests(
             \\            .Int => |actual_int| try std.testing.expectEqual(expected_int.bits, actual_int.bits),
             \\            .Enum => |actual_enum| try checkCompatibility(ExpectedType, actual_enum.tag_type),
             \\            .Struct => |actual_struct| {
-            \\                try std.testing.expect(actual_struct.layout == .Packed);
+            \\                try std.testing.expect(actual_struct.layout == .@"packed");
             \\                try checkCompatibility(ExpectedType, actual_struct.backing_integer.?);
             \\            },
             \\            else => {
