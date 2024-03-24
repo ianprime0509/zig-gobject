@@ -2859,11 +2859,9 @@ pub fn createAbiTests(
         }
         try out.print("});\n", .{});
         try out.print("const std = @import(\"std\");\n", .{});
-        {
-            const import_name = try moduleNameAlloc(allocator, ns.name, ns.version);
-            defer allocator.free(import_name);
-            try out.print("const $I = @import($S);\n\n", .{ pkg, import_name });
-        }
+        const import_name = try moduleNameAlloc(allocator, ns.name, ns.version);
+        defer allocator.free(import_name);
+        try out.print("const $I = @import($S);\n\n", .{ pkg, import_name });
 
         try out.print(
             \\fn checkCompatibility(comptime ExpectedType: type, comptime ActualType: type) !void {
@@ -3199,7 +3197,7 @@ pub fn createAbiTests(
         defer ast.deinit(allocator);
         const fmt_source = try ast.render(allocator);
         defer allocator.free(fmt_source);
-        const file_name = try std.fmt.allocPrint(allocator, "{s}-{s}.abi.zig", .{ repo.namespace.name, repo.namespace.version });
+        const file_name = try std.fmt.allocPrint(allocator, "{s}.abi.zig", .{import_name});
         defer allocator.free(file_name);
         const file_path = try std.fs.path.join(allocator, &.{ output_dir_path, file_name });
         defer allocator.free(file_path);
