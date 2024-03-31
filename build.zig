@@ -272,11 +272,12 @@ pub fn build(b: *std.Build) void {
         },
     } else &.{};
     if (gir_fixes.len > 0) gir_fixes: {
-        const xslt = b.lazyDependency("xslt", .{
+        const libxml2 = b.lazyDependency("libxml2", .{
             .target = target,
             .optimize = optimize,
+            .xslt = true,
         }) orelse break :gir_fixes;
-        const xsltproc = xslt.artifact("xsltproc");
+        const xsltproc = libxml2.artifact("xsltproc");
         const fixed_files = b.addWriteFiles();
 
         for (gir_fixes) |gir_fix| {
