@@ -16,6 +16,11 @@ exe.root_module.addImport("gtk", gobject.module("gtk-4.0"));
 exe.root_module.addImport("adw", gobject.module("adw-1"));
 ```
 
+This project (both the binding generator and the generated bindings) supports
+the latest release version of Zig (0.12.0). It also attempts to support the
+latest master branch version, though there may be some delay in addressing
+breaking changes.
+
 ## Companion projects
 
 - [zig-libintl](https://github.com/ianprime0509/zig-libintl) - libintl bindings
@@ -41,18 +46,12 @@ use [Flatpak](https://flatpak.org/):
 2. Install the base SDK dependencies:
    - `flatpak install org.freedesktop.Sdk//23.08`
    - `flatpak install org.gnome.Sdk//45`
-3. Install the Zig master extension for the Freedesktop SDK. This is not (yet)
-   available on Flathub, so it must be built and installed manually.
-   1. Install `flatpak-builder`.
-   2. Clone
-      https://github.com/ianprime0509/org.freedesktop.Sdk.Extension.ziglang-master
-      and use the branch corresponding to the Freedesktop SDK installed above.
-   3. Inside the clone, run `flatpak-builder --user --install build-dir org.freedesktop.Sdk.Extension.ziglang-master.yml`.
+   - `flatpak install org.freedesktop.Sdk.Extension.ziglang//23.08`
 
 The steps above only need to be done once per GNOME SDK version. To enter a
 development environment:
 
-1. Run `flatpak run --filesystem=home --share=network --share=ipc --socket=fallback-x11 --socket=wayland --device=dri --socket=session-bus org.gnome.Sdk//44`
+1. Run `flatpak run --filesystem=home --share=network --share=ipc --socket=fallback-x11 --socket=wayland --device=dri --socket=session-bus org.gnome.Sdk//45`
    - `--filesystem=home` - makes the user's home directory available within the
      container
    - `--share=network` - allows network access (needed to fetch `build.zig.zon`

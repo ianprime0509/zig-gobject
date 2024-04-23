@@ -206,7 +206,6 @@ pub fn defineType(comptime Self: type, comptime options: DefineTypeOptions(Self)
 pub fn SignalHandler(comptime Itype: type, comptime param_types: []const type, comptime DataType: type, comptime ReturnType: type) type {
     return *const @Type(.{ .Fn = .{
         .calling_convention = .C,
-        .alignment = 0,
         .is_generic = false,
         .is_var_args = false,
         .return_type = ReturnType,
@@ -258,7 +257,7 @@ pub fn defineSignal(
     comptime ReturnType: type,
 ) type {
     const EmitParams = @Type(.{ .Struct = .{
-        .layout = .Auto,
+        .layout = .auto,
         .fields = fields: {
             var fields: [param_types.len]std.builtin.Type.StructField = undefined;
             for (param_types, &fields, 0..) |ParamType, *field, i| {

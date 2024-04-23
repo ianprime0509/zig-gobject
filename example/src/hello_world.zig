@@ -11,7 +11,7 @@ pub fn main() void {
     defer app.unref();
     _ = gio.Application.connectActivate(app, ?*anyopaque, &activate, null, .{});
     const status = gio.Application.run(app.as(gio.Application), @intCast(std.os.argv.len), std.os.argv.ptr);
-    std.os.exit(@intCast(status));
+    std.process.exit(@intCast(status));
 }
 
 fn activate(app: *gtk.Application, _: ?*anyopaque) callconv(.C) void {

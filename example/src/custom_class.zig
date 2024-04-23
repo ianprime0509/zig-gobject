@@ -203,5 +203,5 @@ const ExampleButton = extern struct {
 
 pub fn main() void {
     const status = gio.Application.run(ExampleApplication.new().as(gio.Application), @intCast(std.os.argv.len), std.os.argv.ptr);
-    std.os.exit(@intCast(status));
+    std.process.exit(@intCast(status));
 }
