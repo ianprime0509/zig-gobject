@@ -246,7 +246,6 @@ pub fn build(b: *std.Build) !void {
             "Atspi-2.0",
             "cairo-1.0",
             "DBus-1.0",
-            // "DBusGLib-1.0", // Unable to find system library
             "fontconfig-2.0",
             "freetype2-2.0",
             "GCab-1.0",
@@ -280,7 +279,6 @@ pub fn build(b: *std.Build) !void {
             "GstBadAudio-1.0",
             "GstBase-1.0",
             "GstCheck-1.0",
-            // "GstCodecs-1.0", // Unable to find system library
             "GstController-1.0",
             "GstGL-1.0",
             "GstGLEGL-1.0",
@@ -350,7 +348,6 @@ pub fn build(b: *std.Build) !void {
             "cairo-1.0",
             "CudaGst-1.0",
             "DBus-1.0",
-            // "DBusGLib-1.0", // Unable to find system library
             "Dex-1",
             "fontconfig-2.0",
             "freetype2-2.0",
@@ -385,7 +382,6 @@ pub fn build(b: *std.Build) !void {
             "GstBadAudio-1.0",
             "GstBase-1.0",
             "GstCheck-1.0",
-            // "GstCodecs-1.0", // Unable to find system library
             "GstController-1.0",
             "GstCuda-1.0",
             "GstGL-1.0",
