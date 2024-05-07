@@ -45,13 +45,13 @@ use [Flatpak](https://flatpak.org/):
 1. Install `flatpak`.
 2. Install the base SDK dependencies:
    - `flatpak install org.freedesktop.Sdk//23.08`
-   - `flatpak install org.gnome.Sdk//45`
+   - `flatpak install org.gnome.Sdk//46`
    - `flatpak install org.freedesktop.Sdk.Extension.ziglang//23.08`
 
 The steps above only need to be done once per GNOME SDK version. To enter a
 development environment:
 
-1. Run `flatpak run --filesystem=home --share=network --share=ipc --socket=fallback-x11 --socket=wayland --device=dri --socket=session-bus org.gnome.Sdk//45`
+1. Run `flatpak run --filesystem=home --share=network --share=ipc --socket=fallback-x11 --socket=wayland --device=dri --socket=session-bus org.gnome.Sdk//46`
    - `--filesystem=home` - makes the user's home directory available within the
      container
    - `--share=network` - allows network access (needed to fetch `build.zig.zon`

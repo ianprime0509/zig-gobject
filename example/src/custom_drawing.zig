@@ -50,7 +50,7 @@ fn activate(app: *gtk.Application, _: ?*anyopaque) callconv(.C) void {
 var surface: ?*cairo.Surface = null;
 
 fn clearSurface() callconv(.C) void {
-    const cr = cairo.Context.create(surface.?);
+    const cr = cairo.Context.create(surface orelse return);
     defer cr.destroy();
 
     cr.setSourceRgb(1, 1, 1);
@@ -63,23 +63,23 @@ fn resizeCb(widget: *gtk.DrawingArea, _: c_int, _: c_int, _: ?*anyopaque) callco
         surface = null;
     }
 
-    if (gtk.Widget.getNative(widget.as(gtk.Widget))) |native| {
-        const width = gtk.Widget.getWidth(widget.as(gtk.Widget));
-        const height = gtk.Widget.getHeight(widget.as(gtk.Widget));
-        surface = gtk.Native.getSurface(native).createSimilarSurface(cairo.Content.color, width, height);
+    const native = gtk.Widget.getNative(widget.as(gtk.Widget)) orelse return;
+    const width = gtk.Widget.getWidth(widget.as(gtk.Widget));
+    const height = gtk.Widget.getHeight(widget.as(gtk.Widget));
+    const native_surface = gtk.Native.getSurface(native) orelse return;
+    surface = native_surface.createSimilarSurface(cairo.Content.color, width, height);
 
-        // Initialize the surface to white
-        clearSurface();
-    }
+    // Initialize the surface to white
+    clearSurface();
 }
 
 fn drawCb(_: *gtk.DrawingArea, cr: *cairo.Context, _: c_int, _: c_int, _: ?*anyopaque) callconv(.C) void {
-    cr.setSourceSurface(surface.?, 0, 0);
+    cr.setSourceSurface(surface orelse return, 0, 0);
     cr.paint();
 }
 
 fn drawBrush(widget: *gtk.DrawingArea, x: f64, y: f64) callconv(.C) void {
-    const cr = cairo.Context.create(surface.?);
+    const cr = cairo.Context.create(surface orelse return);
     defer cr.destroy();
 
     cr.rectangle(x - 3, y - 3, 6, 6);
