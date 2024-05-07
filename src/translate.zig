@@ -2329,6 +2329,23 @@ fn translateDocumentation(allocator: Allocator, documentation: ?gir.Documentatio
         while (lines.next()) |line| {
             try out.print("/// ", .{});
 
+            const trimmed_line = mem.trim(u8, line, &std.ascii.whitespace);
+            if (mem.startsWith(u8, trimmed_line, "|[")) {
+                // The language tag (if any) is currently ignored.
+                try out.print("```\n", .{});
+                continue;
+            } else if (mem.eql(u8, trimmed_line, "]|")) {
+                try out.print("```\n", .{});
+                continue;
+            } else if (mem.startsWith(u8, trimmed_line, "#")) heading: {
+                const heading_content_start = mem.indexOfNone(u8, trimmed_line, "#") orelse trimmed_line.len;
+                if (!mem.startsWith(u8, trimmed_line[heading_content_start..], " ")) break :heading;
+                // Remove any heading anchor that might be present.
+                const heading_end = mem.indexOfScalarPos(u8, trimmed_line, heading_content_start, '#') orelse trimmed_line.len;
+                try out.print("$L\n", .{trimmed_line[0..heading_end]});
+                continue;
+            }
+
             var start: usize = 0;
             var pos = start;
             while (pos < line.len) : (pos += 1) {
@@ -2446,7 +2463,7 @@ fn translateDocumentation(allocator: Allocator, documentation: ?gir.Documentatio
                                 else => break,
                             }
                         }
-                        const rest_end = pos;
+                        var rest_end = pos;
                         const rest = line[rest_start..rest_end];
                         if (rest.len == 0) {
                             pos -= 1;
@@ -2459,6 +2476,7 @@ fn translateDocumentation(allocator: Allocator, documentation: ?gir.Documentatio
                             .member => {
                                 if (mem.startsWith(u8, line[pos..], "()")) {
                                     pos += 2;
+                                    rest_end += 2;
                                     try out.print(".VirtualMethods.$I`", .{rest});
                                 } else {
                                     try out.print(".$I`", .{rest});
