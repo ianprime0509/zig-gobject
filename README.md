@@ -77,9 +77,8 @@ bindings for GTK 4 and anything else it depends on (Gio, GObject, GLib, and many
 others).
 
 Alternatively, if a Flatpak development environment is set up (see the section
-above), a predefined GIR profile can be selected using `-Dgir-profile=gnome44`
-or `-Dgir-profile=gnome45`, which includes all the modules available in the
-respective GNOME SDK.
+above), a predefined GIR profile can be selected using `-Dgir-profile`, which
+includes all the modules available in a specific GNOME SDK.
 
 GIR files are assumed to be located in `/usr/share/gir-1.0` unless this is
 overridden via `-Dgir-files-path`.
