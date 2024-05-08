@@ -278,8 +278,6 @@ pub fn build(b: *std.Build) void {
         .gnome46 => &.{
             fix(b, "AppStream-1.0", "common"),
             fix(b, "freetype2-2.0", "common"),
-            fix(b, "GLib-2.0", "gnome46"),
-            fix(b, "Gtk-3.0", "gnome46"),
         },
     } else &.{};
     if (gir_fixes.len > 0) gir_fixes: {

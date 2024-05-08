@@ -1271,6 +1271,7 @@ const builtins = std.ComptimeStringMap([]const u8, .{
     .{ "gdouble", "f64" },
     .{ "long double", "c_longdouble" },
     .{ "va_list", "std.builtin.VaList" },
+    .{ "time_t", "std.posix.time_t" },
     // It might make sense on the surface to include void -> void as a mapping
     // here, but actually we don't want void to be a built-in type translated to
     // void, because a c_type of void may just be a type-erased buffer whose
@@ -1516,6 +1517,7 @@ test "translateType" {
     try testTranslateType("c_longdouble", .{ .name = .{ .ns = null, .local = "long double" }, .c_type = "long double" }, .{});
     try testTranslateType("void", .{ .name = .{ .ns = null, .local = "none" }, .c_type = "void" }, .{});
     try testTranslateType("std.builtin.VaList", .{ .name = .{ .ns = null, .local = "va_list" }, .c_type = "va_list" }, .{});
+    try testTranslateType("std.posix.time_t", .{ .name = .{ .ns = null, .local = "time_t" }, .c_type = "time_t" }, .{});
     try testTranslateType("usize", .{ .name = .{ .ns = "GLib", .local = "GType" }, .c_type = "GType" }, .{});
     try testTranslateType("usize", .{ .name = .{ .ns = "GObject", .local = "GType" }, .c_type = "GType" }, .{});
     try testTranslateType("gdk.Event", .{ .name = .{ .ns = "Gdk", .local = "Event" }, .c_type = "GdkEvent" }, .{});
