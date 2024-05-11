@@ -9,7 +9,7 @@ const ExampleApplication = extern struct {
 
     pub const Parent = gtk.Application;
 
-    pub const getGObjectType = gobject.ext.defineType(ExampleApplication, .{
+    pub const getGObjectType = gobject.ext.defineClass(ExampleApplication, .{
         .classInit = &Class.init,
     });
 
@@ -88,7 +88,7 @@ const ExampleApplicationWindow = extern struct {
         var offset: c_int = 0;
     };
 
-    pub const getGObjectType = gobject.ext.defineType(ExampleApplicationWindow, .{
+    pub const getGObjectType = gobject.ext.defineClass(ExampleApplicationWindow, .{
         .instanceInit = &init,
         .classInit = &Class.init,
         .private = .{ .Type = Private, .offset = &Private.offset },
@@ -152,7 +152,7 @@ const ExampleButton = extern struct {
         var offset: c_int = 0;
     };
 
-    pub const getGObjectType = gobject.ext.defineType(ExampleButton, .{
+    pub const getGObjectType = gobject.ext.defineClass(ExampleButton, .{
         .instanceInit = &init,
         .classInit = &Class.init,
         .private = .{ .Type = Private, .offset = &Private.offset },

@@ -66,8 +66,10 @@ pub fn typeFor(comptime T: type) gobject.Type {
     }
 }
 
-pub fn DefineTypeOptions(comptime Self: type) type {
+pub fn DefineClassOptions(comptime Self: type) type {
     return struct {
+        /// The name of the type. The default is to use the base type name of
+        /// `Self`.
         name: ?[:0]const u8 = null,
         flags: gobject.TypeFlags = .{},
         baseInit: ?*const fn (*Self.Class) callconv(.C) void = null,
@@ -75,7 +77,15 @@ pub fn DefineTypeOptions(comptime Self: type) type {
         classInit: ?*const fn (*Self.Class) callconv(.C) void = null,
         classFinalize: ?*const fn (*Self.Class) callconv(.C) void = null,
         instanceInit: ?*const fn (*Self, *Self.Class) callconv(.C) void = null,
+        /// If non-null, will be set to the instance of the parent class when
+        /// the class is initialized.
         parent_class: ?**Self.Parent.Class = null,
+        /// Metadata for private instance data. When the class is initialized,
+        /// `offset` is updated to the offset of the private data relative to
+        /// the instance.
+        ///
+        /// `impl_helpers.getPrivate` can be used to get this private data
+        /// within the class implementation.
         private: ?struct {
             Type: type,
             offset: *c_int,
@@ -98,31 +108,9 @@ pub fn DefineTypeOptions(comptime Self: type) type {
 ///   `Parent.Class`
 /// - `Class` must have a public declaration named `Instance` referring to the
 ///   instance struct
-/// - Optionally, it may have a public declaration named `Private` which, if
-///   present, must be refer to a struct type representing the instance's private
-///   data
-/// - `Private` must have a public declaration named `offset` of type `c_int`, which
-///   will be used to store the private data offset and should not be modified by
-///   the user (it must be `var` to allow the class initialization logic to set it,
-///   however)
 ///
-/// The following lifecycle methods are supported through public functions declared
-/// on the instance or class struct, as indicated below:
-///
-/// - `Class.base_init` - `fn (*Class) callconv(.C) void`
-/// - `Class.base_finalize` - `fn (*Class) callconv(.C) void`
-/// - `Class.init` - `fn (*Class) callconv(.C) void`
-/// - `Class.finalize` - `fn (*Class) callconv(.C) void`
-/// - `Self.init` - `fn (*Self, *Class) callconv(.C) void`
-///
-/// It is also highly recommended to mix all parent methods into the instance and
-/// class structs. In the instance struct, this is `pub usingnamespace
-/// Parent.Methods(Self)`; in the class struct, this is `pub usingnamespace
-/// Parent.Class.Methods(Class)` and `Parent.Class.VirtualMethods(Class,
-/// Self)`. This is not enforced by the type registration logic, and has no bearing
-/// on the validity of the type from a GObject perspective, but other helper methods
-/// may depend on base class methods being present.
-pub fn defineType(comptime Self: type, comptime options: DefineTypeOptions(Self)) fn () callconv(.C) gobject.Type {
+/// Lifecycle methods and private data can be defined in the `options` struct.
+pub fn defineClass(comptime Self: type, comptime options: DefineClassOptions(Self)) fn () callconv(.C) gobject.Type {
     const self_info = @typeInfo(Self);
     if (self_info != .Struct or self_info.Struct.layout != .@"extern") {
         @compileError("an instance type must be an extern struct");
