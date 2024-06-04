@@ -1,5 +1,5 @@
-const glib = @import("glib-2.0");
-const gtk = @import("gtk-4.0");
+const glib = @import("glib2");
+const gtk = @import("gtk4");
 
 pub const BindTemplateChildOptions = struct {
     field: ?[]const u8 = null,

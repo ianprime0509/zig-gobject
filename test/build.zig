@@ -7,13 +7,13 @@ const ModuleOptions = struct {
 
 const module_options = std.ComptimeStringMap(ModuleOptions, .{
     .{
-        "appstreamcompose-1.0", .{
+        "AppStreamCompose-1.0", .{
             // TODO: have to define I_KNOW_THE_APPSTREAM_COMPOSE_API_IS_SUBJECT_TO_CHANGE
             .test_abi = false,
         },
     },
     .{
-        "atspi-2.0", .{
+        "Atspi-2.0", .{
             // TODO: incorrect translation of time_added field in Application
             .test_abi = false,
         },
@@ -25,207 +25,207 @@ const module_options = std.ComptimeStringMap(ModuleOptions, .{
         },
     },
     .{
-        "dex-1", .{
+        "Dex-1", .{
             // Header file libdex.h not found
             .test_abi = false,
         },
     },
     .{
-        "gcr-3", .{
+        "Gcr-3", .{
             // C includes yield error "This API has not yet reached stability."
             .test_abi = false,
         },
     },
     .{
-        "gcr-4", .{
+        "Gcr-4", .{
             // C includes yield error "This API has not yet reached stability."
             .test_abi = false,
         },
     },
     .{
-        "gcrui-3", .{
+        "GcrUi-3", .{
             // C includes yield error "This API has not yet reached stability."
             .test_abi = false,
         },
     },
     .{
-        "gdk-3.0", .{
+        "Gdk-3.0", .{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "gdkpixbuf-2.0", .{
+        "GdkPixbuf-2.0", .{
             // GdkPixbufAnimation and GdkPixbufAnimationIter seemingly are final
             // without being marked as such in GIR
             .test_abi = false,
         },
     },
     .{
-        "gio-2.0", .{
+        "Gio-2.0", .{
             // Something weird going on with GSettingsBackend being translated as opaque
             .test_abi = false,
         },
     },
     .{
-        "glib-2.0", .{
+        "GLib-2.0", .{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "gobject-2.0", .{
+        "GObject-2.0", .{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "graphene-1.0", .{
+        "Graphene-1.0", .{
             // Uses non-portable conditional SIMD types; the GIR won't work unless it's generated on the same target
             .test_abi = false,
         },
     },
     .{
-        "gsk-4.0", .{
+        "Gsk-4.0", .{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "gst-1.0", .{
+        "Gst-1.0", .{
             // GstMemoryCopyFunction: https://github.com/ziglang/zig/issues/12325
             .test_abi = false,
         },
     },
     .{
-        "gstapp-1.0", .{
+        "GstApp-1.0", .{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "gstaudio-1.0", .{
+        "GstAudio-1.0", .{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "gstbase-1.0", .{
+        "GstBase-1.0", .{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "gstcheck-1.0", .{
+        "GstCheck-1.0", .{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "gstgl-1.0", .{
+        "GstGL-1.0", .{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "gstglegl-1.0", .{
+        "GstGLEGL-1.0", .{
             // GstMemoryCopyFunction: https://github.com/ziglang/zig/issues/12325
             .test_abi = false,
         },
     },
     .{
-        "gstinsertbin-1.0", .{
+        "GstInsertBin-1.0", .{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "gstpbutils-1.0", .{
+        "GstPbutils-1.0", .{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "gstrtp-1.0", .{
+        "GstRtp-1.0", .{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "gsttag-1.0", .{
+        "GstTag-1.0", .{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "gstvideo-1.0", .{
+        "GstVideo-1.0", .{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "gstvulkan-1.0", .{
+        "GstVulkan-1.0", .{
             // Missing include vulkan/vulkan_core.h
             .test_abi = false,
         },
     },
     .{
-        "gstvulkanwayland-1.0", .{
+        "GstVulkanWayland-1.0", .{
             // Missing include vulkan/vulkan_core.h
             .test_abi = false,
         },
     },
     .{
-        "gtk-3.0", .{
+        "Gtk-3.0", .{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "gtksource-4", .{
+        "GtkSource-4", .{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "handy-1", .{
+        "Handy-1", .{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "pango-1.0", .{
+        "Pango-1.0", .{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "pangocairo-1.0", .{
+        "PangoCairo-1.0", .{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "pangofc-1.0", .{
+        "PangoFc-1.0", .{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "pangoft2-1.0", .{
+        "PangoFT2-1.0", .{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "pangoot-1.0", .{
+        "PangoOT-1.0", .{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
 });
 
-pub fn build(b: *std.Build) !void {
+pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
@@ -455,17 +455,22 @@ pub fn build(b: *std.Build) !void {
     } else &.{};
 
     for (test_modules) |test_module| {
-        const module = try std.ascii.allocLowerString(b.allocator, test_module);
-        const options = module_options.get(module) orelse ModuleOptions{};
-        const dash_index = std.mem.indexOfScalar(u8, module, '-').?;
-        const local_name = module[0..dash_index];
+        const module_name_end = std.mem.indexOfScalar(u8, test_module, '-') orelse @panic("Invalid module name");
+        const module_name = test_module[0..module_name_end];
+        const module_major_version_end = std.mem.indexOfScalarPos(u8, test_module, module_name_end, '.') orelse test_module.len;
+        const module_major_version = test_module[module_name_end + 1 .. module_major_version_end];
+        const module = b.fmt("{s}{s}", .{ module_name, module_major_version });
+        _ = std.ascii.lowerString(module, module);
 
+        const options = module_options.get(test_module) orelse ModuleOptions{};
+
+        const import_name = std.ascii.allocLowerString(b.allocator, module_name) catch @panic("OOM");
         const tests = b.addTest(.{
             .root_source_file = .{ .path = b.fmt("{s}.zig", .{module}) },
             .target = target,
             .optimize = optimize,
         });
-        tests.root_module.addImport(local_name, gobject.module(module));
+        tests.root_module.addImport(import_name, gobject.module(module));
         test_step.dependOn(&b.addRunArtifact(tests).step);
 
         if (options.test_abi) {

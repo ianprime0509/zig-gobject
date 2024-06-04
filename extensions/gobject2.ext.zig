@@ -1,5 +1,5 @@
-const glib = @import("glib-2.0");
-const gobject = @import("gobject-2.0");
+const glib = @import("glib2");
+const gobject = @import("gobject2");
 const std = @import("std");
 
 /// The fundamental type from which all interfaces are derived.

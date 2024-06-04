@@ -1,4 +1,4 @@
-const glib = @import("glib-2.0");
+const glib = @import("glib2");
 const std = @import("std");
 
 pub const Bytes = struct {

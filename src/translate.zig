@@ -435,12 +435,6 @@ fn copyExtensionsFile(
     return extensions_name;
 }
 
-fn extensionsFileNameAlloc(allocator: Allocator, name: []const u8, version: []const u8) ![]u8 {
-    const file_name = try std.fmt.allocPrint(allocator, "{s}-{s}.ext.zig", .{ name, version });
-    _ = std.ascii.lowerString(file_name, file_name);
-    return file_name;
-}
-
 fn translateRepository(
     allocator: Allocator,
     repo: gir.Repository,
@@ -510,15 +504,27 @@ fn translateIncludes(allocator: Allocator, ns: gir.Namespace, repository_map: Re
 }
 
 fn fileNameAlloc(allocator: Allocator, name: []const u8, version: []const u8) ![]u8 {
-    const file_name = try std.fmt.allocPrint(allocator, "{s}-{s}.zig", .{ name, version });
-    _ = std.ascii.lowerString(file_name, file_name);
-    return file_name;
+    return try std.fmt.allocPrint(allocator, "{}.zig", .{fmtModuleName(name, version)});
+}
+
+fn extensionsFileNameAlloc(allocator: Allocator, name: []const u8, version: []const u8) ![]u8 {
+    return try std.fmt.allocPrint(allocator, "{}.ext.zig", .{fmtModuleName(name, version)});
 }
 
 fn moduleNameAlloc(allocator: Allocator, name: []const u8, version: []const u8) ![]u8 {
-    const module_name = try std.fmt.allocPrint(allocator, "{s}-{s}", .{ name, version });
-    _ = std.ascii.lowerString(module_name, module_name);
-    return module_name;
+    return try std.fmt.allocPrint(allocator, "{}", .{fmtModuleName(name, version)});
+}
+
+fn fmtModuleName(name: []const u8, version: []const u8) std.fmt.Formatter(formatModuleName) {
+    return .{
+        .data = .{ .name = name, .version = version },
+    };
+}
+
+fn formatModuleName(mod: gir.Include, _: []const u8, _: std.fmt.FormatOptions, writer: anytype) @TypeOf(writer).Error!void {
+    for (mod.name) |c| try writer.writeByte(std.ascii.toLower(c));
+    const version_major_end = mem.indexOfScalar(u8, mod.version, '.') orelse mod.version.len;
+    try writer.writeAll(mod.version[0..version_major_end]);
 }
 
 fn translateNamespace(allocator: Allocator, ns: gir.Namespace, ctx: TranslationContext, out: anytype) !void {

@@ -15,14 +15,14 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     });
-    exe.root_module.addImport("glib", gobject.module("glib-2.0"));
-    exe.root_module.addImport("gobject", gobject.module("gobject-2.0"));
-    exe.root_module.addImport("gio", gobject.module("gio-2.0"));
-    exe.root_module.addImport("cairo", gobject.module("cairo-1.0"));
-    exe.root_module.addImport("pango", gobject.module("pango-1.0"));
-    exe.root_module.addImport("pangocairo", gobject.module("pangocairo-1.0"));
-    exe.root_module.addImport("gdk", gobject.module("gdk-4.0"));
-    exe.root_module.addImport("gtk", gobject.module("gtk-4.0"));
+    exe.root_module.addImport("glib", gobject.module("glib2"));
+    exe.root_module.addImport("gobject", gobject.module("gobject2"));
+    exe.root_module.addImport("gio", gobject.module("gio2"));
+    exe.root_module.addImport("cairo", gobject.module("cairo1"));
+    exe.root_module.addImport("pango", gobject.module("pango1"));
+    exe.root_module.addImport("pangocairo", gobject.module("pangocairo1"));
+    exe.root_module.addImport("gdk", gobject.module("gdk4"));
+    exe.root_module.addImport("gtk", gobject.module("gtk4"));
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
