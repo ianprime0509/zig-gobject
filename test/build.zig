@@ -466,7 +466,7 @@ pub fn build(b: *std.Build) void {
 
         const import_name = std.ascii.allocLowerString(b.allocator, module_name) catch @panic("OOM");
         const tests = b.addTest(.{
-            .root_source_file = .{ .path = b.fmt("{s}.zig", .{module}) },
+            .root_source_file = b.path(b.fmt("{s}.zig", .{module})),
             .target = target,
             .optimize = optimize,
         });
@@ -475,7 +475,7 @@ pub fn build(b: *std.Build) void {
 
         if (options.test_abi) {
             const abi_tests = b.addTest(.{
-                .root_source_file = .{ .path = b.pathJoin(&.{ "abi", b.fmt("{s}.abi.zig", .{module}) }) },
+                .root_source_file = b.path(b.pathJoin(&.{ "abi", b.fmt("{s}.abi.zig", .{module}) })),
                 .target = target,
                 .optimize = optimize,
             });

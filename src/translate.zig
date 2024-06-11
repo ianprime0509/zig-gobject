@@ -2736,7 +2736,7 @@ pub fn createBuildFile(
 
         try out.print(
             \\const $I = b.addModule($S, .{
-            \\    .root_source_file = .{ .path = b.pathJoin(&.{ "src", $S, $S ++ ".zig" }) },
+            \\    .root_source_file = b.path(b.pathJoin(&.{ "src", $S, $S ++ ".zig" })),
             \\    .target = target,
             \\    .optimize = optimize,
             \\});
