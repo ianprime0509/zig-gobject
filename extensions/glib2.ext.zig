@@ -53,7 +53,14 @@ pub const Variant = struct {
             }
             return glib.Variant.newArray(child_type, &children, children.len);
         } else if (type_info == .Pointer and type_info.Pointer.size == .Slice) {
-            @compileError("TODO: slices should be implemented here");
+            const child_type = glib.ext.VariantType.newFor(type_info.Pointer.child);
+            defer child_type.free();
+            const children: [*]*glib.Variant = @alignCast(@ptrCast(glib.mallocN(contents.len, @sizeOf(*glib.Variant))));
+            defer glib.free(@ptrCast(children));
+            for (contents, children) |item, *child| {
+                child.* = newFrom(item);
+            }
+            return glib.Variant.newArray(child_type, children, contents.len);
         } else if (type_info == .Optional) {
             const child_type = glib.ext.VariantType.newFor(type_info.Optional.child);
             defer child_type.free();
@@ -131,7 +138,7 @@ fn isCString(comptime T: type) bool {
                 .Array => |child| child.child == u8 and std.meta.sentinel(info.child) == @as(u8, 0),
                 else => false,
             },
-            .Many => info.child == u8 and std.meta.sentinel(T) == @as(u8, 0),
+            .Many, .Slice => info.child == u8 and std.meta.sentinel(T) == @as(u8, 0),
             else => false,
         },
         else => false,

@@ -51,7 +51,14 @@ test "Value.new([*:0]const u8)" {
     var value = gobject.ext.Value.new([*:0]const u8);
     defer value.unset();
     value.setString("Hello, world!");
-    try expectEqualStrings("Hello, world!", std.mem.sliceTo(value.getString().?, 0));
+    try expectEqualStrings("Hello, world!", std.mem.span(value.getString().?));
+}
+
+test "Value.new([:0]const u8)" {
+    var value = gobject.ext.Value.new([:0]const u8);
+    defer value.unset();
+    value.setString("Hello, world!");
+    try expectEqualStrings("Hello, world!", std.mem.span(value.getString().?));
 }
 
 test "Value.new(*anyopaque)" {

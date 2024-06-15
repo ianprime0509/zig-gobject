@@ -556,7 +556,7 @@ fn isCString(comptime T: type) bool {
                 .Array => |child| child.child == u8 and std.meta.sentinel(info.child) == @as(u8, 0),
                 else => false,
             },
-            .Many => info.child == u8 and std.meta.sentinel(T) == @as(u8, 0),
+            .Many, .Slice => info.child == u8 and std.meta.sentinel(T) == @as(u8, 0),
             else => false,
         },
         else => false,
