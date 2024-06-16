@@ -326,7 +326,7 @@ pub fn createBindings(
             },
         };
 
-        const extensions_file = copyExtensionsFile(
+        copyExtensionsFile(
             allocator,
             repo.namespace.name,
             repo.namespace.version,
@@ -341,7 +341,6 @@ pub fn createBindings(
                 continue;
             },
         };
-        defer allocator.free(extensions_file);
 
         if (!manual_bindings) {
             var ctx = TranslationContext.init(allocator);
@@ -350,7 +349,6 @@ pub fn createBindings(
             translateRepository(
                 allocator,
                 repo,
-                extensions_file,
                 repository_map,
                 ctx,
                 module_output_dir_path,
@@ -407,10 +405,10 @@ fn copyExtensionsFile(
     output_dir_path: []const u8,
     deps: *Dependencies,
     diag: *Diagnostics,
-) ![]u8 {
-    const extensions_name = try extensionsFileNameAlloc(allocator, name, version);
-    errdefer allocator.free(extensions_name);
-    const extensions_output_path = try std.fs.path.join(allocator, &.{ output_dir_path, extensions_name });
+) !void {
+    const extensions_name = try fileNameAlloc(allocator, name, version);
+    defer allocator.free(extensions_name);
+    const extensions_output_path = try std.fs.path.join(allocator, &.{ output_dir_path, "ext.zig" });
     defer allocator.free(extensions_output_path);
 
     for (extensions_dir_paths) |extensions_dir_path| {
@@ -425,20 +423,18 @@ fn copyExtensionsFile(
             },
         };
         try deps.add(extensions_output_path, extensions_path);
-        return extensions_name;
+        return;
     }
 
     std.fs.cwd().writeFile(extensions_output_path, "") catch |err| {
         try diag.add("failed to create extensions file {s}: {}", .{ extensions_output_path, err });
         return error.CopyFailed;
     };
-    return extensions_name;
 }
 
 fn translateRepository(
     allocator: Allocator,
     repo: gir.Repository,
-    extensions_path: []const u8,
     repository_map: RepositoryMap,
     ctx: TranslationContext,
     output_dir_path: []const u8,
@@ -449,7 +445,7 @@ fn translateRepository(
     defer raw_source.deinit();
     var out = zigWriter(raw_source.writer());
 
-    try out.print("pub const ext = @import($S);\n", .{extensions_path});
+    try out.print("pub const ext = @import(\"ext.zig\");\n", .{});
 
     try translateIncludes(allocator, repo.namespace, repository_map, &out);
     try translateNamespace(allocator, repo.namespace, ctx, &out);
@@ -505,10 +501,6 @@ fn translateIncludes(allocator: Allocator, ns: gir.Namespace, repository_map: Re
 
 fn fileNameAlloc(allocator: Allocator, name: []const u8, version: []const u8) ![]u8 {
     return try std.fmt.allocPrint(allocator, "{}.zig", .{fmtModuleName(name, version)});
-}
-
-fn extensionsFileNameAlloc(allocator: Allocator, name: []const u8, version: []const u8) ![]u8 {
-    return try std.fmt.allocPrint(allocator, "{}.ext.zig", .{fmtModuleName(name, version)});
 }
 
 fn moduleNameAlloc(allocator: Allocator, name: []const u8, version: []const u8) ![]u8 {
