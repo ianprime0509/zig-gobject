@@ -148,6 +148,12 @@ const TranslationContext = struct {
             try ctx.addFunctionSymbols(repository.namespace.name, @"enum".name.local, @"enum".functions);
         }
 
+        var constants = std.StringHashMap(gir.Constant).init(allocator);
+        for (repository.namespace.constants) |constant| {
+            try constants.put(constant.name, constant);
+        }
+        try ctx.addConstantSymbols(repository.namespace.name, null, repository.namespace.constants);
+
         var functions = std.StringHashMap(gir.Function).init(allocator);
         for (repository.namespace.functions) |function| {
             try functions.put(function.name, function);
@@ -164,12 +170,6 @@ const TranslationContext = struct {
                 } });
             }
         }
-
-        var constants = std.StringHashMap(gir.Constant).init(allocator);
-        for (repository.namespace.constants) |constant| {
-            try constants.put(constant.name, constant);
-        }
-        try ctx.addConstantSymbols(repository.namespace.name, null, repository.namespace.constants);
 
         try ctx.namespaces.put(allocator, repository.namespace.name, .{
             .name = repository.namespace.name,
@@ -568,7 +568,6 @@ fn translateAlias(allocator: Allocator, alias: gir.Alias, ctx: TranslationContex
 }
 
 fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContext, out: anytype) !void {
-    // class type
     try translateDocumentation(allocator, class.documentation, ctx, out);
     const name = escapeTypeName(class.name.local);
     try out.print("pub const $I = ", .{name});
@@ -603,38 +602,52 @@ fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContex
         try out.print("\n", .{});
     }
 
-    var member_names = std.StringHashMap(void).init(allocator);
-    defer member_names.deinit();
-    for (class.functions) |function| {
-        try member_names.put(function.name, {});
-        try translateFunction(allocator, function, .{ .self_type = name }, ctx, out);
+    try out.print("pub const virtual_methods = struct {\n", .{});
+    for (class.virtual_methods) |virtual_method| {
+        try translateVirtualMethod(allocator, virtual_method, name, "Class", ctx, out);
     }
-    for (class.constructors) |constructor| {
-        try member_names.put(constructor.name, {});
-        try translateConstructor(allocator, constructor, class.name, ctx, out);
+    try out.print("};\n\n", .{});
+
+    try out.print("pub const properties = struct{\n", .{});
+    for (class.properties) |property| {
+        try translateProperty(allocator, property, ctx, out);
     }
-    for (class.methods) |method| {
-        try member_names.put(method.name, {});
-        try translateMethod(allocator, method, .{ .self_type = name }, ctx, out);
-    }
+    try out.print("};\n\n", .{});
+
+    try out.print("pub const signals = struct{\n", .{});
     for (class.signals) |signal| {
-        try member_names.put(signal.name, {});
         try translateSignal(allocator, signal, name, ctx, out);
     }
+    try out.print("};\n\n", .{});
+
     for (class.constants) |constant| {
-        try member_names.put(constant.name, {});
         try translateConstant(allocator, constant, ctx, out);
     }
 
+    var function_names = std.StringHashMap(void).init(allocator);
+    defer function_names.deinit();
+    for (class.functions) |function| {
+        try function_names.put(function.name, {});
+        try translateFunction(allocator, function, .{ .self_type = name }, ctx, out);
+    }
+    for (class.constructors) |constructor| {
+        try function_names.put(constructor.name, {});
+        try translateConstructor(allocator, constructor, class.name, ctx, out);
+    }
+    for (class.methods) |method| {
+        try function_names.put(method.name, {});
+        try translateMethod(allocator, method, .{ .self_type = name }, ctx, out);
+    }
+
     try translateGetTypeFunction(allocator, "get_g_object_type", class.get_type, ctx, out);
-    if (!member_names.contains("ref")) {
+    if (!function_names.contains("ref")) {
         if (class.ref_func) |ref_func| {
             try translateRefFunction(allocator, "ref", ref_func, class.name, ctx, out);
         } else if (classDerivesFromObject(class, ctx)) {
             try translateRefFunction(allocator, "ref", "g_object_ref", class.name, ctx, out);
         }
     }
-    if (!member_names.contains("unref")) {
+    if (!function_names.contains("unref")) {
         if (class.unref_func) |unref_func| {
             try translateRefFunction(allocator, "unref", unref_func, class.name, ctx, out);
         } else if (classDerivesFromObject(class, ctx)) {
@@ -691,34 +704,48 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, ctx: Trans
         try out.print(";\n", .{});
     }
 
-    var member_names = std.StringHashMap(void).init(allocator);
-    defer member_names.deinit();
-    for (interface.functions) |function| {
-        try member_names.put(function.name, {});
-        try translateFunction(allocator, function, .{ .self_type = name }, ctx, out);
+    try out.print("pub const virtual_methods = struct {\n", .{});
+    for (interface.virtual_methods) |virtual_method| {
+        try translateVirtualMethod(allocator, virtual_method, name, "Iface", ctx, out);
     }
-    for (interface.constructors) |constructor| {
-        try member_names.put(constructor.name, {});
-        try translateConstructor(allocator, constructor, interface.name, ctx, out);
+    try out.print("};\n\n", .{});
+
+    try out.print("pub const properties = struct{\n", .{});
+    for (interface.properties) |property| {
+        try translateProperty(allocator, property, ctx, out);
     }
-    for (interface.methods) |method| {
-        try member_names.put(method.name, {});
-        try translateMethod(allocator, method, .{ .self_type = name }, ctx, out);
-    }
+    try out.print("};\n\n", .{});
+
+    try out.print("pub const signals = struct{\n", .{});
     for (interface.signals) |signal| {
-        try member_names.put(signal.name, {});
         try translateSignal(allocator, signal, name, ctx, out);
     }
+    try out.print("};\n\n", .{});
+
     for (interface.constants) |constant| {
-        try member_names.put(constant.name, {});
         try translateConstant(allocator, constant, ctx, out);
     }
 
+    var function_names = std.StringHashMap(void).init(allocator);
+    defer function_names.deinit();
+    for (interface.functions) |function| {
+        try function_names.put(function.name, {});
+        try translateFunction(allocator, function, .{ .self_type = name }, ctx, out);
+    }
+    for (interface.constructors) |constructor| {
+        try function_names.put(constructor.name, {});
+        try translateConstructor(allocator, constructor, interface.name, ctx, out);
+    }
+    for (interface.methods) |method| {
+        try function_names.put(method.name, {});
+        try translateMethod(allocator, method, .{ .self_type = name }, ctx, out);
+    }
+
     try translateGetTypeFunction(allocator, "get_g_object_type", interface.get_type, ctx, out);
-    if (!member_names.contains("ref") and interfaceDerivesFromObject(interface, ctx)) {
+    if (!function_names.contains("ref") and interfaceDerivesFromObject(interface, ctx)) {
         try translateRefFunction(allocator, "ref", "g_object_ref", interface.name, ctx, out);
     }
-    if (!member_names.contains("unref") and interfaceDerivesFromObject(interface, ctx)) {
+    if (!function_names.contains("unref") and interfaceDerivesFromObject(interface, ctx)) {
         try translateRefFunction(allocator, "unref", "g_object_unref", interface.name, ctx, out);
     }
 
@@ -786,19 +813,7 @@ fn translateRecord(allocator: Allocator, record: gir.Record, ctx: TranslationCon
         try translateGetTypeFunction(allocator, "get_g_object_type", get_type, ctx, out);
     }
 
-    if (record.is_gtype_struct_for) |instance_type_name| virtual_methods: {
-        const instance_type_ns_name = instance_type_name.ns orelse break :virtual_methods;
-        const instance_type_ns = ctx.namespaces.get(instance_type_ns_name) orelse break :virtual_methods;
-        const virtual_methods = if (instance_type_ns.classes.get(instance_type_name.local)) |class|
-            class.virtual_methods
-        else if (instance_type_ns.interfaces.get(instance_type_name.local)) |interface|
-            interface.virtual_methods
-        else
-            break :virtual_methods;
-        for (virtual_methods) |virtual_method| {
-            try translateVirtualMethod(allocator, virtual_method, name, ctx, out);
-        }
-
+    if (record.is_gtype_struct_for != null) {
         try out.print(
             \\pub fn as(p_instance: *$I, comptime P_T: type) *P_T {
             \\    return gobject.ext.as(P_T, p_instance);
@@ -1167,15 +1182,11 @@ fn translateMethod(allocator: Allocator, method: gir.Method, options: TranslateF
     }, options, ctx, out);
 }
 
-fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMethod, container_name: []const u8, ctx: TranslationContext, out: anytype) !void {
-    var upper_method_name = try toCamelCase(allocator, virtual_method.name, "_");
-    defer allocator.free(upper_method_name);
-    if (upper_method_name.len > 0) {
-        upper_method_name[0] = std.ascii.toUpper(upper_method_name[0]);
-    }
-
+fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMethod, type_name: []const u8, type_struct_name: []const u8, ctx: TranslationContext, out: anytype) !void {
     try translateDocumentation(allocator, virtual_method.documentation, ctx, out);
-    try out.print("pub fn implement$L(p_class: anytype, p_implementation: ", .{upper_method_name});
+    try out.print("pub const $I = struct {\n", .{virtual_method.name});
+
+    try out.print("pub fn implement(p_class: anytype, p_implementation: ", .{});
     try out.print("*const fn (", .{});
     try translateParameters(allocator, virtual_method.parameters, .{
         .self_type = "@typeInfo(@TypeOf(p_class)).Pointer.child.Instance",
@@ -1186,20 +1197,49 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
         .force_nullable = virtual_method.throws,
     }, ctx, out);
     try out.print(") void {\n", .{});
-    try out.print("p_class.as($I).$I = @ptrCast(p_implementation);\n", .{ container_name, virtual_method.name });
-    try out.print("}\n\n", .{});
+    try out.print("p_class.as($I.$I).$I = @ptrCast(p_implementation);\n", .{ type_name, type_struct_name, virtual_method.name });
+    try out.print("}\n", .{});
+
+    try out.print("};\n\n", .{});
 }
 
-fn translateSignal(allocator: Allocator, signal: gir.Signal, container_name: []const u8, ctx: TranslationContext, out: anytype) !void {
-    var upper_signal_name = try toCamelCase(allocator, signal.name, "-");
-    defer allocator.free(upper_signal_name);
-    if (upper_signal_name.len > 0) {
-        upper_signal_name[0] = std.ascii.toUpper(upper_signal_name[0]);
-    }
+fn translateProperty(allocator: Allocator, property: gir.Property, ctx: TranslationContext, out: anytype) !void {
+    const name = try allocator.dupe(u8, property.name);
+    defer allocator.free(name);
+    mem.replaceScalar(u8, name, '-', '_');
 
-    // normal connection
+    try translateDocumentation(allocator, property.documentation, ctx, out);
+    try out.print("pub const $I = struct {\n", .{name});
+
+    try out.print("pub const name = $S;\n\n", .{property.name});
+
+    try out.print("pub const Type = ", .{});
+    switch (property.type) {
+        .simple => |simple_type| try translateType(allocator, simple_type, .{
+            .nullable = true,
+            .gobject_context = true,
+        }, ctx, out),
+        .array => |array_type| try translateArrayType(allocator, array_type, .{
+            .nullable = true,
+            .gobject_context = true,
+        }, ctx, out),
+    }
+    try out.print(";\n", .{});
+
+    try out.print("};\n\n", .{});
+}
+
+fn translateSignal(allocator: Allocator, signal: gir.Signal, type_name: []const u8, ctx: TranslationContext, out: anytype) !void {
+    const name = try allocator.dupe(u8, signal.name);
+    defer allocator.free(name);
+    mem.replaceScalar(u8, name, '-', '_');
+
     try translateDocumentation(allocator, signal.documentation, ctx, out);
-    try out.print("pub fn connect$L(p_instance: anytype, comptime P_T: type, p_callback: ", .{upper_signal_name});
+    try out.print("pub const $I = struct {\n", .{name});
+
+    try out.print("pub const name = $S;\n\n", .{signal.name});
+
+    try out.print("pub fn connect(p_instance: anytype, comptime P_T: type, p_callback: ", .{});
     try out.print("*const fn (@TypeOf(p_instance)", .{});
     if (signal.parameters.len > 0) {
         try out.print(", ", .{});
@@ -1211,8 +1251,10 @@ fn translateSignal(allocator: Allocator, signal: gir.Signal, container_name: []c
     try out.print(", P_T) callconv(.C) ", .{});
     try translateReturnValue(allocator, signal.return_value, .{ .gobject_context = true }, ctx, out);
     try out.print(", p_data: P_T, p_options: struct { after: bool = false }) c_ulong {\n", .{});
-    try out.print("return gobject.signalConnectData(@ptrCast(@alignCast(p_instance.as($I))), $S, @ptrCast(p_callback), p_data, null, .{ .after = p_options.after });\n", .{ container_name, signal.name });
-    try out.print("}\n\n", .{});
+    try out.print("return gobject.signalConnectData(@ptrCast(@alignCast(p_instance.as($I))), $S, @ptrCast(p_callback), p_data, null, .{ .after = p_options.after });\n", .{ type_name, signal.name });
+    try out.print("}\n", .{});
+
+    try out.print("};\n\n", .{});
 }
 
 fn translateConstant(allocator: Allocator, constant: gir.Constant, ctx: TranslationContext, out: anytype) !void {
@@ -2485,13 +2527,13 @@ fn translateDocumentation(allocator: Allocator, documentation: ?gir.Documentatio
                                 if (mem.startsWith(u8, line[pos..], "()")) {
                                     pos += 2;
                                     rest_end += 2;
-                                    try out.print(".VirtualMethods.$I`", .{rest});
+                                    try out.print(".virtual_methods.$I`", .{rest});
                                 } else {
                                     try out.print(".$I`", .{rest});
                                 }
                             },
-                            .signal => try out.print(".Signals.$I`", .{rest}),
-                            .property => try out.print(".Properties.$I`", .{rest}),
+                            .signal => try out.print(".signals.$I`", .{rest}),
+                            .property => try out.print(".properties.$I`", .{rest}),
                         }
 
                         pos -= 1;
@@ -2592,7 +2634,7 @@ fn translateSymbolLink(allocator: Allocator, symbol: Symbol, ctx: TranslationCon
             const property_name = try allocator.dupe(u8, property.name);
             defer allocator.free(property_name);
             mem.replaceScalar(u8, property_name, '-', '_');
-            try out.print("Properties.$I", .{property_name});
+            try out.print("properties.$I", .{property_name});
         },
 
         .signal => |signal| {
@@ -2606,7 +2648,7 @@ fn translateSymbolLink(allocator: Allocator, symbol: Symbol, ctx: TranslationCon
             const signal_name = try allocator.dupe(u8, signal.name);
             defer allocator.free(signal_name);
             mem.replaceScalar(u8, signal_name, '-', '_');
-            try out.print("Signals.$I", .{signal_name});
+            try out.print("signals.$I", .{signal_name});
         },
 
         .vfunc => |func| {
@@ -2617,7 +2659,7 @@ fn translateSymbolLink(allocator: Allocator, symbol: Symbol, ctx: TranslationCon
             if (func.container) |container| {
                 try out.print("$I.", .{container});
             }
-            try out.print("VirtualMethods.$I", .{func.name});
+            try out.print("virtual_methods.$I", .{func.name});
         },
 
         .id,

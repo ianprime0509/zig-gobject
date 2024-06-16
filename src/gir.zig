@@ -399,6 +399,7 @@ pub const Class = struct {
     constructors: []const Constructor = &.{},
     methods: []const Method = &.{},
     virtual_methods: []const VirtualMethod = &.{},
+    properties: []const Property = &.{},
     signals: []const Signal = &.{},
     constants: []const Constant = &.{},
     get_type: []const u8,
@@ -423,6 +424,7 @@ pub const Class = struct {
         var constructors = std.ArrayList(Constructor).init(allocator);
         var methods = std.ArrayList(Method).init(allocator);
         var virtual_methods = std.ArrayList(VirtualMethod).init(allocator);
+        var properties = std.ArrayList(Property).init(allocator);
         var signals = std.ArrayList(Signal).init(allocator);
         var constants = std.ArrayList(Constant).init(allocator);
         var get_type: ?[]const u8 = null;
@@ -473,6 +475,8 @@ pub const Class = struct {
                     try methods.append(try Method.parse(allocator, child, children.children(), current_ns));
                 } else if (child.name.is(ns.core, "virtual-method")) {
                     try virtual_methods.append(try VirtualMethod.parse(allocator, child, children.children(), current_ns));
+                } else if (child.name.is(ns.core, "property")) {
+                    try properties.append(try Property.parse(allocator, child, children.children(), current_ns));
                 } else if (child.name.is(ns.glib, "signal")) {
                     try signals.append(try Signal.parse(allocator, child, children.children(), current_ns));
                 } else if (child.name.is(ns.core, "constant")) {
@@ -496,6 +500,7 @@ pub const Class = struct {
             .constructors = try constructors.toOwnedSlice(),
             .methods = try methods.toOwnedSlice(),
             .virtual_methods = try virtual_methods.toOwnedSlice(),
+            .properties = try properties.toOwnedSlice(),
             .signals = try signals.toOwnedSlice(),
             .constants = try constants.toOwnedSlice(),
             .get_type = get_type orelse return error.InvalidGir,
@@ -517,6 +522,7 @@ pub const Interface = struct {
     constructors: []const Constructor = &.{},
     methods: []const Method = &.{},
     virtual_methods: []const VirtualMethod = &.{},
+    properties: []const Property = &.{},
     signals: []const Signal = &.{},
     constants: []const Constant = &.{},
     get_type: []const u8,
@@ -532,6 +538,7 @@ pub const Interface = struct {
         var constructors = std.ArrayList(Constructor).init(allocator);
         var methods = std.ArrayList(Method).init(allocator);
         var virtual_methods = std.ArrayList(VirtualMethod).init(allocator);
+        var properties = std.ArrayList(Property).init(allocator);
         var signals = std.ArrayList(Signal).init(allocator);
         var constants = std.ArrayList(Constant).init(allocator);
         var get_type: ?[]const u8 = null;
@@ -565,6 +572,8 @@ pub const Interface = struct {
                     try methods.append(try Method.parse(allocator, child, children.children(), current_ns));
                 } else if (child.name.is(ns.core, "virtual-method")) {
                     try virtual_methods.append(try VirtualMethod.parse(allocator, child, children.children(), current_ns));
+                } else if (child.name.is(ns.core, "property")) {
+                    try properties.append(try Property.parse(allocator, child, children.children(), current_ns));
                 } else if (child.name.is(ns.glib, "signal")) {
                     try signals.append(try Signal.parse(allocator, child, children.children(), current_ns));
                 } else if (child.name.is(ns.core, "constant")) {
@@ -586,6 +595,7 @@ pub const Interface = struct {
             .constructors = try constructors.toOwnedSlice(),
             .methods = try methods.toOwnedSlice(),
             .virtual_methods = try virtual_methods.toOwnedSlice(),
+            .properties = try properties.toOwnedSlice(),
             .signals = try signals.toOwnedSlice(),
             .constants = try constants.toOwnedSlice(),
             .get_type = get_type orelse return error.InvalidGir,
@@ -1177,6 +1187,45 @@ pub const VirtualMethod = struct {
             .parameters = try parameters.toOwnedSlice(),
             .return_value = return_value orelse return error.InvalidGir,
             .throws = throws,
+            .documentation = documentation,
+        };
+    }
+};
+
+pub const Property = struct {
+    name: []const u8,
+    type: AnyType,
+    documentation: ?Documentation = null,
+
+    fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Property {
+        var name: ?[]const u8 = null;
+        var @"type": ?AnyType = null;
+        var documentation: ?Documentation = null;
+
+        for (start.attributes) |attr| {
+            if (attr.name.is(null, "name")) {
+                name = try allocator.dupe(u8, attr.value);
+            }
+        }
+
+        while (try children.next()) |event| {
+            switch (event) {
+                .element_start => |child| if (child.name.is(ns.core, "type")) {
+                    @"type" = .{ .simple = try Type.parse(allocator, child, children.children(), current_ns) };
+                } else if (child.name.is(ns.core, "array")) {
+                    @"type" = .{ .array = try ArrayType.parse(allocator, child, children.children(), current_ns) };
+                } else if (child.name.is(ns.core, "doc")) {
+                    documentation = try Documentation.parse(allocator, children.children());
+                } else {
+                    try children.children().skip();
+                },
+                else => {},
+            }
+        }
+
+        return .{
+            .name = name orelse return error.InvalidGir,
+            .type = @"type" orelse return error.InvalidGir,
             .documentation = documentation,
         };
     }

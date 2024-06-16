@@ -39,7 +39,7 @@ const ExampleApplication = extern struct {
         }
 
         fn init(class: *Class) callconv(.C) void {
-            gio.ApplicationClass.implementActivate(class, &activateImpl);
+            gio.Application.virtual_methods.activate.implement(class, &activateImpl);
         }
     };
 };
@@ -107,7 +107,7 @@ const ExampleApplicationWindow = extern struct {
     fn init(win: *ExampleApplicationWindow, _: *Class) callconv(.C) void {
         gtk.Widget.initTemplate(win.as(gtk.Widget));
 
-        _ = ExampleButton.connectCounterIncremented(win.private().button, ?*anyopaque, &handleIncremented, null, .{});
+        _ = ExampleButton.signals.counter_incremented.connect(win.private().button, ?*anyopaque, &handleIncremented, null, .{});
     }
 
     fn handleIncremented(_: *ExampleButton, new_value: c_uint, _: ?*anyopaque) callconv(.C) void {
@@ -158,15 +158,19 @@ const ExampleButton = extern struct {
         .private = .{ .Type = Private, .offset = &Private.offset },
     });
 
-    const counter_incremented = gobject.ext.defineSignal("counter-incremented", ExampleButton, &.{c_uint}, void);
-    pub const connectCounterIncremented = counter_incremented.connect;
+    pub const signals = struct {
+        pub const counter_incremented = struct {
+            const impl = gobject.ext.defineSignal("counter-incremented", ExampleButton, &.{c_uint}, void);
+            pub const connect = impl.connect;
+        };
+    };
 
     pub fn as(button: *ExampleButton, comptime T: type) *T {
         return gobject.ext.as(T, button);
     }
 
     fn init(button: *ExampleButton, _: *Class) callconv(.C) void {
-        _ = gtk.Button.connectClicked(button, ?*anyopaque, &handleClicked, null, .{});
+        _ = gtk.Button.signals.clicked.connect(button, ?*anyopaque, &handleClicked, null, .{});
 
         button.updateLabel();
     }
@@ -174,7 +178,7 @@ const ExampleButton = extern struct {
     fn handleClicked(button: *ExampleButton, _: ?*anyopaque) callconv(.C) void {
         button.private().counter +|= 1;
         button.updateLabel();
-        counter_incremented.emit(button, null, .{button.private().counter}, null);
+        signals.counter_incremented.impl.emit(button, null, .{button.private().counter}, null);
     }
 
     fn updateLabel(button: *ExampleButton) void {
@@ -196,7 +200,7 @@ const ExampleButton = extern struct {
         }
 
         fn init(_: *Class) callconv(.C) void {
-            counter_incremented.register(.{});
+            signals.counter_incremented.impl.register(.{});
         }
     };
 };

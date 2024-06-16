@@ -9,7 +9,7 @@ const gobject = @import("gobject");
 
 pub fn main() void {
     const app = gtk.Application.new("org.gtk.example", .{});
-    _ = gio.Application.connectActivate(app, ?*anyopaque, &activate, null, .{});
+    _ = gio.Application.signals.activate.connect(app, ?*anyopaque, &activate, null, .{});
     const status = gio.Application.run(app.as(gio.Application), @intCast(std.os.argv.len), std.os.argv.ptr);
     std.process.exit(@intCast(status));
 }
@@ -18,7 +18,7 @@ fn activate(app: *gtk.Application, _: ?*anyopaque) callconv(.C) void {
     const window = gtk.ApplicationWindow.new(app);
     gtk.Window.setTitle(window.as(gtk.Window), "Drawing Area");
 
-    _ = gtk.Widget.connectDestroy(window, ?*anyopaque, &closeWindow, null, .{});
+    _ = gtk.Widget.signals.destroy.connect(window, ?*anyopaque, &closeWindow, null, .{});
 
     const frame = gtk.Frame.new(null);
     gtk.Window.setChild(window.as(gtk.Window), frame.as(gtk.Widget));
@@ -30,19 +30,19 @@ fn activate(app: *gtk.Application, _: ?*anyopaque) callconv(.C) void {
 
     gtk.DrawingArea.setDrawFunc(drawing_area, &drawCb, null, null);
 
-    _ = gtk.DrawingArea.connectResize(drawing_area, ?*anyopaque, &resizeCb, null, .{ .after = true });
+    _ = gtk.DrawingArea.signals.resize.connect(drawing_area, ?*anyopaque, &resizeCb, null, .{ .after = true });
 
     const drag = gtk.GestureDrag.new();
     gtk.GestureSingle.setButton(drag.as(gtk.GestureSingle), gdk.BUTTON_PRIMARY);
     gtk.Widget.addController(drawing_area.as(gtk.Widget), drag.as(gtk.EventController));
-    _ = gtk.GestureDrag.connectDragBegin(drag, *gtk.DrawingArea, &dragBegin, drawing_area, .{});
-    _ = gtk.GestureDrag.connectDragUpdate(drag, *gtk.DrawingArea, &dragUpdate, drawing_area, .{});
-    _ = gtk.GestureDrag.connectDragEnd(drag, *gtk.DrawingArea, &dragEnd, drawing_area, .{});
+    _ = gtk.GestureDrag.signals.drag_begin.connect(drag, *gtk.DrawingArea, &dragBegin, drawing_area, .{});
+    _ = gtk.GestureDrag.signals.drag_update.connect(drag, *gtk.DrawingArea, &dragUpdate, drawing_area, .{});
+    _ = gtk.GestureDrag.signals.drag_end.connect(drag, *gtk.DrawingArea, &dragEnd, drawing_area, .{});
 
     const press = gtk.GestureClick.new();
     gtk.GestureSingle.setButton(press.as(gtk.GestureSingle), gdk.BUTTON_SECONDARY);
     gtk.Widget.addController(drawing_area.as(gtk.Widget), press.as(gtk.EventController));
-    _ = gtk.GestureClick.connectPressed(press, *gtk.DrawingArea, &pressed, drawing_area, .{});
+    _ = gtk.GestureClick.signals.pressed.connect(press, *gtk.DrawingArea, &pressed, drawing_area, .{});
 
     gtk.Widget.show(window.as(gtk.Widget));
 }

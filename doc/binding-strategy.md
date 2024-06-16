@@ -33,7 +33,7 @@ methods in this library are conventionally called with the more verbose syntax
 normal methods, type-safe generated helpers, and extensions:
 
 - `gtk.Widget.show(win.as(gtk.Widget))`
-- `gtk.Button.connectClicked(button, Data, &handleButtonClicked, data, .{})`
+- `gtk.Button.signals.clicked.connect(button, Data, &handleButtonClicked, data, .{})`
 - `gtk.ext.WidgetClass.setTemplateFromSlice(class.as(gtk.Widget.Class), template)`
 
 It is also hoped that [the `@Result` builtin
@@ -81,6 +81,9 @@ metadata about relationships in the type system through a few special members:
   contains several types, including `gtk.Buildable`.
 - `const Prerequisites: [_]type` - for an interface type, this is an array of all
   the prerequisite types of the interface.
+- `virtual_methods` - a namespace containing virtual method metadata
+- `properties` - a namespace containing property metadata
+- `signals` - a namespace containing signal metadata
 
 As an example of how these additional members are useful, the function
 `gobject.ext.as` casts an object instance to another type, failing to compile if
@@ -89,13 +92,42 @@ the correctness of the cast cannot be guaranteed. For example, if `win` is a
 `gobject.ext.as(gtk.ApplicationWindow, win)` will fail to compile, because `win`
 might not be an instance of `gtk.ApplicationWindow`.
 
-## Signal handlers
+## Virtual methods
 
-Each signal associated with a type leads to a `connectSignal` function being
-generated on the type with the following signature:
+Each element in the `virtual_methods` namespace has the following structure:
 
 ```zig
-fn connectSignal(
+pub fn implement(
+    /// The type struct instance on which to implement the method.
+    class: anytype,
+    /// The implementation of the method.
+    impl: *const fn(*@typeInfo(@TypeOf(class)).Pointer.child.Instance, ...method parameters...) ...method return type...,
+)
+```
+
+For example, the virtual method `finalize` can be implemented for an object type
+using `gobject.Object.virtual_methods.finalize.implement`. This offers greater
+type safety than casting the type struct instance to an ancestor type and
+setting the method field directly.
+
+## Properties
+
+Each element in the `properties` namespace has the following structure:
+
+```zig
+pub const name = "property";
+
+pub const Type = T;
+```
+
+## Signals
+
+Each element in the `signals` namespace has the following structure:
+
+```zig
+pub const name = "signal";
+
+pub fn connect(
     /// The object to which to connect the signal handler.
     obj: anytype,
     /// The type of the user data to pass to the handler.
@@ -111,26 +143,6 @@ fn connectSignal(
 
 Using these generated signal connection functions offers greater type safety
 than calling `gobject.signalConnectData` directly.
-
-## Virtual method implementations
-
-Each virtual method associated with a class leads to an `implementMethod`
-function being generated on the corresponding type struct type with the
-following signature:
-
-```zig
-fn implementMethod(
-    /// The type struct instance on which to implement the method.
-    class: anytype,
-    /// The implementation of the method.
-    impl: *const fn(*@typeInfo(@TypeOf(class)).Pointer.child.Instance, ...method parameters...) ...method return type...,
-)
-```
-
-For example, the virtual method `finalize` can be implemented for an object type
-using `gobject.Object.Class.implementFinalize`. This offers greater type safety
-than casting the type struct instance to an ancestor type and setting the method
-field directly.
 
 ## Utility functions
 

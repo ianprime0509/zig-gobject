@@ -236,7 +236,7 @@ pub const RegisterSignalOptions = struct {
 ///   - `return_value: ?*ReturnValue` - optional pointer to where the
 ///     return value of the signal should be stored
 /// - `connect` - a function which connects the signal. The signature of
-///   this function is analogous to all other `connect*` functions in
+///   this function is analogous to all other `connect` functions in
 ///   this library.
 pub fn defineSignal(
     comptime name: [:0]const u8,

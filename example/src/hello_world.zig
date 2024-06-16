@@ -9,7 +9,7 @@ const gtk = @import("gtk");
 pub fn main() void {
     var app = gtk.Application.new("org.gtk.example", .{});
     defer app.unref();
-    _ = gio.Application.connectActivate(app, ?*anyopaque, &activate, null, .{});
+    _ = gio.Application.signals.activate.connect(app, ?*anyopaque, &activate, null, .{});
     const status = gio.Application.run(app.as(gio.Application), @intCast(std.os.argv.len), std.os.argv.ptr);
     std.process.exit(@intCast(status));
 }
@@ -27,8 +27,8 @@ fn activate(app: *gtk.Application, _: ?*anyopaque) callconv(.C) void {
 
     var button = gtk.Button.newWithLabel("Hello World");
 
-    _ = gtk.Button.connectClicked(button, ?*anyopaque, &printHello, null, .{});
-    _ = gtk.Button.connectClicked(button, *gtk.ApplicationWindow, &closeWindow, window, .{});
+    _ = gtk.Button.signals.clicked.connect(button, ?*anyopaque, &printHello, null, .{});
+    _ = gtk.Button.signals.clicked.connect(button, *gtk.ApplicationWindow, &closeWindow, window, .{});
 
     gtk.Box.append(box, button.as(gtk.Widget));
 
