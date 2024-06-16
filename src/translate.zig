@@ -390,7 +390,7 @@ fn copyBindingsFile(
                 return error.CopyFailed;
             },
         };
-        try deps.add(bindings_output_path, bindings_path);
+        try deps.add(bindings_output_path, &.{bindings_path});
         return true;
     }
 
@@ -422,7 +422,7 @@ fn copyExtensionsFile(
                 return error.CopyFailed;
             },
         };
-        try deps.add(extensions_output_path, extensions_path);
+        try deps.add(extensions_output_path, &.{extensions_path});
         return;
     }
 
@@ -463,7 +463,7 @@ fn translateRepository(
         try diag.add("failed to write output source file {s}: {}", .{ output_path, err });
         return error.TranslateFailed;
     };
-    try deps.add(output_path, repo.path);
+    try deps.add(output_path, &.{repo.path});
 }
 
 fn translateIncludes(allocator: Allocator, ns: gir.Namespace, repository_map: RepositoryMap, out: anytype) !void {
@@ -2731,7 +2731,7 @@ fn testToCamelCase(expected: []const u8, input: []const u8, word_sep: []const u8
     try expectEqualStrings(expected, actual);
 }
 
-pub fn createBuildFile(
+pub fn createBuildFiles(
     allocator: Allocator,
     repositories: []const gir.Repository,
     output_dir_path: []const u8,
@@ -2740,8 +2740,20 @@ pub fn createBuildFile(
 ) Allocator.Error!void {
     std.fs.cwd().makePath(output_dir_path) catch |err|
         return diag.add("failed to create output directory {s}: {}", .{ output_dir_path, err });
-    const build_file_path = try std.fs.path.join(allocator, &.{ output_dir_path, "build.zig" });
-    defer allocator.free(build_file_path);
+
+    try createBuildZig(allocator, repositories, output_dir_path, deps, diag);
+    try createBuildZon(allocator, output_dir_path, deps, diag);
+}
+
+fn createBuildZig(
+    allocator: Allocator,
+    repositories: []const gir.Repository,
+    output_dir_path: []const u8,
+    deps: *Dependencies,
+    diag: *Diagnostics,
+) !void {
+    const output_path = try std.fs.path.join(allocator, &.{ output_dir_path, "build.zig" });
+    defer allocator.free(output_path);
 
     var repository_map = RepositoryMap.init(allocator);
     defer repository_map.deinit();
@@ -2763,7 +2775,7 @@ pub fn createBuildFile(
     , .{});
 
     for (repositories) |repo| {
-        try deps.add(build_file_path, repo.path);
+        try deps.add(output_path, &.{repo.path});
 
         const module_name = try moduleNameAlloc(allocator, repo.namespace.name, repo.namespace.version);
         defer allocator.free(module_name);
@@ -2890,8 +2902,36 @@ pub fn createBuildFile(
     defer ast.deinit(allocator);
     const fmt_source = try ast.render(allocator);
     defer allocator.free(fmt_source);
-    std.fs.cwd().writeFile(build_file_path, fmt_source) catch |err|
-        return diag.add("failed to write build file {s}: {}", .{ build_file_path, err });
+    std.fs.cwd().writeFile(output_path, fmt_source) catch |err|
+        return diag.add("failed to write {s}: {}", .{ output_path, err });
+}
+
+fn createBuildZon(
+    allocator: Allocator,
+    output_dir_path: []const u8,
+    deps: *Dependencies,
+    diag: *Diagnostics,
+) !void {
+    const output_path = try std.fs.path.join(allocator, &.{ output_dir_path, "build.zig.zon" });
+    defer allocator.free(output_path);
+
+    try deps.add(output_path, &.{});
+
+    const source =
+        \\.{
+        \\    .name = "gobject",
+        \\    .version = "0.2.0",
+        \\    .paths = .{
+        \\        "src",
+        \\        "build.zig",
+        \\        "build.zig.zon",
+        \\    },
+        \\}
+        \\
+    ;
+
+    std.fs.cwd().writeFile(output_path, source) catch |err|
+        return diag.add("failed to write {s}: {}", .{ output_path, err });
 }
 
 pub fn createAbiTests(
@@ -3265,7 +3305,7 @@ pub fn createAbiTests(
             try diag.add("failed to write output source file {s}: {}", .{ file_path, err });
             try diag.add("failed to create ABI tests for {s}-{s}", .{ repo.namespace.name, repo.namespace.version });
         };
-        try deps.add(file_path, repo.path);
+        try deps.add(file_path, &.{repo.path});
     }
 }
 

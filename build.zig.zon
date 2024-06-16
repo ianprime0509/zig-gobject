@@ -1,6 +1,6 @@
 .{
-    .name = "zig-gobject-codegen",
-    .version = "0.0.0",
+    .name = "gobject_codegen",
+    .version = "0.2.0",
     .paths = .{
         "src",
         "LICENSE",

@@ -1,5 +1,5 @@
 .{
-    .name = "zig-gobject-tests",
+    .name = "gobject_test",
     .version = "0.0.0",
     .paths = .{""},
     .dependencies = .{

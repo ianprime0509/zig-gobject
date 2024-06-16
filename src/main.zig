@@ -132,7 +132,7 @@ pub fn main() Allocator.Error!void {
     {
         var diag: Diagnostics = .{ .allocator = allocator };
         defer diag.deinit();
-        try translate.createBuildFile(
+        try translate.createBuildFiles(
             allocator,
             repositories,
             output_dir_path,
@@ -209,14 +209,17 @@ pub const Dependencies = struct {
         deps.* = undefined;
     }
 
-    pub fn add(deps: *Dependencies, target: []const u8, dependency: []const u8) Allocator.Error!void {
+    pub fn add(deps: *Dependencies, target: []const u8, dependencies: []const []const u8) Allocator.Error!void {
         const arena = deps.arena.allocator();
         const gop = try deps.paths.getOrPut(arena, target);
         if (!gop.found_existing) {
             gop.key_ptr.* = try arena.dupe(u8, target);
             gop.value_ptr.* = .{};
         }
-        try gop.value_ptr.append(arena, try arena.dupe(u8, dependency));
+        try gop.value_ptr.ensureUnusedCapacity(arena, dependencies.len);
+        for (dependencies) |dependency| {
+            gop.value_ptr.appendAssumeCapacity(try arena.dupe(u8, dependency));
+        }
     }
 
     pub fn write(deps: Dependencies, writer: anytype) @TypeOf(writer).Error!void {
