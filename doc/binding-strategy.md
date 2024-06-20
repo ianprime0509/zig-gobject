@@ -97,6 +97,12 @@ might not be an instance of `gtk.ApplicationWindow`.
 Each element in the `virtual_methods` namespace has the following structure:
 
 ```zig
+pub fn call(
+    /// The type struct instance on which to call the method.
+    class: anytype,
+    ...method parameters...
+) ...method return type...
+
 pub fn implement(
     /// The type struct instance on which to implement the method.
     class: anytype,

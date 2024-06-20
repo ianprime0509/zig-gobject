@@ -1178,6 +1178,23 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
     try translateDocumentation(allocator, virtual_method.documentation, ctx, out);
     try out.print("pub const $I = struct {\n", .{virtual_method.name});
 
+    try out.print("pub fn call(p_class: anytype, ", .{});
+    try translateParameters(allocator, virtual_method.parameters, .{
+        .self_type = "@typeInfo(@TypeOf(p_class)).Pointer.child.Instance",
+        .throws = virtual_method.throws,
+    }, ctx, out);
+    try out.print(") ", .{});
+    try translateReturnValue(allocator, virtual_method.return_value, .{
+        .force_nullable = virtual_method.throws,
+    }, ctx, out);
+    try out.print(" {\n", .{});
+    try out.print("return p_class.as($I.$I).$I.?(", .{ type_name, type_struct_name, virtual_method.name });
+    try translateParameterNames(allocator, virtual_method.parameters, .{
+        .throws = virtual_method.throws,
+    }, out);
+    try out.print(");\n", .{});
+    try out.print("}\n\n", .{});
+
     try out.print("pub fn implement(p_class: anytype, p_implementation: ", .{});
     try out.print("*const fn (", .{});
     try translateParameters(allocator, virtual_method.parameters, .{

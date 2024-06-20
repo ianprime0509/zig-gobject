@@ -113,7 +113,7 @@ const ExampleApplicationWindow = extern struct {
 
     fn dispose(win: *ExampleApplicationWindow) callconv(.C) void {
         gtk.Widget.disposeTemplate(win.as(gtk.Widget), getGObjectType());
-        Class.parent.as(gobject.Object.Class).dispose.?(win.as(gobject.Object));
+        gobject.Object.virtual_methods.dispose.call(Class.parent.as(gobject.Object.Class), win.as(gobject.Object));
     }
 
     fn handleIncremented(_: *ExampleButton, new_value: c_uint, _: ?*anyopaque) callconv(.C) void {
