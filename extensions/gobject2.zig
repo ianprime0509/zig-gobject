@@ -93,6 +93,12 @@ pub fn DefineClassOptions(comptime Self: type) type {
     };
 }
 
+/// Ensures the GObject type `T` is registered with the GObject type system and
+/// initialized.
+pub fn ensureType(comptime T: type) void {
+    gobject.typeEnsure(T.getGObjectType());
+}
+
 /// Sets up a class type in the GObject type system, returning the associated
 /// `getGObjectType` function.
 ///

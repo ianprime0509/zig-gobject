@@ -128,9 +128,6 @@ const ExampleApplicationWindow = extern struct {
         }
 
         fn init(class: *Class) callconv(.C) void {
-            // Ensure the ExampleButton type is registered before handling the
-            // template
-            _ = ExampleButton.getGObjectType();
             gtk.ext.WidgetClass.setTemplateFromSlice(class.as(gtk.WidgetClass), template);
             class.bindTemplateChildPrivate("button", .{});
         }
