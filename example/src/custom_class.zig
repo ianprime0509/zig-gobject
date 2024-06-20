@@ -91,6 +91,7 @@ const ExampleApplicationWindow = extern struct {
     pub const getGObjectType = gobject.ext.defineClass(ExampleApplicationWindow, .{
         .instanceInit = &init,
         .classInit = &Class.init,
+        .parent_class = &Class.parent,
         .private = .{ .Type = Private, .offset = &Private.offset },
     });
 
@@ -110,6 +111,11 @@ const ExampleApplicationWindow = extern struct {
         _ = ExampleButton.signals.counter_incremented.connect(win.private().button, ?*anyopaque, &handleIncremented, null, .{});
     }
 
+    fn dispose(win: *ExampleApplicationWindow) callconv(.C) void {
+        gtk.Widget.disposeTemplate(win.as(gtk.Widget), getGObjectType());
+        Class.parent.as(gobject.Object.Class).dispose.?(win.as(gobject.Object));
+    }
+
     fn handleIncremented(_: *ExampleButton, new_value: c_uint, _: ?*anyopaque) callconv(.C) void {
         std.debug.print("New button value: {}\n", .{new_value});
     }
@@ -121,6 +127,8 @@ const ExampleApplicationWindow = extern struct {
     pub const Class = extern struct {
         parent_class: Parent.Class,
 
+        var parent: *Parent.Class = undefined;
+
         pub const Instance = ExampleApplicationWindow;
 
         pub fn as(class: *Class, comptime T: type) *T {
@@ -128,6 +136,7 @@ const ExampleApplicationWindow = extern struct {
         }
 
         fn init(class: *Class) callconv(.C) void {
+            gobject.Object.virtual_methods.dispose.implement(class, &dispose);
             gtk.ext.WidgetClass.setTemplateFromSlice(class.as(gtk.WidgetClass), template);
             class.bindTemplateChildPrivate("button", .{});
         }
