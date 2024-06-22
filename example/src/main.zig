@@ -10,6 +10,7 @@ const examples: []const Example = &.{
     .{ .name = "Custom drawing", .main = &@import("custom_drawing.zig").main },
     .{ .name = "Custom class", .main = &@import("custom_class.zig").main },
     .{ .name = "PangoCairo text rendering", .main = &@import("pango_cairo.zig").main },
+    .{ .name = "List view", .main = &@import("list_view.zig").main },
 };
 
 pub fn main() !void {

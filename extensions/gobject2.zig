@@ -66,6 +66,12 @@ pub fn typeFor(comptime T: type) gobject.Type {
     }
 }
 
+/// Ensures the GObject type `T` is registered with the GObject type system and
+/// initialized.
+pub fn ensureType(comptime T: type) void {
+    gobject.typeEnsure(T.getGObjectType());
+}
+
 pub fn DefineClassOptions(comptime Self: type) type {
     return struct {
         /// The name of the type. The default is to use the base type name of
@@ -77,6 +83,12 @@ pub fn DefineClassOptions(comptime Self: type) type {
         classInit: ?*const fn (*Self.Class) callconv(.C) void = null,
         classFinalize: ?*const fn (*Self.Class) callconv(.C) void = null,
         instanceInit: ?*const fn (*Self, *Self.Class) callconv(.C) void = null,
+        /// Interface implementations, created using `implement`.
+        ///
+        /// The interface types specified here must match the top-level
+        /// `Implements` member of `Self`, which is expected to be an array of
+        /// all interface types implemented by `Self`.
+        implements: []const InterfaceImplementation = &.{},
         /// If non-null, will be set to the instance of the parent class when
         /// the class is initialized.
         parent_class: ?**Self.Parent.Class = null,
@@ -93,10 +105,33 @@ pub fn DefineClassOptions(comptime Self: type) type {
     };
 }
 
-/// Ensures the GObject type `T` is registered with the GObject type system and
-/// initialized.
-pub fn ensureType(comptime T: type) void {
-    gobject.typeEnsure(T.getGObjectType());
+/// Contains information required to implement an interface.
+///
+/// Users should generally not initialize this directly, but rather use
+/// `implement` for greater type safety.
+pub const InterfaceImplementation = struct {
+    Iface: type,
+    info: gobject.InterfaceInfo,
+};
+
+pub fn ImplementOptions(comptime Iface: type) type {
+    return struct {
+        init: ?*const fn (*Iface.Iface) callconv(.C) void = null,
+        finalize: ?*const fn (*Iface.Iface) callconv(.C) void = null,
+    };
+}
+
+/// Specifies an interface type to be implemented and the lifecycle functions to
+/// do so.
+pub fn implement(comptime Iface: type, comptime options: ImplementOptions(Iface)) InterfaceImplementation {
+    return .{
+        .Iface = Iface,
+        .info = .{
+            .interface_init = @ptrCast(options.init),
+            .interface_finalize = @ptrCast(options.finalize),
+            .interface_data = null,
+        },
+    };
 }
 
 /// Sets up a class type in the GObject type system, returning the associated
@@ -178,6 +213,7 @@ pub fn defineClass(comptime Self: type, comptime options: DefineClassOptions(Sel
                     .instance_init = @ptrCast(options.instanceInit),
                     .value_table = null,
                 };
+
                 const type_name = if (options.name) |name| name else blk: {
                     var self_name: [:0]const u8 = @typeName(Self);
                     const last_dot = std.mem.lastIndexOfScalar(u8, self_name, '.');
@@ -187,9 +223,29 @@ pub fn defineClass(comptime Self: type, comptime options: DefineClassOptions(Sel
                     break :blk self_name;
                 };
                 const type_id = gobject.typeRegisterStatic(Self.Parent.getGObjectType(), type_name, &info, options.flags);
+
                 if (options.private) |private| {
                     private.offset.* = gobject.typeAddInstancePrivate(type_id, @sizeOf(private.Type));
                 }
+
+                {
+                    const Implements = if (@hasDecl(Self, "Implements")) Self.Implements else [_]type{};
+                    comptime var found = [_]bool{false} ** Implements.len;
+                    inline for (options.implements) |implementation| {
+                        inline for (Implements, &found) |Iface, *found_match| {
+                            if (implementation.Iface == Iface) {
+                                if (found_match.*) @compileError("duplicate implementation of " ++ @typeName(Iface));
+                                gobject.typeAddInterfaceStatic(type_id, implementation.Iface.getGObjectType(), &implementation.info);
+                                found_match.* = true;
+                                break;
+                            }
+                        }
+                    }
+                    inline for (Implements, found) |Iface, found_match| {
+                        if (!found_match) @compileError("missing implementation of " ++ @typeName(Iface));
+                    }
+                }
+
                 glib.Once.initLeave(&registered_type, type_id);
             }
             return registered_type;
