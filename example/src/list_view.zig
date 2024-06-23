@@ -50,12 +50,27 @@ const Number = extern struct {
 
     pub const Parent = gobject.Object;
 
-    pub const getGObjectType = gobject.ext.defineClass(Number, .{});
+    pub const getGObjectType = gobject.ext.defineClass(Number, .{
+        .classInit = &Class.init,
+    });
+
+    pub const properties = struct {
+        pub const value = struct {
+            pub const name = "value";
+            const impl = gobject.ext.defineProperty(name, Number, c_uint, .{
+                .nick = "Value",
+                .blurb = "The value of the number.",
+                .minimum = std.math.minInt(c_uint),
+                .maximum = std.math.maxInt(c_uint),
+                .default = 0,
+                .accessor = gobject.ext.fieldAccessor(Number, "value"),
+                .flags = .{ .readable = true, .writable = true },
+            });
+        };
+    };
 
     pub fn new(value: c_uint) *Number {
-        const instance: *Number = gobject.ext.newInstance(Number, .{});
-        instance.value = value;
-        return instance;
+        return gobject.ext.newInstance(Number, .{ .value = value });
     }
 
     pub fn as(number: *Number, comptime T: type) *T {
@@ -70,6 +85,12 @@ const Number = extern struct {
         pub fn as(class: *Class, comptime T: type) *T {
             return gobject.ext.as(T, class);
         }
+
+        fn init(class: *Class) callconv(.C) void {
+            gobject.ext.registerProperties(class, &.{
+                properties.value.impl,
+            });
+        }
     };
 };
 
@@ -81,15 +102,32 @@ const NumberList = extern struct {
     pub const Implements = [_]type{gio.ListModel};
 
     pub const getGObjectType = gobject.ext.defineClass(NumberList, .{
+        .classInit = &Class.init,
         .implements = &.{
             gobject.ext.implement(gio.ListModel, .{ .init = Class.initListModel }),
         },
     });
 
+    pub const properties = struct {
+        pub const len = struct {
+            pub const name = "len";
+            const impl = gobject.ext.defineProperty(name, NumberList, c_uint, .{
+                .nick = "Length",
+                .blurb = "The length of the list.",
+                .minimum = 0,
+                .maximum = std.math.maxInt(c_uint),
+                .default = 0,
+                .accessor = .{
+                    .getter = &getLenInternal,
+                    .setter = &setLenInternal,
+                },
+                .flags = .{ .readable = true, .writable = true },
+            });
+        };
+    };
+
     pub fn new(len: c_uint) *NumberList {
-        const instance: *NumberList = gobject.ext.newInstance(NumberList, .{});
-        instance.len = len;
-        return instance;
+        return gobject.ext.newInstance(NumberList, .{ .len = len });
     }
 
     pub fn as(list: *NumberList, comptime T: type) *T {
@@ -110,6 +148,20 @@ const NumberList = extern struct {
         return list.len;
     }
 
+    fn getLenInternal(list: *NumberList) c_uint {
+        return list.len;
+    }
+
+    fn setLenInternal(list: *NumberList, len: c_uint) void {
+        const old_len = list.len;
+        list.len = len;
+        if (len > old_len) {
+            gio.ListModel.itemsChanged(list.as(gio.ListModel), old_len, 0, len - old_len);
+        } else if (len < old_len) {
+            gio.ListModel.itemsChanged(list.as(gio.ListModel), len, old_len - len, 0);
+        }
+    }
+
     pub const Class = extern struct {
         parent_class: Parent.Class,
 
@@ -117,6 +169,12 @@ const NumberList = extern struct {
 
         pub fn as(class: *Class, comptime T: type) *T {
             return gobject.ext.as(T, class);
+        }
+
+        fn init(class: *Class) callconv(.C) void {
+            gobject.ext.registerProperties(class, &.{
+                properties.len.impl,
+            });
         }
 
         fn initListModel(iface: *gio.ListModel.Iface) callconv(.C) void {

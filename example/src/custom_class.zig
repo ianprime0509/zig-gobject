@@ -166,8 +166,9 @@ const ExampleButton = extern struct {
 
     pub const signals = struct {
         pub const counter_incremented = struct {
-            const impl = gobject.ext.defineSignal("counter-incremented", ExampleButton, &.{c_uint}, void);
+            pub const name = "counter-incremented";
             pub const connect = impl.connect;
+            const impl = gobject.ext.defineSignal(name, ExampleButton, &.{c_uint}, void);
         };
     };
 

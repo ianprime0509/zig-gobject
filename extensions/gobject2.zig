@@ -282,6 +282,335 @@ pub fn defineClass(comptime Self: type, comptime options: DefineClassOptions(Sel
     }.getGObjectType;
 }
 
+pub fn Accessor(comptime Owner: type, comptime Data: type) type {
+    return struct {
+        getter: *const fn (*Owner) Data,
+        setter: *const fn (*Owner, Data) void,
+    };
+}
+
+fn FieldType(comptime T: type, comptime name: []const u8) type {
+    return for (@typeInfo(T).Struct.fields) |field| {
+        if (std.mem.eql(u8, field.name, name)) break field.type;
+    } else @compileError("no field named " ++ name ++ " in " ++ @typeName(T));
+}
+
+/// Returns an `Accessor` which gets and sets a field `name` of `Owner`.
+pub fn fieldAccessor(comptime Owner: type, comptime name: []const u8) Accessor(Owner, FieldType(Owner, name)) {
+    return .{
+        .getter = struct {
+            fn get(object: *Owner) FieldType(Owner, name) {
+                return @field(object, name);
+            }
+        }.get,
+        .setter = struct {
+            fn set(object: *Owner, value: FieldType(Owner, name)) void {
+                @field(object, name) = value;
+            }
+        }.set,
+    };
+}
+
+pub fn DefinePropertyOptions(comptime Owner: type, comptime Data: type) type {
+    if (Data == bool) {
+        return struct {
+            nick: ?[:0]const u8 = null,
+            blurb: ?[:0]const u8 = null,
+            default: bool,
+            accessor: Accessor(Owner, bool),
+            flags: gobject.ParamFlags = .{},
+        };
+    } else if (Data == i8 or Data == u8 or
+        Data == c_int or Data == c_uint or
+        Data == c_long or Data == c_ulong or
+        Data == i64 or Data == u64 or
+        Data == f32 or Data == f64)
+    {
+        return struct {
+            nick: ?[:0]const u8 = null,
+            blurb: ?[:0]const u8 = null,
+            minimum: Data,
+            maximum: Data,
+            default: Data,
+            accessor: Accessor(Owner, Data),
+            flags: gobject.ParamFlags = .{},
+        };
+    } else if (Data == ?[:0]const u8) {
+        return struct {
+            nick: ?[:0]const u8 = null,
+            blurb: ?[:0]const u8 = null,
+            default: ?[:0]const u8,
+            accessor: Accessor(Owner, ?[:0]const u8),
+            flags: gobject.ParamFlags = .{},
+        };
+    } else if (std.meta.hasFn(Data, "getGObjectType")) {
+        return struct {
+            nick: ?[:0]const u8 = null,
+            blurb: ?[:0]const u8 = null,
+            default: Data,
+            accessor: Accessor(Owner, Data),
+            flags: gobject.ParamFlags = .{},
+        };
+    } else if (singlePointerChild(Data)) |Child| {
+        if (std.meta.hasFn(Child, "getGObjectType")) {
+            return struct {
+                nick: ?[:0]const u8 = null,
+                blurb: ?[:0]const u8 = null,
+                default: Data,
+                accessor: Accessor(Owner, Data),
+                flags: gobject.ParamFlags = .{},
+            };
+        } else {
+            @compileError("cannot define property of type " ++ @typeName(Data));
+        }
+    } else {
+        @compileError("cannot define property of type " ++ @typeName(Data));
+    }
+}
+
+/// Sets up a property definition, returning a type with various helpers related
+/// to the signal.
+pub fn defineProperty(
+    comptime name: [:0]const u8,
+    comptime Owner: type,
+    comptime Data: type,
+    comptime options: DefinePropertyOptions(Owner, Data),
+) type {
+    return struct {
+        /// The `gobject.ParamSpec` of the property. Initialized once the
+        /// property is registered.
+        pub var param_spec: *gobject.ParamSpec = undefined;
+
+        /// Registers the property.
+        ///
+        /// This is a lower-level function which should generally not be used
+        /// directly. Users should generally call `registerProperties` instead,
+        /// which handles registration of all a class's properties at once,
+        /// along with configuring behavior for
+        /// `gobject.Object.virtual_methods.get_property` and
+        /// `gobject.Object.virtual_methods.set_property`.
+        pub fn register(class: *Owner.Class, id: c_uint) void {
+            param_spec = newParamSpec();
+            gobject.Object.Class.installProperty(as(gobject.Object.Class, class), id, param_spec);
+        }
+
+        /// Gets the value of the property from `object` and stores it in
+        /// `value`.
+        pub fn get(object: *Owner, value: *gobject.Value) void {
+            Value.set(value, options.accessor.getter(object));
+        }
+
+        /// Sets the value of the property on `object` from `value`.
+        pub fn set(object: *Owner, value: *const gobject.Value) void {
+            options.accessor.setter(object, Value.get(value, Data));
+        }
+
+        fn newParamSpec() *gobject.ParamSpec {
+            var flags = options.flags;
+            // Since the name and options are comptime, we can set these flags
+            // unconditionally.
+            flags.static_name = true;
+            flags.static_nick = true;
+            flags.static_blurb = true;
+            if (Data == i8) {
+                return gobject.paramSpecChar(
+                    name,
+                    options.nick orelse null,
+                    options.blurb orelse null,
+                    options.minimum,
+                    options.maximum,
+                    options.default,
+                    flags,
+                );
+            } else if (Data == u8) {
+                return gobject.paramSpecUchar(
+                    name,
+                    options.nick orelse null,
+                    options.blurb orelse null,
+                    options.minimum,
+                    options.maximum,
+                    options.default,
+                    flags,
+                );
+            } else if (Data == bool) {
+                return gobject.paramSpecBoolean(
+                    name,
+                    options.nick orelse null,
+                    options.blurb orelse null,
+                    options.default,
+                    flags,
+                );
+            } else if (Data == c_int) {
+                return gobject.paramSpecInt(
+                    name,
+                    options.nick orelse null,
+                    options.blurb orelse null,
+                    options.minimum,
+                    options.maximum,
+                    options.default,
+                    flags,
+                );
+            } else if (Data == c_uint) {
+                return gobject.paramSpecUint(
+                    name,
+                    options.nick orelse null,
+                    options.blurb orelse null,
+                    options.minimum,
+                    options.maximum,
+                    options.default,
+                    flags,
+                );
+            } else if (Data == c_long) {
+                return gobject.paramSpecLong(
+                    name,
+                    options.nick orelse null,
+                    options.blurb orelse null,
+                    options.minimum,
+                    options.maximum,
+                    options.default,
+                    flags,
+                );
+            } else if (Data == c_ulong) {
+                return gobject.paramSpecUlong(
+                    name,
+                    options.nick orelse null,
+                    options.blurb orelse null,
+                    options.minimum,
+                    options.maximum,
+                    options.default,
+                    flags,
+                );
+            } else if (Data == i64) {
+                return gobject.paramSpecInt64(
+                    name,
+                    options.nick orelse null,
+                    options.blurb orelse null,
+                    options.minimum,
+                    options.maximum,
+                    options.default,
+                    flags,
+                );
+            } else if (Data == u64) {
+                return gobject.paramSpecUint64(
+                    name,
+                    options.nick orelse null,
+                    options.blurb orelse null,
+                    options.minimum,
+                    options.maximum,
+                    options.default,
+                    flags,
+                );
+            } else if (Data == f32) {
+                return gobject.paramSpecFloat(
+                    name,
+                    options.nick orelse null,
+                    options.blurb orelse null,
+                    options.minimum,
+                    options.maximum,
+                    options.default,
+                    flags,
+                );
+            } else if (Data == f64) {
+                return gobject.paramSpecDouble(
+                    name,
+                    options.nick orelse null,
+                    options.blurb orelse null,
+                    options.minimum,
+                    options.maximum,
+                    options.default,
+                    flags,
+                );
+            } else if (Data == ?[:0]const u8) {
+                return gobject.paramSpecString(
+                    name,
+                    options.nick orelse null,
+                    options.blurb orelse null,
+                    options.default orelse null,
+                    flags,
+                );
+            } else if (std.meta.hasFn(Data, "getGObjectType")) {
+                return switch (@typeInfo(Data)) {
+                    .Enum => gobject.paramSpecEnum(
+                        name,
+                        options.nick orelse null,
+                        options.blurb orelse null,
+                        Data.getGObjectType(),
+                        @intFromEnum(options.default),
+                        flags,
+                    ),
+                    .Struct => gobject.paramSpecFlags(
+                        name,
+                        options.nick orelse null,
+                        options.blurb orelse null,
+                        Data.getGObjectType(),
+                        @bitCast(options.default),
+                        flags,
+                    ),
+                    else => @compileError("unrecognized GObject type " ++ @typeName(Data)),
+                };
+            } else if (singlePointerChild(Data)) |Child| {
+                if (std.meta.hasFn(Child, "getGObjectType")) {
+                    const g_type = Child.getGObjectType();
+                    if (gobject.typeCheckIsFundamentallyA(g_type, types.object) != 0) {
+                        return gobject.paramSpecObject(
+                            name,
+                            options.nick orelse null,
+                            options.blurb orelse null,
+                            g_type,
+                            flags,
+                        );
+                    } else if (gobject.typeCheckIsFundamentallyA(g_type, types.boxed) != 0) {
+                        return gobject.paramSpecBoxed(
+                            name,
+                            options.nick orelse null,
+                            options.blurb orelse null,
+                            g_type,
+                            flags,
+                        );
+                    } else {
+                        @panic("unrecognized GObject type " ++ @typeName(Data));
+                    }
+                }
+            } else {
+                // New property data types must first be defined in
+                // DefinePropertyOptions and then added here.
+                comptime unreachable;
+            }
+        }
+    };
+}
+
+/// Registers all properties of `class` and sets up virtual method
+/// implementations for `gobject.Object.virtual_methods.get_property` and
+/// `gobject.Object.virtual_methods.set_property`.
+///
+/// The properties passed in `properties` should be the structs returned by
+/// `defineProperty`.
+pub fn registerProperties(class: anytype, properties: []const type) void {
+    const Instance = @typeInfo(@TypeOf(class)).Pointer.child.Instance;
+    gobject.Object.virtual_methods.get_property.implement(class, struct {
+        fn getProperty(object: *Instance, id: c_uint, value: *gobject.Value, _: *gobject.ParamSpec) callconv(.C) void {
+            inline for (properties, 1..) |property, i| {
+                if (i == id) {
+                    property.get(object, value);
+                }
+            }
+        }
+    }.getProperty);
+    gobject.Object.virtual_methods.set_property.implement(class, struct {
+        fn setProperty(object: *Instance, id: c_uint, value: *const gobject.Value, _: *gobject.ParamSpec) callconv(.C) void {
+            inline for (properties, 1..) |property, i| {
+                if (i == id) {
+                    property.set(object, value);
+                }
+            }
+        }
+    }.setProperty);
+    inline for (properties, 1..) |property, i| {
+        property.register(class, i);
+    }
+}
+
 pub fn SignalHandler(comptime Itype: type, comptime param_types: []const type, comptime DataType: type, comptime ReturnType: type) type {
     return *const @Type(.{ .Fn = .{
         .calling_convention = .C,
@@ -310,25 +639,6 @@ pub const RegisterSignalOptions = struct {
 
 /// Sets up a signal definition, returning a type with various helpers
 /// related to the signal.
-///
-/// The returned type contains the following members:
-/// - `id` - a c_uint which is initially 0 but will be set to the signal
-///   ID when the signal is registered
-/// - `register` - a function with a `RegisterSignalOptions` parameter
-///   which is used to register the signal in the GObject type system.
-///   This function should generally be called in Itype's class
-///   initializer.
-/// - `emit` - a function which emits the signal on an object. The `emit`
-///   function takes the following parameters:
-///   - `target: Itype` - the target object
-///   - `detail: ?[:0]const u8` - the signal detail argument
-///   - `params: EmitParams` - signal parameters. `EmitParams` is a tuple
-///     with field types matching `param_types`.
-///   - `return_value: ?*ReturnValue` - optional pointer to where the
-///     return value of the signal should be stored
-/// - `connect` - a function which connects the signal. The signature of
-///   this function is analogous to all other `connect` functions in
-///   this library.
 pub fn defineSignal(
     comptime name: [:0]const u8,
     comptime Itype: type,
@@ -355,8 +665,13 @@ pub fn defineSignal(
     } });
 
     return struct {
-        pub var id: c_uint = 0;
+        /// The ID of the signal. Initialized once the signal is registered.
+        pub var id: c_uint = undefined;
 
+        /// Registers the signal.
+        ///
+        /// This should generally be called during the class initializer of the
+        /// target type.
         pub fn register(options: RegisterSignalOptions) void {
             var param_gtypes: [param_types.len]gobject.Type = undefined;
             inline for (param_types, &param_gtypes) |ParamType, *param_gtype| {
@@ -376,6 +691,7 @@ pub fn defineSignal(
             );
         }
 
+        /// Emits the signal on an instance.
         pub fn emit(target: *Itype, detail: ?[:0]const u8, params: EmitParams, return_value: ?*ReturnType) void {
             var emit_params: [param_types.len + 1]gobject.Value = undefined;
             emit_params[0] = gobject.ext.Value.newFrom(target);
@@ -391,6 +707,7 @@ pub fn defineSignal(
             }
         }
 
+        /// Connects a handler to the signal on an instance.
         pub fn connect(
             target: anytype,
             comptime T: type,
@@ -519,6 +836,74 @@ pub const Value = struct {
     pub fn newFrom(contents: anytype) gobject.Value {
         const T = @TypeOf(contents);
         var value: gobject.Value = new(T);
+        set(&value, contents);
+        return value;
+    }
+
+    /// Extracts a value of the given type.
+    ///
+    /// This does not return an owned value (if applicable): the caller must
+    /// copy/ref/etc. the value if needed beyond the lifetime of the container.
+    pub fn get(value: *const gobject.Value, comptime T: type) T {
+        if (T == void) {
+            return {};
+        } else if (T == i8) {
+            return value.getSchar();
+        } else if (T == u8) {
+            return value.getUchar();
+        } else if (T == bool) {
+            return value.getBoolean() != 0;
+        } else if (T == c_int) {
+            return value.getInt();
+        } else if (T == c_uint) {
+            return value.getUint();
+        } else if (T == c_long) {
+            return value.getLong();
+        } else if (T == c_ulong) {
+            return value.getUlong();
+        } else if (T == i64) {
+            return value.getInt64();
+        } else if (T == u64) {
+            return value.getUint64();
+        } else if (T == f32) {
+            return value.getFloat();
+        } else if (T == f64) {
+            return value.getDouble();
+        } else if (T == [*:0]const u8) {
+            // We do not accept all the various string types we accept in the
+            // newFrom method here because we are not transferring ownership
+            return value.getString();
+        } else if (std.meta.hasFn(T, "getGObjectType")) {
+            return switch (@typeInfo(T)) {
+                .Enum => @enumFromInt(value.getEnum()),
+                .Struct => @bitCast(value.getFlags()),
+                else => @compileError("cannot extract " ++ @typeName(T) ++ " from Value"),
+            };
+        } else if (singlePointerChild(T)) |Child| {
+            if (Child == gobject.ParamSpec) {
+                return value.getParam();
+            } else if (Child == glib.Variant) {
+                return value.getVariant();
+            } else if (std.meta.hasFn(Child, "getGObjectType")) {
+                if (gobject.typeCheckIsFundamentallyA(value.g_type, types.object) != 0) {
+                    return cast(Child, value.getObject() orelse return null);
+                } else if (gobject.typeCheckInstanceIsFundamentallyA(value.g_type, types.boxed) != 0) {
+                    return @ptrCast(@alignCast(value.getBoxed() orelse return null));
+                } else {
+                    @panic("unrecognized GObject type " ++ @typeName(T));
+                }
+            }
+        } else {
+            @compileError("cannot extract " ++ @typeName(T) ++ " from Value");
+        }
+    }
+
+    /// Sets the contents of `value` to `contents`. The type of `value` must
+    /// already be compatible with the type of `contents`.
+    ///
+    /// This does not take ownership of the value (if applicable).
+    pub fn set(value: *gobject.Value, contents: anytype) void {
+        const T = @TypeOf(contents);
         if (T == void) {
             // Nothing to set.
         } else if (T == i8) {
@@ -570,63 +955,6 @@ pub const Value = struct {
             }
         } else {
             @compileError("cannot construct Value from " ++ @typeName(T));
-        }
-        return value;
-    }
-
-    /// Extracts a value of the given type.
-    ///
-    /// This does not return an owned value (if applicable): the caller must
-    /// copy/ref/etc. the value if needed beyond the lifetime of the container.
-    pub fn get(value: *const gobject.Value, comptime T: type) T {
-        if (T == void) {
-            return {};
-        } else if (T == i8) {
-            return value.getSchar();
-        } else if (T == u8) {
-            return value.getUchar();
-        } else if (T == bool) {
-            return value.getBoolean() != 0;
-        } else if (T == c_int) {
-            return value.getInt();
-        } else if (T == c_long) {
-            return value.getLong();
-        } else if (T == c_ulong) {
-            return value.getUlong();
-        } else if (T == i64) {
-            return value.getInt64();
-        } else if (T == u64) {
-            return value.getUint64();
-        } else if (T == f32) {
-            return value.getFloat();
-        } else if (T == f64) {
-            return value.getDouble();
-        } else if (T == [*:0]const u8) {
-            // We do not accept all the various string types we accept in the
-            // newFrom method here because we are not transferring ownership
-            return value.getString();
-        } else if (std.meta.hasFn(T, "getGObjectType")) {
-            return switch (@typeInfo(T)) {
-                .Enum => @enumFromInt(value.getEnum()),
-                .Struct => @bitCast(value.getFlags()),
-                else => @compileError("cannot extract " ++ @typeName(T) ++ " from Value"),
-            };
-        } else if (singlePointerChild(T)) |Child| {
-            if (Child == gobject.ParamSpec) {
-                return value.getParam();
-            } else if (Child == glib.Variant) {
-                return value.getVariant();
-            } else if (std.meta.hasFn(Child, "getGObjectType")) {
-                if (gobject.typeCheckIsFundamentallyA(value.g_type, types.object) != 0) {
-                    return cast(Child, value.getObject() orelse return null);
-                } else if (gobject.typeCheckInstanceIsFundamentallyA(value.g_type, types.boxed) != 0) {
-                    return @ptrCast(@alignCast(value.getBoxed() orelse return null));
-                } else {
-                    @panic("unrecognized GObject type " ++ @typeName(T));
-                }
-            }
-        } else {
-            @compileError("cannot extract " ++ @typeName(T) ++ " from Value");
         }
     }
 };
