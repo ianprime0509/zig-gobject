@@ -19,49 +19,78 @@ pub fn typeMakeFundamental(x: usize) gobject.Type {
     return x << gobject.TYPE_FUNDAMENTAL_SHIFT;
 }
 
+/// Fundamental types.
+pub const types = struct {
+    // Values taken from gtype.h.
+    pub const invalid = typeMakeFundamental(0);
+    pub const none = typeMakeFundamental(1);
+    pub const interface = typeMakeFundamental(2);
+    pub const char = typeMakeFundamental(3);
+    pub const uchar = typeMakeFundamental(4);
+    pub const boolean = typeMakeFundamental(5);
+    pub const int = typeMakeFundamental(6);
+    pub const uint = typeMakeFundamental(7);
+    pub const long = typeMakeFundamental(8);
+    pub const ulong = typeMakeFundamental(9);
+    pub const int64 = typeMakeFundamental(10);
+    pub const uint64 = typeMakeFundamental(11);
+    pub const @"enum" = typeMakeFundamental(12);
+    pub const flags = typeMakeFundamental(13);
+    pub const float = typeMakeFundamental(14);
+    pub const double = typeMakeFundamental(15);
+    pub const string = typeMakeFundamental(16);
+    pub const pointer = typeMakeFundamental(17);
+    pub const boxed = typeMakeFundamental(18);
+    pub const param = typeMakeFundamental(19);
+    pub const object = typeMakeFundamental(20);
+    pub const variant = typeMakeFundamental(21);
+};
+
 /// Returns the GObject `Type` corresponding to the given type.
 pub fn typeFor(comptime T: type) gobject.Type {
-    const typeInfo = @typeInfo(T);
     // Types manually extracted from gtype.h since they don't seem to show up in GIR
     if (T == void) {
-        return typeMakeFundamental(1);
+        return types.none;
     } else if (T == i8) {
-        return typeMakeFundamental(3);
+        return types.char;
     } else if (T == u8) {
-        return typeMakeFundamental(4);
+        return types.uchar;
     } else if (T == bool) {
-        return typeMakeFundamental(5);
+        return types.boolean;
     } else if (T == c_int) {
-        return typeMakeFundamental(6);
+        return types.int;
     } else if (T == c_uint) {
-        return typeMakeFundamental(7);
+        return types.uint;
     } else if (T == c_long) {
-        return typeMakeFundamental(8);
+        return types.long;
     } else if (T == c_ulong) {
-        return typeMakeFundamental(9);
+        return types.ulong;
     } else if (T == i64) {
-        return typeMakeFundamental(10);
+        return types.int64;
     } else if (T == u64) {
-        return typeMakeFundamental(11);
+        return types.uint64;
     } else if (T == f32) {
-        return typeMakeFundamental(14);
+        return types.float;
     } else if (T == f64) {
-        return typeMakeFundamental(15);
+        return types.double;
     } else if (comptime isCString(T)) {
-        return typeMakeFundamental(16);
-    } else if (typeInfo == .Pointer and comptime isParamSpec(typeInfo.Pointer.child)) {
-        return typeMakeFundamental(19);
-    } else if (T == *glib.Variant) {
-        return typeMakeFundamental(21);
-    } else if (typeInfo == .Pointer and comptime isRegisteredType(typeInfo.Pointer.child)) {
-        return typeInfo.Pointer.child.getGObjectType();
-    } else if (typeInfo == .Pointer or (typeInfo == .Optional and @typeInfo(typeInfo.Optional.child) == .Pointer)) {
-        return typeMakeFundamental(17);
-    } else if (typeInfo == .Enum and typeInfo.Enum.tag_type == c_int) {
-        return gobject.ext.Enum;
-    } else if (typeInfo == .Struct and typeInfo.Struct.backing_integer == c_uint) {
-        return gobject.ext.Flags;
+        return types.string;
+    } else if (std.meta.hasFn(T, "getGObjectType")) {
+        return T.getGObjectType();
+    } else if (singlePointerChild(T)) |Child| {
+        if (Child == gobject.ParamSpec) {
+            return types.param;
+        } else if (Child == glib.Variant) {
+            return types.variant;
+        } else if (std.meta.hasFn(Child, "getGObjectType")) {
+            return Child.getGObjectType();
+        } else {
+            @compileError("unable to determine GObject type for " ++ @typeName(T));
+        }
     } else {
+        // Generic "pointer" types are intentionally not supported here because
+        // they could easily be confusing for users defining custom types who
+        // just forgot to define the getGObjectType function.
         @compileError("unable to determine GObject type for " ++ @typeName(T));
     }
 }
@@ -489,68 +518,56 @@ pub const Value = struct {
     /// This does not take ownership of the value (if applicable).
     pub fn newFrom(contents: anytype) gobject.Value {
         const T = @TypeOf(contents);
-        const typeInfo = @typeInfo(T);
-        var value: gobject.Value = undefined;
+        var value: gobject.Value = new(T);
         if (T == void) {
-            value = new(T);
+            // Nothing to set.
         } else if (T == i8) {
-            value = new(T);
             value.setSchar(contents);
         } else if (T == u8) {
-            value = new(T);
             value.setUchar(contents);
         } else if (T == bool) {
-            value = new(T);
             value.setBoolean(@intFromBool(contents));
         } else if (T == c_int) {
-            value = new(T);
             value.setInt(contents);
         } else if (T == c_uint) {
-            value = new(T);
             value.setUint(contents);
         } else if (T == c_long) {
-            value = new(T);
             value.setLong(contents);
         } else if (T == c_ulong) {
-            value = new(T);
             value.setUlong(contents);
         } else if (T == i64) {
-            value = new(T);
             value.setInt64(contents);
         } else if (T == u64) {
-            value = new(T);
             value.setUint64(contents);
         } else if (T == f32) {
-            value = new(T);
             value.setFloat(contents);
         } else if (T == f64) {
-            value = new(T);
             value.setDouble(contents);
         } else if (comptime isCString(T)) {
-            value = new(T);
             value.setString(contents);
-        } else if (typeInfo == .Pointer and comptime isParamSpec(typeInfo.Pointer.child)) {
-            value = new(T);
-            value.setParam(contents);
-        } else if (T == *glib.Variant) {
-            value = new(T);
-            value.setVariant(contents);
-        } else if (typeInfo == .Pointer and comptime isRegisteredType(typeInfo.Pointer.child)) {
-            value = new(T);
-            if (typeInfo.Pointer.child.getGObjectType() == gobject.ext.Boxed) {
-                value.setBoxed(contents);
-            } else {
-                value.setObject(@as(*gobject.Object, @ptrCast(@alignCast(contents))));
+        } else if (std.meta.hasFn(T, "getGObjectType")) {
+            switch (@typeInfo(T)) {
+                .Enum => value.setEnum(@intFromEnum(contents)),
+                .Struct => value.setFlags(@bitCast(contents)),
+                else => @compileError("cannot construct Value from " ++ @typeName(T)),
             }
-        } else if (typeInfo == .Pointer or (typeInfo == .Optional and @typeInfo(typeInfo.Optional.child) == .Pointer)) {
-            value = new(T);
-            value.setPointer(contents);
-        } else if (typeInfo == .Enum and typeInfo.Enum.tag_type == c_int) {
-            value = new(T);
-            value.setEnum(@intFromEnum(contents));
-        } else if (typeInfo == .Struct and typeInfo.Struct.backing_integer == c_uint) {
-            value = new(T);
-            value.setFlags(@as(c_uint, @bitCast(contents)));
+        } else if (singlePointerChild(T)) |Child| {
+            if (Child == gobject.ParamSpec) {
+                value.setParam(contents);
+            } else if (Child == glib.Variant) {
+                value.setVariant(contents);
+            } else if (std.meta.hasFn(Child, "getGObjectType")) {
+                const type_instance = as(gobject.TypeInstance, contents);
+                if (gobject.typeCheckInstanceIsFundamentallyA(type_instance, types.object) != 0) {
+                    value.setObject(@ptrCast(@alignCast(contents)));
+                } else if (gobject.typeCheckInstanceIsFundamentallyA(type_instance, types.boxed) != 0) {
+                    value.setBoxed(contents);
+                } else {
+                    @panic("unrecognized GObject type " ++ @typeName(T));
+                }
+            } else {
+                @compileError("cannot construct Value from " ++ @typeName(T));
+            }
         } else {
             @compileError("cannot construct Value from " ++ @typeName(T));
         }
@@ -561,50 +578,53 @@ pub const Value = struct {
     ///
     /// This does not return an owned value (if applicable): the caller must
     /// copy/ref/etc. the value if needed beyond the lifetime of the container.
-    pub fn get(self: *const gobject.Value, comptime T: type) T {
-        const typeInfo = @typeInfo(T);
+    pub fn get(value: *const gobject.Value, comptime T: type) T {
         if (T == void) {
             return {};
         } else if (T == i8) {
-            return self.getSchar();
+            return value.getSchar();
         } else if (T == u8) {
-            return self.getUchar();
+            return value.getUchar();
         } else if (T == bool) {
-            return self.getBoolean() != 0;
+            return value.getBoolean() != 0;
         } else if (T == c_int) {
-            return self.getInt();
+            return value.getInt();
         } else if (T == c_long) {
-            return self.getLong();
+            return value.getLong();
         } else if (T == c_ulong) {
-            return self.getUlong();
+            return value.getUlong();
         } else if (T == i64) {
-            return self.getInt64();
+            return value.getInt64();
         } else if (T == u64) {
-            return self.getUint64();
+            return value.getUint64();
         } else if (T == f32) {
-            return self.getFloat();
+            return value.getFloat();
         } else if (T == f64) {
-            return self.getDouble();
+            return value.getDouble();
         } else if (T == [*:0]const u8) {
             // We do not accept all the various string types we accept in the
             // newFrom method here because we are not transferring ownership
-            return self.getString();
-        } else if (typeInfo == .Pointer and comptime isParamSpec(typeInfo.Pointer.child)) {
-            return @ptrCast(@alignCast(self.getParam()));
-        } else if (T == *glib.Variant) {
-            return self.getVariant();
-        } else if (typeInfo == .Pointer and comptime isRegisteredType(typeInfo.Pointer.child)) {
-            if (typeInfo.Pointer.child.getGObjectType() == gobject.ext.Boxed) {
-                return @ptrCast(@alignCast(self.getBoxed()));
-            } else {
-                return @ptrCast(@alignCast(self.getObject()));
+            return value.getString();
+        } else if (std.meta.hasFn(T, "getGObjectType")) {
+            return switch (@typeInfo(T)) {
+                .Enum => @enumFromInt(value.getEnum()),
+                .Struct => @bitCast(value.getFlags()),
+                else => @compileError("cannot extract " ++ @typeName(T) ++ " from Value"),
+            };
+        } else if (singlePointerChild(T)) |Child| {
+            if (Child == gobject.ParamSpec) {
+                return value.getParam();
+            } else if (Child == glib.Variant) {
+                return value.getVariant();
+            } else if (std.meta.hasFn(Child, "getGObjectType")) {
+                if (gobject.typeCheckIsFundamentallyA(value.g_type, types.object) != 0) {
+                    return cast(Child, value.getObject() orelse return null);
+                } else if (gobject.typeCheckInstanceIsFundamentallyA(value.g_type, types.boxed) != 0) {
+                    return @ptrCast(@alignCast(value.getBoxed() orelse return null));
+                } else {
+                    @panic("unrecognized GObject type " ++ @typeName(T));
+                }
             }
-        } else if (typeInfo == .Pointer or (typeInfo == .Optional and @typeInfo(typeInfo.Optional.child) == .Pointer)) {
-            return @ptrCast(@alignCast(self.getPointer()));
-        } else if (typeInfo == .Enum and typeInfo.Enum.tag_type == c_int) {
-            return @enumFromInt(self.getEnum());
-        } else if (typeInfo == .Struct and typeInfo.Struct.backing_integer == c_uint) {
-            return @bitCast(self.getFlags());
         } else {
             @compileError("cannot extract " ++ @typeName(T) ++ " from Value");
         }
@@ -619,21 +639,24 @@ fn isCString(comptime T: type) bool {
                 else => false,
             },
             .Many, .Slice => info.child == u8 and std.meta.sentinel(T) == @as(u8, 0),
-            else => false,
+            .C => info.child == u8,
         },
         else => false,
     };
 }
 
-fn isParamSpec(comptime T: type) bool {
-    comptime var curr_type = T;
-    while (true) {
-        if (curr_type == gobject.ParamSpec) return true;
-        if (!@hasDecl(curr_type, "Parent")) return false;
-        curr_type = curr_type.Parent;
-    }
-}
-
-fn isRegisteredType(comptime T: type) bool {
-    return std.meta.hasFn(T, "getGObjectType") and @TypeOf(T.getGObjectType) == fn () callconv(.C) gobject.Type;
+fn singlePointerChild(comptime T: type) ?type {
+    return switch (@typeInfo(T)) {
+        .Pointer => |pointer| switch (pointer.size) {
+            .One, .C => pointer.child,
+            else => null,
+        },
+        .Optional => |optional| switch (@typeInfo(optional.child)) {
+            .Pointer => |pointer| switch (pointer.size) {
+                .One => pointer.child,
+                else => null,
+            },
+        },
+        else => null,
+    };
 }

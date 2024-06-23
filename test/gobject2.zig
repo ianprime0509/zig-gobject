@@ -61,14 +61,6 @@ test "Value.new([:0]const u8)" {
     try expectEqualStrings("Hello, world!", std.mem.span(value.getString().?));
 }
 
-test "Value.new(*anyopaque)" {
-    var value = gobject.ext.Value.new(*anyopaque);
-    defer value.unset();
-    var something: i32 = 123;
-    value.setPointer(&something);
-    try expectEqual(@as(?*anyopaque, &something), value.getPointer());
-}
-
 fn testValueNew(
     comptime T: type,
     data: T,
