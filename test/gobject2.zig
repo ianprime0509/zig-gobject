@@ -151,3 +151,22 @@ test "enum type" {
     try expectEqual(3, enum_type_class.maximum);
     try expectEqual(3, enum_type_class.n_values);
 }
+
+test "flags type" {
+    const MyFlags = packed struct(c_uint) {
+        one: bool = false,
+        two: i1 = -1,
+        _padding0: u2 = 0,
+        three: u1 = 1,
+        _padding1: @Type(.{ .Int = .{
+            .signedness = .unsigned,
+            .bits = @bitSizeOf(c_uint) - 5,
+        } }) = 0,
+
+        pub const getGObjectType = gobject.ext.defineFlags(@This(), .{});
+    };
+
+    const flags_type_class: *gobject.FlagsClass = @ptrCast(gobject.TypeClass.ref(MyFlags.getGObjectType()));
+    try expectEqual(0b10011, flags_type_class.mask);
+    try expectEqual(3, flags_type_class.n_values);
+}

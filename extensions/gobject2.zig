@@ -322,6 +322,69 @@ pub fn defineEnum(
     }.getGObjectType;
 }
 
+pub const DefineFlagsOptions = struct {
+    name: ?[:0]const u8 = null,
+};
+
+/// Sets up a flags type in the GObject type system, returning the associated
+/// `getGObjectType` function.
+///
+/// Flags types must be packed structs with a backing integer type of `c_uint`.
+/// Fields inside the type whose names begin with `_` are interpreted as padding
+/// and are not included as actual values in the registered flags type.
+pub fn defineFlags(
+    comptime Flags: type,
+    comptime options: DefineFlagsOptions,
+) fn () callconv(.C) gobject.Type {
+    const flags_info = @typeInfo(Flags);
+    if (flags_info != .Struct or flags_info.Struct.layout != .@"packed" or flags_info.Struct.backing_integer != c_uint) {
+        @compileError("a flags type must have a backing integer type of c_uint");
+    }
+
+    comptime var n_values = 0;
+    for (flags_info.Struct.fields) |field| {
+        if (!std.mem.startsWith(u8, field.name, "_")) {
+            if (@bitSizeOf(field.type) != 1) {
+                @compileError("non-padding flags field " ++ field.name ++ " must be 1 bit");
+            }
+            n_values += 1;
+        }
+    }
+    comptime var flags_values: [n_values + 1]gobject.FlagsValue = undefined;
+    var current_value = 0;
+    for (flags_info.Struct.fields) |field| {
+        if (!std.mem.startsWith(u8, field.name, "_")) {
+            flags_values[current_value] = .{
+                .value = 1 << @bitOffsetOf(Flags, field.name),
+                .value_name = field.name,
+                .value_nick = field.name,
+            };
+            current_value += 1;
+        }
+    }
+    flags_values[n_values] = .{
+        .value = 0,
+        .value_name = null,
+        .value_nick = null,
+    };
+    const const_flags_values = flags_values;
+
+    return struct {
+        var registered_type: gobject.Type = 0;
+
+        pub fn getGObjectType() callconv(.C) gobject.Type {
+            if (glib.Once.initEnter(&registered_type) != 0) {
+                const type_id = gobject.flagsRegisterStatic(
+                    options.name orelse deriveTypeName(Flags),
+                    &const_flags_values[0],
+                );
+                glib.Once.initLeave(&registered_type, type_id);
+            }
+            return registered_type;
+        }
+    }.getGObjectType;
+}
+
 fn deriveTypeName(comptime T: type) [:0]const u8 {
     const name = @typeName(T);
     return if (std.mem.lastIndexOfScalar(u8, name, '.')) |last_dot|
