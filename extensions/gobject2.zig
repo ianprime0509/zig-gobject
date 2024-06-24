@@ -219,7 +219,7 @@ pub fn defineClass(comptime Self: type, comptime options: DefineClassOptions(Sel
                 const classInitFunc = struct {
                     fn classInit(class: *Self.Class) callconv(.C) void {
                         if (options.parent_class) |parent_class| {
-                            const parent = gobject.TypeClass.peekParent(class.as(gobject.TypeClass));
+                            const parent = gobject.TypeClass.peekParent(as(gobject.TypeClass, class));
                             parent_class.* = @ptrCast(@alignCast(parent));
                         }
                         if (options.private) |private| {
@@ -716,7 +716,7 @@ pub fn defineSignal(
             connect_options: struct { after: bool = false },
         ) c_ulong {
             return gobject.signalConnectData(
-                @ptrCast(@alignCast(target.as(Itype))),
+                as(gobject.Object, as(Itype, target)),
                 name,
                 @as(gobject.Callback, @ptrCast(callback)),
                 data,

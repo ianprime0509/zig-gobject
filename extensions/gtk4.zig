@@ -17,10 +17,19 @@ pub const impl_helpers = struct {
     /// The name of the field in the instance struct defaults to the name of
     /// the template object, but can be set explicitly via the `field` option
     /// if it differs.
-    pub fn bindTemplateChild(class: anytype, comptime name: [:0]const u8, comptime options: gtk.ext.BindTemplateChildOptions) void {
+    pub fn bindTemplateChild(
+        class: anytype,
+        comptime name: [:0]const u8,
+        comptime options: gtk.ext.BindTemplateChildOptions,
+    ) void {
         const field = options.field orelse name;
         ensureWidgetType(@TypeOf(class).Instance, field);
-        gtk.WidgetClass.bindTemplateChildFull(class.as(gtk.WidgetClass), name, @intFromBool(options.internal), @offsetOf(@TypeOf(class).Instance, field));
+        gtk.Widget.Class.bindTemplateChildFull(
+            gobject.ext.as(gtk.Widget.Class, class),
+            name,
+            @intFromBool(options.internal),
+            @offsetOf(@TypeOf(class).Instance, field),
+        );
     }
 
     /// Binds a template child to a private field.
@@ -31,7 +40,7 @@ pub const impl_helpers = struct {
     /// }
     /// ```
     pub fn bindTemplateChildPrivate(
-        class: *anyopaque,
+        class: anytype,
         comptime name: [:0]const u8,
         comptime Private: type,
         private_offset: c_int,
@@ -39,8 +48,12 @@ pub const impl_helpers = struct {
     ) void {
         const field = options.field orelse name;
         ensureWidgetType(Private, field);
-        const widget_class: *gtk.WidgetClass = @ptrCast(@alignCast(class));
-        widget_class.bindTemplateChildFull(name, @intFromBool(options.internal), private_offset + @offsetOf(Private, field));
+        gtk.Widget.Class.bindTemplateChildFull(
+            gobject.ext.as(gtk.Widget.Class, class),
+            name,
+            @intFromBool(options.internal),
+            private_offset + @offsetOf(Private, field),
+        );
     }
 
     fn ensureWidgetType(comptime Container: type, comptime field_name: []const u8) void {
