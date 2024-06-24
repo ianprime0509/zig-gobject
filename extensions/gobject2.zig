@@ -2,48 +2,36 @@ const glib = @import("glib2");
 const gobject = @import("gobject2");
 const std = @import("std");
 
-/// The fundamental type from which all interfaces are derived.
-pub const Interface = typeMakeFundamental(2);
-
-/// The fundamental type from which all enumeration types are derived.
-pub const Enum = typeMakeFundamental(12);
-
-/// The fundamental type from which all boxed types are derived.
-pub const Flags = typeMakeFundamental(13);
-
-/// The fundamental type from which all boxed types are derived.
-pub const Boxed = typeMakeFundamental(18);
-
-/// A translation of the `G_TYPE_MAKE_FUNDAMENTAL` macro.
-pub fn typeMakeFundamental(x: usize) gobject.Type {
-    return x << gobject.TYPE_FUNDAMENTAL_SHIFT;
-}
-
 /// Fundamental types.
 pub const types = struct {
     // Values taken from gtype.h.
-    pub const invalid = typeMakeFundamental(0);
-    pub const none = typeMakeFundamental(1);
-    pub const interface = typeMakeFundamental(2);
-    pub const char = typeMakeFundamental(3);
-    pub const uchar = typeMakeFundamental(4);
-    pub const boolean = typeMakeFundamental(5);
-    pub const int = typeMakeFundamental(6);
-    pub const uint = typeMakeFundamental(7);
-    pub const long = typeMakeFundamental(8);
-    pub const ulong = typeMakeFundamental(9);
-    pub const int64 = typeMakeFundamental(10);
-    pub const uint64 = typeMakeFundamental(11);
-    pub const @"enum" = typeMakeFundamental(12);
-    pub const flags = typeMakeFundamental(13);
-    pub const float = typeMakeFundamental(14);
-    pub const double = typeMakeFundamental(15);
-    pub const string = typeMakeFundamental(16);
-    pub const pointer = typeMakeFundamental(17);
-    pub const boxed = typeMakeFundamental(18);
-    pub const param = typeMakeFundamental(19);
-    pub const object = typeMakeFundamental(20);
-    pub const variant = typeMakeFundamental(21);
+    pub const invalid = makeFundamental(0);
+    pub const none = makeFundamental(1);
+    pub const interface = makeFundamental(2);
+    pub const char = makeFundamental(3);
+    pub const uchar = makeFundamental(4);
+    pub const boolean = makeFundamental(5);
+    pub const int = makeFundamental(6);
+    pub const uint = makeFundamental(7);
+    pub const long = makeFundamental(8);
+    pub const ulong = makeFundamental(9);
+    pub const int64 = makeFundamental(10);
+    pub const uint64 = makeFundamental(11);
+    pub const @"enum" = makeFundamental(12);
+    pub const flags = makeFundamental(13);
+    pub const float = makeFundamental(14);
+    pub const double = makeFundamental(15);
+    pub const string = makeFundamental(16);
+    pub const pointer = makeFundamental(17);
+    pub const boxed = makeFundamental(18);
+    pub const param = makeFundamental(19);
+    pub const object = makeFundamental(20);
+    pub const variant = makeFundamental(21);
+
+    /// A translation of the `G_TYPE_MAKE_FUNDAMENTAL` macro.
+    pub fn makeFundamental(x: usize) gobject.Type {
+        return x << gobject.TYPE_FUNDAMENTAL_SHIFT;
+    }
 };
 
 /// Returns the GObject `Type` corresponding to the given type.
@@ -101,26 +89,26 @@ pub fn ensureType(comptime T: type) void {
     gobject.typeEnsure(T.getGObjectType());
 }
 
-pub fn DefineClassOptions(comptime Self: type) type {
+pub fn DefineClassOptions(comptime Instance: type) type {
     return struct {
         /// The name of the type. The default is to use the base type name of
-        /// `Self`.
+        /// `Instance`.
         name: ?[:0]const u8 = null,
         flags: gobject.TypeFlags = .{},
-        baseInit: ?*const fn (*Self.Class) callconv(.C) void = null,
-        baseFinalize: ?*const fn (*Self.Class) callconv(.C) void = null,
-        classInit: ?*const fn (*Self.Class) callconv(.C) void = null,
-        classFinalize: ?*const fn (*Self.Class) callconv(.C) void = null,
-        instanceInit: ?*const fn (*Self, *Self.Class) callconv(.C) void = null,
+        baseInit: ?*const fn (*Instance.Class) callconv(.C) void = null,
+        baseFinalize: ?*const fn (*Instance.Class) callconv(.C) void = null,
+        classInit: ?*const fn (*Instance.Class) callconv(.C) void = null,
+        classFinalize: ?*const fn (*Instance.Class) callconv(.C) void = null,
+        instanceInit: ?*const fn (*Instance, *Instance.Class) callconv(.C) void = null,
         /// Interface implementations, created using `implement`.
         ///
         /// The interface types specified here must match the top-level
-        /// `Implements` member of `Self`, which is expected to be an array of
-        /// all interface types implemented by `Self`.
+        /// `Implements` member of `Instance`, which is expected to be an array
+        /// of all interface types implemented by `Instance`.
         implements: []const InterfaceImplementation = &.{},
         /// If non-null, will be set to the instance of the parent class when
         /// the class is initialized.
-        parent_class: ?**Self.Parent.Class = null,
+        parent_class: ?**Instance.Parent.Class = null,
         /// Metadata for private instance data. When the class is initialized,
         /// `offset` is updated to the offset of the private data relative to
         /// the instance.
@@ -166,8 +154,8 @@ pub fn implement(comptime Iface: type, comptime options: ImplementOptions(Iface)
 /// Sets up a class type in the GObject type system, returning the associated
 /// `getGObjectType` function.
 ///
-/// The `Self` parameter is the instance struct for the type. There are several
-/// constraints on this type:
+/// The `Instance` parameter is the instance struct for the type. There are
+/// several constraints on this type:
 ///
 /// - It must be an `extern struct`, and the first member must be of type `Parent`
 /// - It must have a public declaration named `Parent` referring to the parent type
@@ -180,35 +168,38 @@ pub fn implement(comptime Iface: type, comptime options: ImplementOptions(Iface)
 ///   instance struct
 ///
 /// Lifecycle methods and private data can be defined in the `options` struct.
-pub fn defineClass(comptime Self: type, comptime options: DefineClassOptions(Self)) fn () callconv(.C) gobject.Type {
-    const self_info = @typeInfo(Self);
-    if (self_info != .Struct or self_info.Struct.layout != .@"extern") {
+pub fn defineClass(
+    comptime Instance: type,
+    comptime options: DefineClassOptions(Instance),
+) fn () callconv(.C) gobject.Type {
+    const instance_info = @typeInfo(Instance);
+    if (instance_info != .Struct or instance_info.Struct.layout != .@"extern") {
         @compileError("an instance type must be an extern struct");
     }
 
-    if (!@hasDecl(Self, "Parent")) {
+    if (!@hasDecl(Instance, "Parent")) {
         @compileError("a class type must have a declaration named Parent pointing to the parent type");
     }
-    const parent_info = @typeInfo(Self.Parent);
-    if (parent_info != .Struct or parent_info.Struct.layout != .@"extern" or !@hasDecl(Self.Parent, "getGObjectType")) {
-        @compileError("the defined parent type " ++ @typeName(Self.Parent) ++ " does not appear to be a GObject class type");
+    const parent_info = @typeInfo(Instance.Parent);
+    if (parent_info != .Struct or parent_info.Struct.layout != .@"extern" or !@hasDecl(Instance.Parent, "getGObjectType")) {
+        @compileError("the defined parent type " ++ @typeName(Instance.Parent) ++ " does not appear to be a GObject class type");
     }
-    if (self_info.Struct.fields.len == 0 or self_info.Struct.fields[0].type != Self.Parent) {
-        @compileError("the first field of the instance struct must have type " ++ @typeName(Self.Parent));
+    if (instance_info.Struct.fields.len == 0 or instance_info.Struct.fields[0].type != Instance.Parent) {
+        @compileError("the first field of the instance struct must have type " ++ @typeName(Instance.Parent));
     }
 
-    if (!@hasDecl(Self, "Class")) {
+    if (!@hasDecl(Instance, "Class")) {
         @compileError("a class type must have a member named Class pointing to the class record");
     }
-    const class_info = @typeInfo(Self.Class);
+    const class_info = @typeInfo(Instance.Class);
     if (class_info != .Struct or class_info.Struct.layout != .@"extern") {
         @compileError("a class type must be an extern struct");
     }
-    if (!@hasDecl(Self.Class, "Instance") or Self.Class.Instance != Self) {
+    if (!@hasDecl(Instance.Class, "Instance") or Instance.Class.Instance != Instance) {
         @compileError("a class type must have a declaration named Instance pointing to the instance type");
     }
-    if (class_info.Struct.fields.len == 0 or class_info.Struct.fields[0].type != Self.Parent.Class) {
-        @compileError("the first field of the class struct must have type " ++ @typeName(Self.Parent.Class));
+    if (class_info.Struct.fields.len == 0 or class_info.Struct.fields[0].type != Instance.Parent.Class) {
+        @compileError("the first field of the class struct must have type " ++ @typeName(Instance.Parent.Class));
     }
 
     return struct {
@@ -217,7 +208,7 @@ pub fn defineClass(comptime Self: type, comptime options: DefineClassOptions(Sel
         pub fn getGObjectType() callconv(.C) gobject.Type {
             if (glib.Once.initEnter(&registered_type) != 0) {
                 const classInitFunc = struct {
-                    fn classInit(class: *Self.Class) callconv(.C) void {
+                    fn classInit(class: *Instance.Class) callconv(.C) void {
                         if (options.parent_class) |parent_class| {
                             const parent = gobject.TypeClass.peekParent(as(gobject.TypeClass, class));
                             parent_class.* = @ptrCast(@alignCast(parent));
@@ -231,34 +222,31 @@ pub fn defineClass(comptime Self: type, comptime options: DefineClassOptions(Sel
                     }
                 }.classInit;
                 const info = gobject.TypeInfo{
-                    .class_size = @sizeOf(Self.Class),
+                    .class_size = @sizeOf(Instance.Class),
                     .base_init = @ptrCast(options.baseInit),
                     .base_finalize = @ptrCast(options.baseFinalize),
                     .class_init = @ptrCast(&classInitFunc),
                     .class_finalize = @ptrCast(options.classFinalize),
                     .class_data = null,
-                    .instance_size = @sizeOf(Self),
+                    .instance_size = @sizeOf(Instance),
                     .n_preallocs = 0,
                     .instance_init = @ptrCast(options.instanceInit),
                     .value_table = null,
                 };
 
-                const type_name = if (options.name) |name| name else blk: {
-                    var self_name: [:0]const u8 = @typeName(Self);
-                    const last_dot = std.mem.lastIndexOfScalar(u8, self_name, '.');
-                    if (last_dot) |pos| {
-                        self_name = self_name[pos + 1 ..];
-                    }
-                    break :blk self_name;
-                };
-                const type_id = gobject.typeRegisterStatic(Self.Parent.getGObjectType(), type_name, &info, options.flags);
+                const type_id = gobject.typeRegisterStatic(
+                    Instance.Parent.getGObjectType(),
+                    options.name orelse deriveTypeName(Instance),
+                    &info,
+                    options.flags,
+                );
 
                 if (options.private) |private| {
                     private.offset.* = gobject.typeAddInstancePrivate(type_id, @sizeOf(private.Type));
                 }
 
                 {
-                    const Implements = if (@hasDecl(Self, "Implements")) Self.Implements else [_]type{};
+                    const Implements = if (@hasDecl(Instance, "Implements")) Instance.Implements else [_]type{};
                     comptime var found = [_]bool{false} ** Implements.len;
                     inline for (options.implements) |implementation| {
                         inline for (Implements, &found) |Iface, *found_match| {
@@ -280,6 +268,66 @@ pub fn defineClass(comptime Self: type, comptime options: DefineClassOptions(Sel
             return registered_type;
         }
     }.getGObjectType;
+}
+
+pub const DefineEnumOptions = struct {
+    name: ?[:0]const u8 = null,
+};
+
+/// Sets up an enum type in the GObject type system, returning the associated
+/// `getGObjectType` function.
+///
+/// Enum types must have a tag type of `c_int`.
+pub fn defineEnum(
+    comptime Enum: type,
+    comptime options: DefineEnumOptions,
+) fn () callconv(.C) gobject.Type {
+    const enum_info = @typeInfo(Enum);
+    if (enum_info != .Enum or enum_info.Enum.tag_type != c_int) {
+        @compileError("an enum type must have a tag type of c_int");
+    }
+    if (!enum_info.Enum.is_exhaustive) {
+        @compileError("an enum type must be exhaustive");
+    }
+
+    const n_values = enum_info.Enum.fields.len;
+    var enum_values: [n_values + 1]gobject.EnumValue = undefined;
+    for (enum_info.Enum.fields, enum_values[0..n_values]) |field, *value| {
+        value.* = .{
+            .value = field.value,
+            .value_name = field.name,
+            .value_nick = field.name,
+        };
+    }
+    enum_values[n_values] = .{
+        .value = 0,
+        .value_name = null,
+        .value_nick = null,
+    };
+    const const_enum_values = enum_values;
+
+    return struct {
+        var registered_type: gobject.Type = 0;
+
+        pub fn getGObjectType() callconv(.C) gobject.Type {
+            if (glib.Once.initEnter(&registered_type) != 0) {
+                const type_id = gobject.enumRegisterStatic(
+                    options.name orelse deriveTypeName(Enum),
+                    &const_enum_values[0],
+                );
+                glib.Once.initLeave(&registered_type, type_id);
+            }
+            return registered_type;
+        }
+    }.getGObjectType;
+}
+
+fn deriveTypeName(comptime T: type) [:0]const u8 {
+    const name = @typeName(T);
+    return if (std.mem.lastIndexOfScalar(u8, name, '.')) |last_dot|
+        name[last_dot + 1 ..]
+    else
+        name;
 }
 
 pub fn Accessor(comptime Owner: type, comptime Data: type) type {

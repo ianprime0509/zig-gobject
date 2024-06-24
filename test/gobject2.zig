@@ -132,7 +132,22 @@ test "Object subclass" {
 
     const obj = Subclass.new();
     defer obj.unref();
-    try expectEqual(@as(i32, 123), obj.getSomeValue());
+    try expectEqual(123, obj.getSomeValue());
     try expect(gobject.ext.isA(obj, gobject.Object));
     try expect(gobject.ext.cast(gobject.Object, obj) != null);
+}
+
+test "enum type" {
+    const MyEnum = enum(c_int) {
+        one = 1,
+        two = 2,
+        three = 3,
+
+        pub const getGObjectType = gobject.ext.defineEnum(@This(), .{});
+    };
+
+    const enum_type_class: *gobject.EnumClass = @ptrCast(gobject.TypeClass.ref(MyEnum.getGObjectType()));
+    try expectEqual(1, enum_type_class.minimum);
+    try expectEqual(3, enum_type_class.maximum);
+    try expectEqual(3, enum_type_class.n_values);
 }
