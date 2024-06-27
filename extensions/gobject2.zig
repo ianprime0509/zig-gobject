@@ -719,7 +719,7 @@ pub fn defineProperty(
             } else if (singlePointerChild(Data)) |Child| {
                 if (std.meta.hasFn(Child, "getGObjectType")) {
                     const g_type = Child.getGObjectType();
-                    if (gobject.typeCheckIsFundamentallyA(g_type, types.object) != 0) {
+                    if (@hasDecl(Child, "Class") or @hasDecl(Child, "Iface")) {
                         return gobject.paramSpecObject(
                             name,
                             options.nick orelse null,
@@ -727,7 +727,7 @@ pub fn defineProperty(
                             g_type,
                             flags,
                         );
-                    } else if (gobject.typeCheckIsFundamentallyA(g_type, types.boxed) != 0) {
+                    } else {
                         return gobject.paramSpecBoxed(
                             name,
                             options.nick orelse null,
@@ -735,14 +735,11 @@ pub fn defineProperty(
                             g_type,
                             flags,
                         );
-                    } else {
-                        @panic("unrecognized GObject type " ++ @typeName(Data));
                     }
                 }
             } else {
                 // New property data types must first be defined in
                 // DefinePropertyOptions and then added here.
-                comptime unreachable;
             }
         }
     };
@@ -1053,13 +1050,13 @@ pub const Value = struct {
             } else if (Child == glib.Variant) {
                 return value.getVariant();
             } else if (std.meta.hasFn(Child, "getGObjectType")) {
-                if (gobject.typeCheckIsFundamentallyA(value.g_type, types.object) != 0) {
+                if (@hasDecl(Child, "Class") or @hasDecl(Child, "Iface")) {
                     return cast(Child, value.getObject() orelse return null);
-                } else if (gobject.typeCheckInstanceIsFundamentallyA(value.g_type, types.boxed) != 0) {
-                    return @ptrCast(@alignCast(value.getBoxed() orelse return null));
                 } else {
-                    @panic("unrecognized GObject type " ++ @typeName(T));
+                    return @ptrCast(@alignCast(value.getBoxed() orelse return null));
                 }
+            } else {
+                @compileError("cannot extract " ++ @typeName(T) ++ " from Value");
             }
         } else {
             @compileError("cannot extract " ++ @typeName(T) ++ " from Value");
@@ -1110,13 +1107,10 @@ pub const Value = struct {
             } else if (Child == glib.Variant) {
                 value.setVariant(contents);
             } else if (std.meta.hasFn(Child, "getGObjectType")) {
-                const type_instance = as(gobject.TypeInstance, contents);
-                if (gobject.typeCheckInstanceIsFundamentallyA(type_instance, types.object) != 0) {
+                if (@hasDecl(Child, "Class") or @hasDecl(Child, "Iface")) {
                     value.setObject(@ptrCast(@alignCast(contents)));
-                } else if (gobject.typeCheckInstanceIsFundamentallyA(type_instance, types.boxed) != 0) {
-                    value.setBoxed(contents);
                 } else {
-                    @panic("unrecognized GObject type " ++ @typeName(T));
+                    value.setBoxed(contents);
                 }
             } else {
                 @compileError("cannot construct Value from " ++ @typeName(T));
