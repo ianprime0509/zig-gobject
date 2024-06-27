@@ -270,7 +270,62 @@ pub fn defineClass(
     }.getGObjectType;
 }
 
+pub fn DefineBoxedOptions(comptime T: type) type {
+    return struct {
+        /// The name of the type. The default is to use the base type name of
+        /// `Instance`.
+        name: ?[:0]const u8 = null,
+        /// Functions describing how to copy and free instances of the type. If
+        /// these are not provided, the default is to use `glib.ext.create` and
+        /// `glib.ext.destroy` to manage memory.
+        funcs: ?struct {
+            copy: *const fn (*T) *T,
+            free: *const fn (*T) void,
+        } = null,
+    };
+}
+
+/// Sets up a boxed type in the GObject type system, returning the associated
+/// `getGObjectType` function.
+pub fn defineBoxed(
+    comptime T: type,
+    comptime options: DefineBoxedOptions(T),
+) fn () callconv(.C) gobject.Type {
+    const funcs = options.funcs orelse .{
+        .copy = &struct {
+            fn copy(value: *T) *T {
+                const new_value = glib.ext.create(T);
+                new_value.* = value.*;
+                return new_value;
+            }
+        }.copy,
+        .free = &struct {
+            fn free(value: *T) void {
+                glib.ext.destroy(value);
+            }
+        }.free,
+    };
+
+    return struct {
+        var registered_type: gobject.Type = 0;
+
+        pub fn getGObjectType() callconv(.C) gobject.Type {
+            if (glib.Once.initEnter(&registered_type) != 0) {
+                const type_id = gobject.boxedTypeRegisterStatic(
+                    options.name orelse deriveTypeName(T),
+                    @ptrCast(funcs.copy),
+                    @ptrCast(funcs.free),
+                );
+                glib.Once.initLeave(&registered_type, type_id);
+            }
+            return registered_type;
+        }
+    }.getGObjectType;
+}
+
 pub const DefineEnumOptions = struct {
+    /// The name of the type. The default is to use the base type name of the
+    /// enum.
     name: ?[:0]const u8 = null,
 };
 
@@ -323,6 +378,8 @@ pub fn defineEnum(
 }
 
 pub const DefineFlagsOptions = struct {
+    /// The name of the type. The default is to use the base type name of the
+    /// struct.
     name: ?[:0]const u8 = null,
 };
 

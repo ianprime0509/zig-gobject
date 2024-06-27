@@ -137,6 +137,21 @@ test "Object subclass" {
     try expect(gobject.ext.cast(gobject.Object, obj) != null);
 }
 
+test "boxed type" {
+    const MyBoxed = struct {
+        a: u32,
+        b: u32,
+
+        pub const getGObjectType = gobject.ext.defineBoxed(@This(), .{});
+    };
+
+    const value1: *const MyBoxed = &.{ .a = 123, .b = 456 };
+    const value2: *MyBoxed = @ptrCast(@alignCast(gobject.boxedCopy(MyBoxed.getGObjectType(), value1)));
+    defer gobject.boxedFree(MyBoxed.getGObjectType(), value2);
+    try expectEqual(123, value2.a);
+    try expectEqual(456, value2.b);
+}
+
 test "enum type" {
     const MyEnum = enum(c_int) {
         one = 1,
