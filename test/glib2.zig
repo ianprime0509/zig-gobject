@@ -11,6 +11,27 @@ test "bindings" {
     bindings.refAllBindings(glib);
 }
 
+test "create/destroy" {
+    const T = struct { a: u32, b: u64 };
+    const value = glib.ext.create(T);
+    defer glib.ext.destroy(value);
+    value.a = 123;
+    value.b = 456;
+    try expectEqual(123, value.a);
+    try expectEqual(456, value.b);
+}
+
+test "alloc/free" {
+    const slice = glib.ext.alloc(u32, 3);
+    defer glib.ext.free(slice);
+    slice[0] = 1;
+    slice[1] = 2;
+    slice[2] = 3;
+    try expectEqual(1, slice[0]);
+    try expectEqual(2, slice[1]);
+    try expectEqual(3, slice[2]);
+}
+
 test "Bytes.getDataSlice" {
     const null_ptr = glib.Bytes.new(null, 0);
     defer null_ptr.unref();

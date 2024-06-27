@@ -1,6 +1,37 @@
 const glib = @import("glib2");
 const std = @import("std");
 
+/// Creates a heap-allocated value of type `T` using `glib.malloc`. `T` must not
+/// be zero-sized or aligned more than `std.c.max_align_t`.
+pub fn create(comptime T: type) *T {
+    if (@sizeOf(T) == 0) @compileError("zero-sized types not supported");
+    if (@alignOf(T) > @alignOf(std.c.max_align_t)) @compileError("overaligned types not supported");
+    return @ptrCast(@alignCast(glib.malloc(@sizeOf(T))));
+}
+
+/// Destroys a value created using `create`.
+pub fn destroy(ptr: anytype) void {
+    const type_info = @typeInfo(@TypeOf(ptr));
+    if (type_info != .Pointer or type_info.Pointer.size != .One) @compileError("must be a single-item pointer");
+    glib.freeSized(@ptrCast(ptr), @sizeOf(type_info.Pointer.child));
+}
+
+/// Heap allocates a slice of `n` values of type `T` using `glib.mallocN`. `T`
+/// must not be zero-sized or aligned more than `std.c.max_align_t`.
+pub fn alloc(comptime T: type, n: usize) []T {
+    if (@sizeOf(T) == 0) @compileError("zero-sized types not supported");
+    if (@alignOf(T) > @alignOf(std.c.max_align_t)) @compileError("overaligned types not supported");
+    const ptr: [*]T = @ptrCast(@alignCast(glib.mallocN(@sizeOf(T), n)));
+    return ptr[0..n];
+}
+
+/// Frees a slice created using `alloc`.
+pub fn free(ptr: anytype) void {
+    const type_info = @typeInfo(@TypeOf(ptr));
+    if (type_info != .Pointer or type_info.Pointer.size != .Slice) @compileError("must be a slice");
+    glib.freeSized(@ptrCast(ptr.ptr), @sizeOf(type_info.Pointer.child) * ptr.len);
+}
+
 pub const Bytes = struct {
     /// Returns a new `Bytes` copying the given slice.
     pub fn newFromSlice(bytes: []const u8) *glib.Bytes {
@@ -55,12 +86,12 @@ pub const Variant = struct {
         } else if (type_info == .Pointer and type_info.Pointer.size == .Slice) {
             const child_type = glib.ext.VariantType.newFor(type_info.Pointer.child);
             defer child_type.free();
-            const children: [*]*glib.Variant = @alignCast(@ptrCast(glib.mallocN(contents.len, @sizeOf(*glib.Variant))));
-            defer glib.free(@ptrCast(children));
+            const children = alloc(*glib.Variant, contents.len);
+            defer free(children);
             for (contents, children) |item, *child| {
                 child.* = newFrom(item);
             }
-            return glib.Variant.newArray(child_type, children, contents.len);
+            return glib.Variant.newArray(child_type, children.ptr, children.len);
         } else if (type_info == .Optional) {
             const child_type = glib.ext.VariantType.newFor(type_info.Optional.child);
             defer child_type.free();
