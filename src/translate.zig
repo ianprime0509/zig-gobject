@@ -2840,6 +2840,47 @@ fn createBuildZig(
         try out.print("$I.addImport($S, $I);\n\n", .{ module_name, module_name, module_name });
     }
 
+    // Docs
+    {
+        // We need a root source files for the docs to reference all the modules.
+        const docs_root_dir = try std.fs.path.join(allocator, &.{ output_dir_path, "src", "root" });
+        defer allocator.free(docs_root_dir);
+        std.fs.cwd().makePath(docs_root_dir) catch |err|
+            return diag.add("failed to create docs root module directory {s}: {}", .{ docs_root_dir, err });
+        const docs_root_path = try std.fs.path.join(allocator, &.{ docs_root_dir, "root.zig" });
+        defer allocator.free(docs_root_path);
+        var docs_root_source = std.ArrayList(u8).init(allocator);
+        defer docs_root_source.deinit();
+        var docs_root_out = zigWriter(docs_root_source.writer());
+        for (repositories) |repo| {
+            const module_name = try moduleNameAlloc(allocator, repo.namespace.name, repo.namespace.version);
+            defer allocator.free(module_name);
+            try docs_root_out.print("pub const $I = @import($S);\n", .{ module_name, module_name });
+        }
+        std.fs.cwd().writeFile(docs_root_path, docs_root_source.items) catch |err|
+            return diag.add("failed to write docs root module file {s}: {}", .{ docs_root_path, err });
+    }
+    try out.print(
+        \\const docs_obj = b.addObject(.{
+        \\    .name = "docs",
+        \\    .root_source_file = .{ .path = "src/root/root.zig" },
+        \\    .target = target,
+        \\    .optimize = .Debug,
+        \\});
+        \\const install_docs = b.addInstallDirectory(.{
+        \\    .source_dir = docs_obj.getEmittedDocs(),
+        \\    .install_dir = .prefix,
+        \\    .install_subdir = "docs",
+        \\});
+        \\b.step("docs", "Generate documentation").dependOn(&install_docs.step);
+        \\
+    , .{});
+    for (repositories) |repo| {
+        const module_name = try moduleNameAlloc(allocator, repo.namespace.name, repo.namespace.version);
+        defer allocator.free(module_name);
+        try out.print("docs_obj.root_module.addImport($S, $I);\n", .{ module_name, module_name });
+    }
+
     try out.print("}\n\n", .{});
 
     // Library metadata
