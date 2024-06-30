@@ -2948,7 +2948,7 @@ fn createBuildZig(
         \\
         \\    const module = b.createModule(.{ .target = target });
         \\    module.addCSourceFile(.{ .file = gresources_c });
-        \\    libraries.@"gio-2.0".linkTo(module);
+        \\    libraries.gio2.linkTo(module);
         \\    return module;
         \\}
         \\
