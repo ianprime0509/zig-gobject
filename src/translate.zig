@@ -426,7 +426,7 @@ fn copyExtensionsFile(
         return;
     }
 
-    std.fs.cwd().writeFile(extensions_output_path, "") catch |err| {
+    std.fs.cwd().writeFile(.{ .sub_path = extensions_output_path, .data = "" }) catch |err| {
         try diag.add("failed to create extensions file {s}: {}", .{ extensions_output_path, err });
         return error.CopyFailed;
     };
@@ -459,7 +459,7 @@ fn translateRepository(
     defer allocator.free(file_name);
     const output_path = try std.fs.path.join(allocator, &.{ output_dir_path, file_name });
     defer allocator.free(output_path);
-    std.fs.cwd().writeFile(output_path, fmt_source) catch |err| {
+    std.fs.cwd().writeFile(.{ .sub_path = output_path, .data = fmt_source }) catch |err| {
         try diag.add("failed to write output source file {s}: {}", .{ output_path, err });
         return error.TranslateFailed;
     };
@@ -1278,7 +1278,7 @@ fn translateConstant(allocator: Allocator, constant: gir.Constant, ctx: Translat
 // See also the set of built-in type names in gir.zig. This map contains more
 // entries because it also handles mappings from C types, not just GIR type
 // names.
-const builtins = std.ComptimeStringMap([]const u8, .{
+const builtins = std.StaticStringMap([]const u8).initComptime(.{
     .{ "gboolean", "c_int" },
     .{ "bool", "bool" },
     .{ "_Bool", "bool" },
@@ -2683,7 +2683,7 @@ fn translateSymbolLink(allocator: Allocator, symbol: Symbol, ctx: TranslationCon
     }
 }
 
-const type_name_escapes = std.ComptimeStringMap([]const u8, .{
+const type_name_escapes = std.StaticStringMap([]const u8).initComptime(.{
     .{ "Class", "Class_" },
     .{ "Iface", "Iface_" },
     .{ "Parent", "Parent_" },
@@ -2857,13 +2857,13 @@ fn createBuildZig(
             defer allocator.free(module_name);
             try docs_root_out.print("pub const $I = @import($S);\n", .{ module_name, module_name });
         }
-        std.fs.cwd().writeFile(docs_root_path, docs_root_source.items) catch |err|
+        std.fs.cwd().writeFile(.{ .sub_path = docs_root_path, .data = docs_root_source.items }) catch |err|
             return diag.add("failed to write docs root module file {s}: {}", .{ docs_root_path, err });
     }
     try out.print(
         \\const docs_obj = b.addObject(.{
         \\    .name = "docs",
-        \\    .root_source_file = .{ .path = "src/root/root.zig" },
+        \\    .root_source_file = b.path("src/root/root.zig"),
         \\    .target = target,
         \\    .optimize = .Debug,
         \\});
@@ -2960,7 +2960,7 @@ fn createBuildZig(
     defer ast.deinit(allocator);
     const fmt_source = try ast.render(allocator);
     defer allocator.free(fmt_source);
-    std.fs.cwd().writeFile(output_path, fmt_source) catch |err|
+    std.fs.cwd().writeFile(.{ .sub_path = output_path, .data = fmt_source }) catch |err|
         return diag.add("failed to write {s}: {}", .{ output_path, err });
 }
 
@@ -2988,7 +2988,7 @@ fn createBuildZon(
         \\
     ;
 
-    std.fs.cwd().writeFile(output_path, source) catch |err|
+    std.fs.cwd().writeFile(.{ .sub_path = output_path, .data = source }) catch |err|
         return diag.add("failed to write {s}: {}", .{ output_path, err });
 }
 
@@ -3359,7 +3359,7 @@ pub fn createAbiTests(
         defer allocator.free(file_name);
         const file_path = try std.fs.path.join(allocator, &.{ output_dir_path, file_name });
         defer allocator.free(file_path);
-        std.fs.cwd().writeFile(file_path, fmt_source) catch |err| {
+        std.fs.cwd().writeFile(.{ .sub_path = file_path, .data = fmt_source }) catch |err| {
             try diag.add("failed to write output source file {s}: {}", .{ file_path, err });
             try diag.add("failed to create ABI tests for {s}-{s}", .{ repo.namespace.name, repo.namespace.version });
         };

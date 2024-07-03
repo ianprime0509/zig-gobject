@@ -39,9 +39,8 @@ pub fn logImpl(
         comptime level.asText() ++ ": "
     else
         comptime level.asText() ++ "(" ++ @tagName(scope) ++ "): ";
-    const mutex = std.debug.getStderrMutex();
-    mutex.lock();
-    defer mutex.unlock();
+    std.debug.lockStdErr();
+    defer std.debug.unlockStdErr();
     const stderr = std.io.getStdErr().writer();
     log_tty_config.setColor(stderr, switch (level) {
         .err => .bright_red,

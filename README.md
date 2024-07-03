@@ -16,10 +16,9 @@ exe.root_module.addImport("gtk", gobject.module("gtk-4.0"));
 exe.root_module.addImport("adw", gobject.module("adw-1"));
 ```
 
-This project (both the binding generator and the generated bindings) supports
-the latest release version of Zig (0.12.0). It also attempts to support the
-latest master branch version, though there may be some delay in addressing
-breaking changes.
+The generated bindings are primarily tested with Zig 0.13.0, but should also
+work with 0.12.0 and master. The binding generator supports only Zig 0.13.0;
+other versions of Zig may or may not work.
 
 ## Companion projects
 
@@ -59,6 +58,8 @@ development environment:
    - `--share=ipc --socket=fallback-x11 --socket=wayland --device=dri` - allows
      graphical display through X11 or Wayland
   - `--socket=session-bus` - allows access to the session bus
+  - For convenience, this command is available as a script in this repository:
+    `flatpak-env.sh`.
 2. Within the spawned shell, run `. /usr/lib/sdk/ziglang-master/enable.sh` to
    add Zig to your `PATH` (don't forget the `.` at the beginning of that
    command).

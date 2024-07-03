@@ -1647,7 +1647,7 @@ pub const Documentation = struct {
 // null namespace rather than the current namespace being translated. See also
 // the map of builtin translations in translate.zig. This map contains fewer
 // entries because it is only a set of GIR type names, not C type names.
-const builtin_names = std.ComptimeStringMap(void, .{
+const builtin_names = std.StaticStringMap(void).initComptime(.{
     .{ "gboolean", {} },
     .{ "gchar", {} },
     .{ "guchar", {} },

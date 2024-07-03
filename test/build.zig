@@ -5,7 +5,7 @@ const ModuleOptions = struct {
     test_abi: bool = true,
 };
 
-const module_options = std.ComptimeStringMap(ModuleOptions, .{
+const module_options = std.StaticStringMap(ModuleOptions).initComptime(.{
     .{
         "AppStreamCompose-1.0", .{
             // TODO: have to define I_KNOW_THE_APPSTREAM_COMPOSE_API_IS_SUBJECT_TO_CHANGE
