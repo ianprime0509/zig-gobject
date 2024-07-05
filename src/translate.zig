@@ -1059,7 +1059,7 @@ fn translateFunction(allocator: Allocator, function: gir.Function, options: Tran
         return;
     }
 
-    const fnName = try toCamelCase(allocator, function.name, "_");
+    const fnName = try toCamelCase(allocator, function.name, '_');
     defer allocator.free(fnName);
     // There is a function named `dummy` declared in libxml2-2.0.gir which has
     // the same name and c_identifier. I don't know why it's there, or even if
@@ -2384,7 +2384,7 @@ comptime {
 
 fn translateDocumentation(allocator: Allocator, documentation: ?gir.Documentation, ctx: TranslationContext, out: anytype) !void {
     if (documentation) |doc| {
-        var lines = mem.split(u8, doc.text, "\n");
+        var lines = mem.splitScalar(u8, doc.text, '\n');
         while (lines.next()) |line| {
             try out.print("/// ", .{});
 
@@ -2627,7 +2627,7 @@ fn translateSymbolLink(allocator: Allocator, symbol: Symbol, ctx: TranslationCon
             if (func.container) |container| {
                 try out.print("$I.", .{container});
             }
-            const func_name = try toCamelCase(allocator, func.name, "_");
+            const func_name = try toCamelCase(allocator, func.name, '_');
             defer allocator.free(func_name);
             try out.print("$I", .{func_name});
         },
@@ -2710,10 +2710,10 @@ fn translateNameNs(allocator: Allocator, nameNs: ?[]const u8, out: anytype) !voi
     }
 }
 
-fn toCamelCase(allocator: Allocator, name: []const u8, word_sep: []const u8) ![]u8 {
+fn toCamelCase(allocator: Allocator, name: []const u8, word_sep: u8) ![]u8 {
     var out = std.ArrayList(u8).init(allocator);
     try out.ensureTotalCapacity(name.len);
-    var words = mem.split(u8, name, word_sep);
+    var words = mem.splitScalar(u8, name, word_sep);
     var i: usize = 0;
     while (words.next()) |word| {
         if (word.len > 0) {
@@ -2732,17 +2732,17 @@ fn toCamelCase(allocator: Allocator, name: []const u8, word_sep: []const u8) ![]
 }
 
 test "toCamelCase" {
-    try testToCamelCase("hello", "hello", "-");
-    try testToCamelCase("hello", "hello", "_");
-    try testToCamelCase("helloWorld", "hello_world", "_");
-    try testToCamelCase("helloWorld", "hello-world", "-");
-    try testToCamelCase("helloWorldManyWords", "hello-world-many-words", "-");
-    try testToCamelCase("helloWorldManyWords", "hello_world_many_words", "_");
-    try testToCamelCase("__hidden", "__hidden", "-");
-    try testToCamelCase("__hidden", "__hidden", "_");
+    try testToCamelCase("hello", "hello", '-');
+    try testToCamelCase("hello", "hello", '_');
+    try testToCamelCase("helloWorld", "hello_world", '_');
+    try testToCamelCase("helloWorld", "hello-world", '-');
+    try testToCamelCase("helloWorldManyWords", "hello-world-many-words", '-');
+    try testToCamelCase("helloWorldManyWords", "hello_world_many_words", '_');
+    try testToCamelCase("__hidden", "__hidden", '-');
+    try testToCamelCase("__hidden", "__hidden", '_');
 }
 
-fn testToCamelCase(expected: []const u8, input: []const u8, word_sep: []const u8) !void {
+fn testToCamelCase(expected: []const u8, input: []const u8, word_sep: u8) !void {
     const actual = try toCamelCase(std.testing.allocator, input, word_sep);
     defer std.testing.allocator.free(actual);
     try expectEqualStrings(expected, actual);
@@ -3182,21 +3182,21 @@ pub fn createAbiTests(
             }
             for (class.constructors) |constructor| {
                 if (isConstructorTranslatable(constructor)) {
-                    const constructor_name = try toCamelCase(allocator, constructor.name, "_");
+                    const constructor_name = try toCamelCase(allocator, constructor.name, '_');
                     defer allocator.free(constructor_name);
                     try createFunctionTest(constructor.c_identifier, pkg, class_name, constructor_name, &out);
                 }
             }
             for (class.functions) |function| {
                 if (isFunctionTranslatable(function)) {
-                    const function_name = try toCamelCase(allocator, function.name, "_");
+                    const function_name = try toCamelCase(allocator, function.name, '_');
                     defer allocator.free(function_name);
                     try createFunctionTest(function.c_identifier, pkg, class_name, function_name, &out);
                 }
             }
             for (class.methods) |method| {
                 if (isMethodTranslatable(method)) {
-                    const method_name = try toCamelCase(allocator, method.name, "_");
+                    const method_name = try toCamelCase(allocator, method.name, '_');
                     defer allocator.free(method_name);
                     try createMethodTest(method.c_identifier, pkg, class_name, method_name, &out);
                 }
@@ -3227,21 +3227,21 @@ pub fn createAbiTests(
             if (!record.isPointer()) {
                 for (record.constructors) |constructor| {
                     if (isConstructorTranslatable(constructor)) {
-                        const constructor_name = try toCamelCase(allocator, constructor.name, "_");
+                        const constructor_name = try toCamelCase(allocator, constructor.name, '_');
                         defer allocator.free(constructor_name);
                         try createFunctionTest(constructor.c_identifier, pkg, record_name, constructor_name, &out);
                     }
                 }
                 for (record.functions) |function| {
                     if (isFunctionTranslatable(function)) {
-                        const function_name = try toCamelCase(allocator, function.name, "_");
+                        const function_name = try toCamelCase(allocator, function.name, '_');
                         defer allocator.free(function_name);
                         try createFunctionTest(function.c_identifier, pkg, record_name, function_name, &out);
                     }
                 }
                 for (record.methods) |method| {
                     if (isMethodTranslatable(method)) {
-                        const method_name = try toCamelCase(allocator, method.name, "_");
+                        const method_name = try toCamelCase(allocator, method.name, '_');
                         defer allocator.free(method_name);
                         try createMethodTest(method.c_identifier, pkg, record_name, method_name, &out);
                     }
@@ -3267,21 +3267,21 @@ pub fn createAbiTests(
             }
             for (@"union".constructors) |constructor| {
                 if (isConstructorTranslatable(constructor)) {
-                    const constructor_name = try toCamelCase(allocator, constructor.name, "_");
+                    const constructor_name = try toCamelCase(allocator, constructor.name, '_');
                     defer allocator.free(constructor_name);
                     try createFunctionTest(constructor.c_identifier, pkg, union_name, constructor_name, &out);
                 }
             }
             for (@"union".functions) |function| {
                 if (isFunctionTranslatable(function)) {
-                    const function_name = try toCamelCase(allocator, function.name, "_");
+                    const function_name = try toCamelCase(allocator, function.name, '_');
                     defer allocator.free(function_name);
                     try createFunctionTest(function.c_identifier, pkg, union_name, function_name, &out);
                 }
             }
             for (@"union".methods) |method| {
                 if (isMethodTranslatable(method)) {
-                    const method_name = try toCamelCase(allocator, method.name, "_");
+                    const method_name = try toCamelCase(allocator, method.name, '_');
                     defer allocator.free(method_name);
                     try createMethodTest(method.c_identifier, pkg, union_name, method_name, &out);
                 }
@@ -3304,7 +3304,7 @@ pub fn createAbiTests(
             }
             for (bit_field.functions) |function| {
                 if (isFunctionTranslatable(function)) {
-                    const function_name = try toCamelCase(allocator, function.name, "_");
+                    const function_name = try toCamelCase(allocator, function.name, '_');
                     defer allocator.free(function_name);
                     try createFunctionTest(function.c_identifier, pkg, bit_field_name, function_name, &out);
                 }
@@ -3327,7 +3327,7 @@ pub fn createAbiTests(
             }
             for (@"enum".functions) |function| {
                 if (isFunctionTranslatable(function)) {
-                    const function_name = try toCamelCase(allocator, function.name, "_");
+                    const function_name = try toCamelCase(allocator, function.name, '_');
                     defer allocator.free(function_name);
                     try createFunctionTest(function.c_identifier, pkg, enum_name, function_name, &out);
                 }
@@ -3336,7 +3336,7 @@ pub fn createAbiTests(
 
         for (ns.functions) |function| {
             if (!isFunctionTranslatable(function)) continue;
-            const function_name = try toCamelCase(allocator, function.name, "_");
+            const function_name = try toCamelCase(allocator, function.name, '_');
             defer allocator.free(function_name);
             try out.print("test $S {\n", .{function_name});
             try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{function.c_identifier});
