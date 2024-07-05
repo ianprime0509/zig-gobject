@@ -719,7 +719,7 @@ pub fn defineProperty(
             } else if (singlePointerChild(Data)) |Child| {
                 if (std.meta.hasFn(Child, "getGObjectType")) {
                     const g_type = Child.getGObjectType();
-                    if (@hasDecl(Child, "Class") or @hasDecl(Child, "Iface")) {
+                    if (isObject(Child)) {
                         return gobject.paramSpecObject(
                             name,
                             options.nick orelse null,
@@ -988,10 +988,15 @@ pub fn newInstance(comptime T: type, properties: anytype) *T {
 }
 
 pub const Value = struct {
+    /// The zero value for a `Value`. Values must not be `undefined` when
+    /// calling `init` or any other function; they must be initialized to zero
+    /// before use.
+    pub const zero = std.mem.zeroes(gobject.Value);
+
     /// Returns a new `Value` intended to hold data of the given type.
     pub fn new(comptime T: type) gobject.Value {
-        var value = std.mem.zeroes(gobject.Value);
-        _ = value.init(gobject.ext.typeFor(T));
+        var value = zero;
+        init(&value, T);
         return value;
     }
 
@@ -999,10 +1004,52 @@ pub const Value = struct {
     ///
     /// This does not take ownership of the value (if applicable).
     pub fn newFrom(contents: anytype) gobject.Value {
-        const T = @TypeOf(contents);
-        var value: gobject.Value = new(T);
+        var value: gobject.Value = new(@TypeOf(contents));
         set(&value, contents);
         return value;
+    }
+
+    /// Initializes `value` to store values of type `T`.
+    pub fn init(value: *gobject.Value, comptime T: type) void {
+        if (T == i8) {
+            _ = value.init(types.char);
+        } else if (T == u8) {
+            _ = value.init(types.uchar);
+        } else if (T == bool) {
+            _ = value.init(types.boolean);
+        } else if (T == c_int) {
+            _ = value.init(types.int);
+        } else if (T == c_uint) {
+            _ = value.init(types.uint);
+        } else if (T == c_long) {
+            _ = value.init(types.long);
+        } else if (T == c_ulong) {
+            _ = value.init(types.ulong);
+        } else if (T == i64) {
+            _ = value.init(types.int64);
+        } else if (T == u64) {
+            _ = value.init(types.uint64);
+        } else if (T == f32) {
+            _ = value.init(types.float);
+        } else if (T == f64) {
+            _ = value.init(types.double);
+        } else if (isCString(T)) {
+            _ = value.init(types.string);
+        } else if (std.meta.hasFn(T, "getGObjectType")) {
+            _ = value.init(T.getGObjectType());
+        } else if (singlePointerChild(T)) |Child| {
+            if (Child == gobject.ParamSpec) {
+                _ = value.init(types.param);
+            } else if (Child == glib.Variant) {
+                _ = value.init(types.variant);
+            } else if (std.meta.hasFn(Child, "getGObjectType")) {
+                _ = value.init(Child.getGObjectType());
+            } else {
+                @compileError("cannot initialize Value to store " ++ @typeName(T));
+            }
+        } else {
+            @compileError("cannot initialize Value to store " ++ @typeName(T));
+        }
     }
 
     /// Extracts a value of the given type.
@@ -1010,9 +1057,7 @@ pub const Value = struct {
     /// This does not return an owned value (if applicable): the caller must
     /// copy/ref/etc. the value if needed beyond the lifetime of the container.
     pub fn get(value: *const gobject.Value, comptime T: type) T {
-        if (T == void) {
-            return {};
-        } else if (T == i8) {
+        if (T == i8) {
             return value.getSchar();
         } else if (T == u8) {
             return value.getUchar();
@@ -1034,10 +1079,19 @@ pub const Value = struct {
             return value.getFloat();
         } else if (T == f64) {
             return value.getDouble();
-        } else if (T == [*:0]const u8) {
-            // We do not accept all the various string types we accept in the
-            // newFrom method here because we are not transferring ownership
-            return value.getString();
+        } else if (isCString(T)) {
+            if (@typeInfo(T) != .Optional) {
+                @compileError("cannot guarantee value is non-null");
+            }
+            const Pointer = @typeInfo(@typeInfo(T).Optional.child).Pointer;
+            if (!Pointer.is_const) {
+                @compileError("get does not take ownership; can only return const strings");
+            }
+            return switch (Pointer.size) {
+                .One => @compileError("cannot guarantee length of string matches " ++ @typeName(T)),
+                .Many, .C => value.getString(),
+                .Slice => std.mem.span(value.getString() orelse return null),
+            };
         } else if (std.meta.hasFn(T, "getGObjectType")) {
             return switch (@typeInfo(T)) {
                 .Enum => @enumFromInt(value.getEnum()),
@@ -1045,12 +1099,15 @@ pub const Value = struct {
                 else => @compileError("cannot extract " ++ @typeName(T) ++ " from Value"),
             };
         } else if (singlePointerChild(T)) |Child| {
+            if (@typeInfo(T) != .Optional) {
+                @compileError("cannot guarantee value is non-null");
+            }
             if (Child == gobject.ParamSpec) {
                 return value.getParam();
             } else if (Child == glib.Variant) {
                 return value.getVariant();
             } else if (std.meta.hasFn(Child, "getGObjectType")) {
-                if (@hasDecl(Child, "Class") or @hasDecl(Child, "Iface")) {
+                if (isObject(Child)) {
                     return cast(Child, value.getObject() orelse return null);
                 } else {
                     return @ptrCast(@alignCast(value.getBoxed() orelse return null));
@@ -1069,9 +1126,7 @@ pub const Value = struct {
     /// This does not take ownership of the value (if applicable).
     pub fn set(value: *gobject.Value, contents: anytype) void {
         const T = @TypeOf(contents);
-        if (T == void) {
-            // Nothing to set.
-        } else if (T == i8) {
+        if (T == i8) {
             value.setSchar(contents);
         } else if (T == u8) {
             value.setUchar(contents);
@@ -1107,7 +1162,7 @@ pub const Value = struct {
             } else if (Child == glib.Variant) {
                 value.setVariant(contents);
             } else if (std.meta.hasFn(Child, "getGObjectType")) {
-                if (@hasDecl(Child, "Class") or @hasDecl(Child, "Iface")) {
+                if (isObject(Child)) {
                     value.setObject(@ptrCast(@alignCast(contents)));
                 } else {
                     value.setBoxed(contents);
@@ -1121,21 +1176,36 @@ pub const Value = struct {
     }
 };
 
-fn isCString(comptime T: type) bool {
+inline fn isObject(comptime T: type) bool {
+    return @hasDecl(T, "Class") or @hasDecl(T, "Iface");
+}
+
+inline fn isCString(comptime T: type) bool {
     return switch (@typeInfo(T)) {
-        .Pointer => |info| switch (info.size) {
-            .One => switch (@typeInfo(info.child)) {
-                .Array => |child| child.child == u8 and std.meta.sentinel(info.child) == @as(u8, 0),
+        .Pointer => |pointer| switch (pointer.size) {
+            .One => switch (@typeInfo(pointer.child)) {
+                .Array => |child| child.child == u8 and std.meta.sentinel(pointer.child) == @as(u8, 0),
                 else => false,
             },
-            .Many, .Slice => info.child == u8 and std.meta.sentinel(T) == @as(u8, 0),
-            .C => info.child == u8,
+            .Many, .Slice => pointer.child == u8 and std.meta.sentinel(T) == @as(u8, 0),
+            .C => pointer.child == u8,
+        },
+        .Optional => |optional| switch (@typeInfo(optional.child)) {
+            .Pointer => |pointer| switch (pointer.size) {
+                .One => switch (@typeInfo(pointer.child)) {
+                    .Array => |child| child.child == u8 and std.meta.sentinel(pointer.child) == @as(u8, 0),
+                    else => false,
+                },
+                .Many, .Slice => pointer.child == u8 and std.meta.sentinel(optional.child) == @as(u8, 0),
+                .C => false,
+            },
+            else => false,
         },
         else => false,
     };
 }
 
-fn singlePointerChild(comptime T: type) ?type {
+inline fn singlePointerChild(comptime T: type) ?type {
     return switch (@typeInfo(T)) {
         .Pointer => |pointer| switch (pointer.size) {
             .One, .C => pointer.child,
@@ -1146,6 +1216,7 @@ fn singlePointerChild(comptime T: type) ?type {
                 .One => pointer.child,
                 else => null,
             },
+            else => null,
         },
         else => null,
     };
