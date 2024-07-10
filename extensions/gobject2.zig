@@ -865,7 +865,7 @@ pub fn defineSignal(
             }
             defer for (&emit_params) |*emit_param| emit_param.unset();
             const detail_quark = if (detail) |detail_str| glib.quarkFromString(detail_str) else 0;
-            var raw_return_value: gobject.Value = undefined;
+            var raw_return_value: gobject.Value = gobject.ext.Value.zero;
             gobject.signalEmitv(&emit_params, id, detail_quark, &raw_return_value);
             if (ReturnType != void) {
                 if (return_value) |return_value_location| {
