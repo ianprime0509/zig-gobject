@@ -880,15 +880,18 @@ pub fn defineSignal(
             comptime T: type,
             callback: SignalHandler(@typeInfo(@TypeOf(target)).Pointer.child, param_types, T, ReturnType),
             data: T,
-            connect_options: struct { after: bool = false },
+            options: struct {
+                after: bool = false,
+                destroyData: ?*const fn (T) callconv(.C) void = null,
+            },
         ) c_ulong {
             return gobject.signalConnectData(
                 as(gobject.Object, as(Itype, target)),
                 name,
                 @as(gobject.Callback, @ptrCast(callback)),
                 data,
-                null,
-                .{ .after = connect_options.after },
+                @ptrCast(options.destroyData),
+                .{ .after = options.after },
             );
         }
     };

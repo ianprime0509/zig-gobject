@@ -1259,8 +1259,8 @@ fn translateSignal(allocator: Allocator, signal: gir.Signal, type_name: []const 
     }, ctx, out);
     try out.print(", P_T) callconv(.C) ", .{});
     try translateReturnValue(allocator, signal.return_value, .{ .gobject_context = true }, ctx, out);
-    try out.print(", p_data: P_T, p_options: struct { after: bool = false }) c_ulong {\n", .{});
-    try out.print("return gobject.signalConnectData(@ptrCast(@alignCast(p_instance.as($I))), $S, @ptrCast(p_callback), p_data, null, .{ .after = p_options.after });\n", .{ type_name, signal.name });
+    try out.print(", p_data: P_T, p_options: struct { after: bool = false, destroyData: ?*const fn (P_T) callconv(.C) void = null }) c_ulong {\n", .{});
+    try out.print("return gobject.signalConnectData(@ptrCast(@alignCast(p_instance.as($I))), $S, @ptrCast(p_callback), p_data, @ptrCast(p_options.destroyData), .{ .after = p_options.after });\n", .{ type_name, signal.name });
     try out.print("}\n", .{});
 
     try out.print("};\n\n", .{});
