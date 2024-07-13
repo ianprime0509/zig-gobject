@@ -9,6 +9,14 @@ pub fn create(comptime T: type) *T {
     return @ptrCast(@alignCast(glib.malloc(@sizeOf(T))));
 }
 
+/// Creates a heap-allocated copy of `value` using `glib.malloc`. `T` must not
+/// be zero-sized or aligned more than `std.c.max_align_t`.
+pub inline fn new(comptime T: type, value: T) *T {
+    const new_value = create(T);
+    new_value.* = value;
+    return new_value;
+}
+
 /// Destroys a value created using `create`.
 pub fn destroy(ptr: anytype) void {
     const type_info = @typeInfo(@TypeOf(ptr));
