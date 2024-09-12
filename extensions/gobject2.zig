@@ -605,7 +605,7 @@ pub fn defineProperty(
                     name,
                     options.nick orelse null,
                     options.blurb orelse null,
-                    options.default,
+                    @intFromBool(options.default),
                     flags,
                 );
             } else if (Data == c_int) {
@@ -1154,7 +1154,12 @@ pub const Value = struct {
         } else if (T == f64) {
             value.setDouble(contents);
         } else if (comptime isCString(T)) {
-            value.setString(contents);
+            // orelse null as temporary workaround for https://github.com/ziglang/zig/issues/12523
+            switch (@typeInfo(T)) {
+                .Pointer => value.setString(contents),
+                .Optional => value.setString(contents orelse null),
+                else => unreachable,
+            }
         } else if (std.meta.hasFn(T, "getGObjectType")) {
             switch (@typeInfo(T)) {
                 .Enum => value.setEnum(@intFromEnum(contents)),
