@@ -57,7 +57,14 @@ pub fn ZigWriter(comptime Writer: type) type {
                         const arg = @field(args, arg_fields[current_arg].name);
                         const arg_type_info = @typeInfo(@TypeOf(arg));
                         if (arg_type_info == .Pointer and arg_type_info.Pointer.size == .Slice and arg_type_info.Pointer.child == u8) {
-                            try w.out.print("{s}", .{arg});
+                            for (arg) |char| {
+                                switch (char) {
+                                    // Zig is very tab-hostile, so we have to replace tabs with spaces.
+                                    // This is most relevant when translating documentation.
+                                    '\t' => try w.out.writeAll("    "),
+                                    else => try w.out.writeByte(char),
+                                }
+                            }
                         } else {
                             try w.out.print("{}", .{arg});
                         }
