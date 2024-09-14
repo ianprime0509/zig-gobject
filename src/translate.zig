@@ -1180,7 +1180,7 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
 
     try out.print("pub fn call(p_class: anytype, ", .{});
     try translateParameters(allocator, virtual_method.parameters, .{
-        .self_type = "@typeInfo(@TypeOf(p_class)).Pointer.child.Instance",
+        .self_type = "@typeInfo(@TypeOf(p_class)).pointer.child.Instance",
         .throws = virtual_method.throws,
     }, ctx, out);
     try out.print(") ", .{});
@@ -1198,7 +1198,7 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
     try out.print("pub fn implement(p_class: anytype, p_implementation: ", .{});
     try out.print("*const fn (", .{});
     try translateParameters(allocator, virtual_method.parameters, .{
-        .self_type = "@typeInfo(@TypeOf(p_class)).Pointer.child.Instance",
+        .self_type = "@typeInfo(@TypeOf(p_class)).pointer.child.Instance",
         .throws = virtual_method.throws,
     }, ctx, out);
     try out.print(") callconv(.C) ", .{});
