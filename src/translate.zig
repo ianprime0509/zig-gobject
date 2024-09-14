@@ -590,7 +590,19 @@ fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContex
     }
 
     if (!class.isOpaque()) {
-        try translateLayoutElements(allocator, class.layout_elements, ctx, out);
+        var decl_names = try std.ArrayList([]const u8).initCapacity(allocator, class.functions.len + class.constructors.len + class.methods.len);
+        defer decl_names.deinit();
+        for (class.functions) |function| {
+            decl_names.appendAssumeCapacity(function.name);
+        }
+        for (class.constructors) |constructor| {
+            decl_names.appendAssumeCapacity(constructor.name);
+        }
+        for (class.methods) |method| {
+            decl_names.appendAssumeCapacity(method.name);
+        }
+
+        try translateLayoutElements(allocator, class.layout_elements, decl_names.items, ctx, out);
         try out.print("\n", .{});
     }
 
@@ -787,7 +799,19 @@ fn translateRecord(allocator: Allocator, record: gir.Record, ctx: TranslationCon
     try out.print("\n", .{});
 
     if (!record.isOpaque()) {
-        try translateLayoutElements(allocator, record.layout_elements, ctx, out);
+        var decl_names = try std.ArrayList([]const u8).initCapacity(allocator, record.functions.len + record.constructors.len + record.methods.len);
+        defer decl_names.deinit();
+        for (record.functions) |function| {
+            decl_names.appendAssumeCapacity(function.name);
+        }
+        for (record.constructors) |constructor| {
+            decl_names.appendAssumeCapacity(constructor.name);
+        }
+        for (record.methods) |method| {
+            decl_names.appendAssumeCapacity(method.name);
+        }
+
+        try translateLayoutElements(allocator, record.layout_elements, decl_names.items, ctx, out);
         try out.print("\n", .{});
     }
 
@@ -829,7 +853,19 @@ fn translateUnion(allocator: Allocator, @"union": gir.Union, ctx: TranslationCon
     try out.print("\n", .{});
 
     if (!@"union".isOpaque()) {
-        try translateLayoutElements(allocator, @"union".layout_elements, ctx, out);
+        var decl_names = try std.ArrayList([]const u8).initCapacity(allocator, @"union".functions.len + @"union".constructors.len + @"union".methods.len);
+        defer decl_names.deinit();
+        for (@"union".functions) |function| {
+            decl_names.appendAssumeCapacity(function.name);
+        }
+        for (@"union".constructors) |constructor| {
+            decl_names.appendAssumeCapacity(constructor.name);
+        }
+        for (@"union".methods) |method| {
+            decl_names.appendAssumeCapacity(method.name);
+        }
+
+        try translateLayoutElements(allocator, @"union".layout_elements, decl_names.items, ctx, out);
         try out.print("\n", .{});
     }
 
@@ -850,7 +886,7 @@ fn translateUnion(allocator: Allocator, @"union": gir.Union, ctx: TranslationCon
     try out.print("};\n\n", .{});
 }
 
-fn translateLayoutElements(allocator: Allocator, layout_elements: []const gir.LayoutElement, ctx: TranslationContext, out: anytype) !void {
+fn translateLayoutElements(allocator: Allocator, layout_elements: []const gir.LayoutElement, decl_names: [][]const u8, ctx: TranslationContext, out: anytype) !void {
     // This handling of bit fields makes no attempt to be general, so it can
     // avoid a lot of complexity present for bit fields in general. It only
     // handles bit fields backed by guint, and it assumes guint is 32 bits.
@@ -892,19 +928,30 @@ fn translateLayoutElements(allocator: Allocator, layout_elements: []const gir.La
             switch (layout_element) {
                 .field => |field| {
                     try translateDocumentation(allocator, field.documentation, ctx, out);
-                    try out.print("$I: ", .{field.name});
+
+                    // NOTE: For duplicate field names, we prepend "field_" to the
+                    //       name to avoid name collision between fields and decls.
+                    for (decl_names) |decl_name| {
+                        if (mem.eql(u8, field.name, decl_name)) {
+                            try out.print("field_$L: ", .{field.name});
+                            break;
+                        }
+                    } else {
+                        try out.print("$I: ", .{field.name});
+                    }
+
                     try translateFieldType(allocator, field.type, ctx, out);
                     try out.print(",\n", .{});
                 },
                 .record => |record| {
                     try out.print("anon$L: extern struct {\n", .{n_anon_fields});
-                    try translateLayoutElements(allocator, record.layout_elements, ctx, out);
+                    try translateLayoutElements(allocator, record.layout_elements, &.{}, ctx, out);
                     try out.print("},\n", .{});
                     n_anon_fields += 1;
                 },
                 .@"union" => |@"union"| {
                     try out.print("anon$L: extern union {\n", .{n_anon_fields});
-                    try translateLayoutElements(allocator, @"union".layout_elements, ctx, out);
+                    try translateLayoutElements(allocator, @"union".layout_elements, &.{}, ctx, out);
                     try out.print("},\n", .{});
                     n_anon_fields += 1;
                 },
@@ -986,7 +1033,9 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: Transla
     defer seen.deinit();
     for (bit_field.members) |member| {
         if (!seen.contains(member.name)) {
-            try out.print("const $I: $I = @bitCast(@as($L, $L));\n", .{ member.name, name, backing_int, member.value });
+            // NOTE: Type-level constants have a "flag_" prefix to avoid name
+            //       collision between fields and decls.
+            try out.print("const flag_$L: $I = @bitCast(@as($L, $L));\n", .{ member.name, name, backing_int, member.value });
         }
         try seen.put(member.name, {});
     }
