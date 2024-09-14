@@ -57,17 +57,17 @@ pub const impl_helpers = struct {
     }
 
     fn ensureWidgetType(comptime Container: type, comptime field_name: []const u8) void {
-        inline for (@typeInfo(Container).Struct.fields) |field| {
+        inline for (@typeInfo(Container).@"struct".fields) |field| {
             if (comptime std.mem.eql(u8, field.name, field_name)) {
                 const WidgetType = switch (@typeInfo(field.type)) {
-                    .Pointer => |pointer| widget_type: {
+                    .pointer => |pointer| widget_type: {
                         if (pointer.size != .One) {
                             @compileError("bound child type must be a single pointer");
                         }
                         break :widget_type pointer.child;
                     },
-                    .Optional => |optional| switch (@typeInfo(optional.child)) {
-                        .Pointer => |pointer| widget_type: {
+                    .optional => |optional| switch (@typeInfo(optional.child)) {
+                        .pointer => |pointer| widget_type: {
                             if (pointer.size != .One) {
                                 @compileError("bound child type must be a single pointer");
                             }

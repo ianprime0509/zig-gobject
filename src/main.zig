@@ -31,7 +31,7 @@ pub const std_options: std.Options = .{
 
 pub fn logImpl(
     comptime level: log.Level,
-    comptime scope: @Type(.EnumLiteral),
+    comptime scope: @Type(.enum_literal),
     comptime format: []const u8,
     args: anytype,
 ) void {

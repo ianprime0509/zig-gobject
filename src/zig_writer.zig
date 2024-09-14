@@ -29,7 +29,7 @@ pub fn ZigWriter(comptime Writer: type) type {
         /// made into its own project.
         pub fn print(w: Self, comptime fmt: []const u8, args: anytype) Error!void {
             @setEvalBranchQuota(100_000);
-            const arg_fields = @typeInfo(@TypeOf(args)).Struct.fields;
+            const arg_fields = @typeInfo(@TypeOf(args)).@"struct".fields;
 
             comptime var current_arg = 0;
             comptime var i = 0;
@@ -56,7 +56,7 @@ pub fn ZigWriter(comptime Writer: type) type {
                     'L' => {
                         const arg = @field(args, arg_fields[current_arg].name);
                         const arg_type_info = @typeInfo(@TypeOf(arg));
-                        if (arg_type_info == .Pointer and arg_type_info.Pointer.size == .Slice and arg_type_info.Pointer.child == u8) {
+                        if (arg_type_info == .pointer and arg_type_info.pointer.size == .Slice and arg_type_info.pointer.child == u8) {
                             for (arg) |char| {
                                 switch (char) {
                                     // Zig is very tab-hostile, so we have to replace tabs with spaces.

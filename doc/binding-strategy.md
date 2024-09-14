@@ -107,7 +107,7 @@ pub fn implement(
     /// The type struct instance on which to implement the method.
     class: anytype,
     /// The implementation of the method.
-    impl: *const fn(*@typeInfo(@TypeOf(class)).Pointer.child.Instance, ...method parameters...) ...method return type...,
+    impl: *const fn(*@typeInfo(@TypeOf(class)).pointer.child.Instance, ...method parameters...) ...method return type...,
 )
 ```
 
