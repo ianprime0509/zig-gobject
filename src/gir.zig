@@ -87,29 +87,12 @@ pub const Repository = struct {
     arena: std.heap.ArenaAllocator,
 
     pub fn parse(allocator: Allocator, reader: anytype, path: []const u8) (error{InvalidGir} || @TypeOf(reader).Error || Allocator.Error)!Repository {
-        var r = xml.reader(allocator, reader, .{
-            .DecoderType = xml.encoding.Utf8Decoder,
-            .enable_normalization = false,
-        });
+        var doc = xml.streamingDocument(allocator, reader);
+        defer doc.deinit();
+        var r = doc.reader(allocator, .{});
         defer r.deinit();
         return parseXml(allocator, &r, path) catch |err| switch (err) {
-            error.CannotUndeclareNsPrefix,
-            error.DoctypeNotSupported,
-            error.DuplicateAttribute,
-            error.InvalidCharacterReference,
-            error.InvalidNsBinding,
-            error.InvalidPiTarget,
-            error.InvalidQName,
-            error.MismatchedEndTag,
-            error.QNameNotAllowed,
-            error.UndeclaredEntityReference,
-            error.UndeclaredNsPrefix,
-            error.InvalidEncoding,
-            error.Overflow,
-            error.SyntaxError,
-            error.UnexpectedEndOfInput,
-            error.InvalidUtf8,
-            => return error.InvalidGir,
+            error.MalformedXml => return error.InvalidGir,
             else => |other| return other,
         };
     }
@@ -119,21 +102,14 @@ pub const Repository = struct {
     }
 
     fn parseXml(allocator: Allocator, reader: anytype, path: []const u8) !Repository {
-        var repository: ?Repository = null;
-        while (try reader.next()) |event| {
-            switch (event) {
-                .element_start => |e| if (e.name.is(ns.core, "repository")) {
-                    repository = try parseInternal(allocator, reader.children(), path);
-                } else {
-                    try reader.children().skip();
-                },
-                else => {},
-            }
-        }
-        return repository orelse error.InvalidGir;
+        try reader.skipProlog();
+        if (!reader.elementNameNs().is(ns.core, "repository")) return error.InvalidGir;
+        const repository = try parseInternal(allocator, reader, path);
+        try reader.skipDocument();
+        return repository;
     }
 
-    fn parseInternal(a: Allocator, children: anytype, path: []const u8) !Repository {
+    fn parseInternal(a: Allocator, reader: anytype, path: []const u8) !Repository {
         var arena = std.heap.ArenaAllocator.init(a);
         const allocator = arena.allocator();
 
@@ -142,19 +118,23 @@ pub const Repository = struct {
         var c_includes = std.ArrayList(CInclude).init(allocator);
         var namespace: ?Namespace = null;
 
-        while (try children.next()) |event| {
-            switch (event) {
-                .element_start => |child| if (child.name.is(ns.core, "include")) {
-                    try includes.append(try Include.parse(allocator, child, children.children()));
-                } else if (child.name.is(ns.core, "package")) {
-                    try packages.append(try Package.parse(allocator, child, children.children()));
-                } else if (child.name.is(ns.c, "include")) {
-                    try c_includes.append(try CInclude.parse(allocator, child, children.children()));
-                } else if (child.name.is(ns.core, "namespace")) {
-                    namespace = try Namespace.parse(allocator, child, children.children());
-                } else {
-                    try children.children().skip();
+        while (true) {
+            switch (try reader.read()) {
+                .element_start => {
+                    const child = reader.elementNameNs();
+                    if (child.is(ns.core, "include")) {
+                        try includes.append(try Include.parse(allocator, reader));
+                    } else if (child.is(ns.core, "package")) {
+                        try packages.append(try Package.parse(allocator, reader));
+                    } else if (child.is(ns.c, "include")) {
+                        try c_includes.append(try CInclude.parse(allocator, reader));
+                    } else if (child.is(ns.core, "namespace")) {
+                        namespace = try Namespace.parse(allocator, reader);
+                    } else {
+                        try reader.skipElement();
+                    }
                 },
+                .element_end => break,
                 else => {},
             }
         }
@@ -174,23 +154,21 @@ pub const Include = struct {
     name: []const u8,
     version: []const u8,
 
-    fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype) !Include {
-        var name: ?[]const u8 = null;
-        var version: ?[]const u8 = null;
+    fn parse(allocator: Allocator, reader: anytype) !Include {
+        const name = name: {
+            const index = reader.attributeIndex("name") orelse return error.InvalidGir;
+            break :name try reader.attributeValueAlloc(allocator, index);
+        };
+        const version = version: {
+            const index = reader.attributeIndex("version") orelse return error.InvalidGir;
+            break :version try reader.attributeValueAlloc(allocator, index);
+        };
 
-        for (start.attributes) |attr| {
-            if (attr.name.is(null, "name")) {
-                name = try allocator.dupe(u8, attr.value);
-            } else if (attr.name.is(null, "version")) {
-                version = try allocator.dupe(u8, attr.value);
-            }
-        }
-
-        try children.skip();
+        try reader.skipElement();
 
         return .{
-            .name = name orelse return error.InvalidGir,
-            .version = version orelse return error.InvalidGir,
+            .name = name,
+            .version = version,
         };
     }
 
@@ -224,19 +202,16 @@ pub const Include = struct {
 pub const Package = struct {
     name: []const u8,
 
-    fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype) !Package {
-        var name: ?[]const u8 = null;
+    fn parse(allocator: Allocator, reader: anytype) !Package {
+        const name = name: {
+            const index = reader.attributeIndex("name") orelse return error.InvalidGir;
+            break :name try reader.attributeValueAlloc(allocator, index);
+        };
 
-        for (start.attributes) |attr| {
-            if (attr.name.is(null, "name")) {
-                name = try allocator.dupe(u8, attr.value);
-            }
-        }
-
-        try children.skip();
+        try reader.skipElement();
 
         return .{
-            .name = name orelse return error.InvalidGir,
+            .name = name,
         };
     }
 };
@@ -244,19 +219,16 @@ pub const Package = struct {
 pub const CInclude = struct {
     name: []const u8,
 
-    fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype) !CInclude {
-        var name: ?[]const u8 = null;
+    fn parse(allocator: Allocator, reader: anytype) !CInclude {
+        const name = name: {
+            const index = reader.attributeIndex("name") orelse return error.InvalidGir;
+            break :name try reader.attributeValueAlloc(allocator, index);
+        };
 
-        for (start.attributes) |attr| {
-            if (attr.name.is(null, "name")) {
-                name = try allocator.dupe(u8, attr.value);
-            }
-        }
-
-        try children.skip();
+        try reader.skipElement();
 
         return .{
-            .name = name orelse return error.InvalidGir,
+            .name = name,
         };
     }
 };
@@ -275,9 +247,15 @@ pub const Namespace = struct {
     callbacks: []const Callback = &.{},
     constants: []const Constant = &.{},
 
-    fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype) !Namespace {
-        var name: ?[]const u8 = null;
-        var version: ?[]const u8 = null;
+    fn parse(allocator: Allocator, reader: anytype) !Namespace {
+        const name = name: {
+            const index = reader.attributeIndex("name") orelse return error.InvalidGir;
+            break :name try reader.attributeValueAlloc(allocator, index);
+        };
+        const version = version: {
+            const index = reader.attributeIndex("version") orelse return error.InvalidGir;
+            break :version try reader.attributeValueAlloc(allocator, index);
+        };
         var aliases = std.ArrayList(Alias).init(allocator);
         var classes = std.ArrayList(Class).init(allocator);
         var interfaces = std.ArrayList(Interface).init(allocator);
@@ -289,50 +267,42 @@ pub const Namespace = struct {
         var callbacks = std.ArrayList(Callback).init(allocator);
         var constants = std.ArrayList(Constant).init(allocator);
 
-        for (start.attributes) |attr| {
-            if (attr.name.is(null, "name")) {
-                name = try allocator.dupe(u8, attr.value);
-            } else if (attr.name.is(null, "version")) {
-                version = try allocator.dupe(u8, attr.value);
-            }
-        }
-
-        if (name == null) {
-            return error.InvalidGir;
-        }
-
-        while (try children.next()) |event| {
-            switch (event) {
-                .element_start => |child| if (child.name.is(ns.core, "alias")) {
-                    try aliases.append(try Alias.parse(allocator, child, children.children(), name.?));
-                } else if (child.name.is(ns.core, "class")) {
-                    try classes.append(try Class.parse(allocator, child, children.children(), name.?));
-                } else if (child.name.is(ns.core, "interface")) {
-                    try interfaces.append(try Interface.parse(allocator, child, children.children(), name.?));
-                } else if (child.name.is(ns.core, "record")) {
-                    try records.append(try Record.parse(allocator, child, children.children(), name.?));
-                } else if (child.name.is(ns.core, "union")) {
-                    try unions.append(try Union.parse(allocator, child, children.children(), name.?));
-                } else if (child.name.is(ns.core, "bitfield")) {
-                    try bit_fields.append(try BitField.parse(allocator, child, children.children(), name.?));
-                } else if (child.name.is(ns.core, "enumeration")) {
-                    try enums.append(try Enum.parse(allocator, child, children.children(), name.?));
-                } else if (child.name.is(ns.core, "function")) {
-                    try functions.append(try Function.parse(allocator, child, children.children(), name.?));
-                } else if (child.name.is(ns.core, "callback")) {
-                    try callbacks.append(try Callback.parse(allocator, child, children.children(), name.?));
-                } else if (child.name.is(ns.core, "constant")) {
-                    try constants.append(try Constant.parse(allocator, child, children.children(), name.?));
-                } else {
-                    try children.children().skip();
+        while (true) {
+            switch (try reader.read()) {
+                .element_start => {
+                    const child = reader.elementNameNs();
+                    if (child.is(ns.core, "alias")) {
+                        try aliases.append(try Alias.parse(allocator, reader, name));
+                    } else if (child.is(ns.core, "class")) {
+                        try classes.append(try Class.parse(allocator, reader, name));
+                    } else if (child.is(ns.core, "interface")) {
+                        try interfaces.append(try Interface.parse(allocator, reader, name));
+                    } else if (child.is(ns.core, "record")) {
+                        try records.append(try Record.parse(allocator, reader, name));
+                    } else if (child.is(ns.core, "union")) {
+                        try unions.append(try Union.parse(allocator, reader, name));
+                    } else if (child.is(ns.core, "bitfield")) {
+                        try bit_fields.append(try BitField.parse(allocator, reader, name));
+                    } else if (child.is(ns.core, "enumeration")) {
+                        try enums.append(try Enum.parse(allocator, reader, name));
+                    } else if (child.is(ns.core, "function")) {
+                        try functions.append(try Function.parse(allocator, reader, name));
+                    } else if (child.is(ns.core, "callback")) {
+                        try callbacks.append(try Callback.parse(allocator, reader, name));
+                    } else if (child.is(ns.core, "constant")) {
+                        try constants.append(try Constant.parse(allocator, reader, name));
+                    } else {
+                        try reader.skipElement();
+                    }
                 },
+                .element_end => break,
                 else => {},
             }
         }
 
         return .{
-            .name = name.?,
-            .version = version orelse return error.InvalidGir,
+            .name = name,
+            .version = version,
             .aliases = try aliases.toOwnedSlice(),
             .classes = try classes.toOwnedSlice(),
             .interfaces = try interfaces.toOwnedSlice(),
@@ -353,35 +323,37 @@ pub const Alias = struct {
     type: Type,
     documentation: ?Documentation = null,
 
-    fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Alias {
-        var name: ?Name = null;
-        var c_type: ?[]const u8 = null;
+    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !Alias {
+        const name = name: {
+            const index = reader.attributeIndex("name") orelse return error.InvalidGir;
+            break :name try Name.parse(allocator, try reader.attributeValue(index), current_ns);
+        };
+        const c_type = c_type: {
+            const index = reader.attributeIndexNs(ns.c, "type") orelse break :c_type null;
+            break :c_type try reader.attributeValueAlloc(allocator, index);
+        };
         var @"type": ?Type = null;
         var documentation: ?Documentation = null;
 
-        for (start.attributes) |attr| {
-            if (attr.name.is(null, "name")) {
-                name = try Name.parse(allocator, attr.value, current_ns);
-            } else if (attr.name.is(ns.c, "type")) {
-                c_type = try allocator.dupe(u8, attr.value);
-            }
-        }
-
-        while (try children.next()) |event| {
-            switch (event) {
-                .element_start => |child| if (child.name.is(ns.core, "type")) {
-                    @"type" = try Type.parse(allocator, child, children.children(), current_ns);
-                } else if (child.name.is(ns.core, "doc")) {
-                    documentation = try Documentation.parse(allocator, children.children());
-                } else {
-                    try children.children().skip();
+        while (true) {
+            switch (try reader.read()) {
+                .element_start => {
+                    const child = reader.elementNameNs();
+                    if (child.is(ns.core, "type")) {
+                        @"type" = try Type.parse(allocator, reader, current_ns);
+                    } else if (child.is(ns.core, "doc")) {
+                        documentation = try Documentation.parse(allocator, reader);
+                    } else {
+                        try reader.skipElement();
+                    }
                 },
+                .element_end => break,
                 else => {},
             }
         }
 
         return .{
-            .name = name orelse return error.InvalidGir,
+            .name = name,
             .c_type = c_type,
             .type = @"type" orelse return error.InvalidGir,
             .documentation = documentation,
@@ -414,10 +386,19 @@ pub const Class = struct {
         return class.final or class.layout_elements.len == 0;
     }
 
-    fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Class {
-        var name: ?Name = null;
-        var c_type: ?[]const u8 = null;
-        var parent: ?Name = null;
+    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !Class {
+        const name = name: {
+            const index = reader.attributeIndex("name") orelse return error.InvalidGir;
+            break :name try Name.parse(allocator, try reader.attributeValue(index), current_ns);
+        };
+        const c_type = c_type: {
+            const index = reader.attributeIndexNs(ns.c, "type") orelse break :c_type null;
+            break :c_type try reader.attributeValueAlloc(allocator, index);
+        };
+        const parent = parent: {
+            const index = reader.attributeIndex("parent") orelse break :parent null;
+            break :parent try Name.parse(allocator, try reader.attributeValue(index), current_ns);
+        };
         var implements = std.ArrayList(Implements).init(allocator);
         var layout_elements = std.ArrayList(LayoutElement).init(allocator);
         var functions = std.ArrayList(Function).init(allocator);
@@ -427,71 +408,71 @@ pub const Class = struct {
         var properties = std.ArrayList(Property).init(allocator);
         var signals = std.ArrayList(Signal).init(allocator);
         var constants = std.ArrayList(Constant).init(allocator);
-        var get_type: ?[]const u8 = null;
-        var ref_func: ?[]const u8 = null;
-        var unref_func: ?[]const u8 = null;
-        var type_struct: ?Name = null;
-        var final = false;
-        var symbol_prefix: ?[]const u8 = null;
+        const get_type = get_type: {
+            const index = reader.attributeIndexNs(ns.glib, "get-type") orelse return error.InvalidGir;
+            break :get_type try reader.attributeValueAlloc(allocator, index);
+        };
+        const ref_func = ref_func: {
+            const index = reader.attributeIndexNs(ns.glib, "ref-func") orelse break :ref_func null;
+            break :ref_func try reader.attributeValueAlloc(allocator, index);
+        };
+        const unref_func = unref_func: {
+            const index = reader.attributeIndexNs(ns.glib, "unref-func") orelse break :unref_func null;
+            break :unref_func try reader.attributeValueAlloc(allocator, index);
+        };
+        const type_struct = type_struct: {
+            const index = reader.attributeIndexNs(ns.glib, "type-struct") orelse break :type_struct null;
+            break :type_struct try Name.parse(allocator, try reader.attributeValue(index), current_ns);
+        };
+        const final = final: {
+            const index = reader.attributeIndex("final") orelse break :final false;
+            break :final mem.eql(u8, try reader.attributeValue(index), "1");
+        };
+        const symbol_prefix = symbol_prefix: {
+            const index = reader.attributeIndexNs(ns.c, "symbol-prefix") orelse break :symbol_prefix null;
+            break :symbol_prefix try reader.attributeValueAlloc(allocator, index);
+        };
         var documentation: ?Documentation = null;
 
-        for (start.attributes) |attr| {
-            if (attr.name.is(null, "name")) {
-                name = try Name.parse(allocator, attr.value, current_ns);
-            } else if (attr.name.is(ns.c, "type")) {
-                c_type = try allocator.dupe(u8, attr.value);
-            } else if (attr.name.is(null, "parent")) {
-                parent = try Name.parse(allocator, attr.value, current_ns);
-            } else if (attr.name.is(ns.glib, "get-type")) {
-                get_type = try allocator.dupe(u8, attr.value);
-            } else if (attr.name.is(ns.glib, "ref-func")) {
-                ref_func = try allocator.dupe(u8, attr.value);
-            } else if (attr.name.is(ns.glib, "unref-func")) {
-                unref_func = try allocator.dupe(u8, attr.value);
-            } else if (attr.name.is(ns.glib, "type-struct")) {
-                type_struct = try Name.parse(allocator, attr.value, current_ns);
-            } else if (attr.name.is(null, "final")) {
-                final = mem.eql(u8, attr.value, "1");
-            } else if (attr.name.is(ns.c, "symbol-prefix")) {
-                symbol_prefix = try allocator.dupe(u8, attr.value);
-            }
-        }
-
-        while (try children.next()) |event| {
-            switch (event) {
-                .element_start => |child| if (child.name.is(ns.core, "implements")) {
-                    try implements.append(try Implements.parse(allocator, child, children.children(), current_ns));
-                } else if (child.name.is(ns.core, "field")) {
-                    try layout_elements.append(.{ .field = try Field.parse(allocator, child, children.children(), current_ns) });
-                } else if (child.name.is(ns.core, "record")) {
-                    try layout_elements.append(.{ .record = try AnonymousRecord.parse(allocator, children.children(), current_ns) });
-                } else if (child.name.is(ns.core, "union")) {
-                    try layout_elements.append(.{ .@"union" = try AnonymousUnion.parse(allocator, children.children(), current_ns) });
-                } else if (child.name.is(ns.core, "function")) {
-                    try functions.append(try Function.parse(allocator, child, children.children(), current_ns));
-                } else if (child.name.is(ns.core, "constructor")) {
-                    try constructors.append(try Constructor.parse(allocator, child, children.children(), current_ns));
-                } else if (child.name.is(ns.core, "method")) {
-                    try methods.append(try Method.parse(allocator, child, children.children(), current_ns));
-                } else if (child.name.is(ns.core, "virtual-method")) {
-                    try virtual_methods.append(try VirtualMethod.parse(allocator, child, children.children(), current_ns));
-                } else if (child.name.is(ns.core, "property")) {
-                    try properties.append(try Property.parse(allocator, child, children.children(), current_ns));
-                } else if (child.name.is(ns.glib, "signal")) {
-                    try signals.append(try Signal.parse(allocator, child, children.children(), current_ns));
-                } else if (child.name.is(ns.core, "constant")) {
-                    try constants.append(try Constant.parse(allocator, child, children.children(), current_ns));
-                } else if (child.name.is(ns.core, "doc")) {
-                    documentation = try Documentation.parse(allocator, children.children());
-                } else {
-                    try children.children().skip();
+        while (true) {
+            switch (try reader.read()) {
+                .element_start => {
+                    const child = reader.elementNameNs();
+                    if (child.is(ns.core, "implements")) {
+                        try implements.append(try Implements.parse(allocator, reader, current_ns));
+                    } else if (child.is(ns.core, "field")) {
+                        try layout_elements.append(.{ .field = try Field.parse(allocator, reader, current_ns) });
+                    } else if (child.is(ns.core, "record")) {
+                        try layout_elements.append(.{ .record = try AnonymousRecord.parse(allocator, reader, current_ns) });
+                    } else if (child.is(ns.core, "union")) {
+                        try layout_elements.append(.{ .@"union" = try AnonymousUnion.parse(allocator, reader, current_ns) });
+                    } else if (child.is(ns.core, "function")) {
+                        try functions.append(try Function.parse(allocator, reader, current_ns));
+                    } else if (child.is(ns.core, "constructor")) {
+                        try constructors.append(try Constructor.parse(allocator, reader, current_ns));
+                    } else if (child.is(ns.core, "method")) {
+                        try methods.append(try Method.parse(allocator, reader, current_ns));
+                    } else if (child.is(ns.core, "virtual-method")) {
+                        try virtual_methods.append(try VirtualMethod.parse(allocator, reader, current_ns));
+                    } else if (child.is(ns.core, "property")) {
+                        try properties.append(try Property.parse(allocator, reader, current_ns));
+                    } else if (child.is(ns.glib, "signal")) {
+                        try signals.append(try Signal.parse(allocator, reader, current_ns));
+                    } else if (child.is(ns.core, "constant")) {
+                        try constants.append(try Constant.parse(allocator, reader, current_ns));
+                    } else if (child.is(ns.core, "doc")) {
+                        documentation = try Documentation.parse(allocator, reader);
+                    } else {
+                        try reader.skipElement();
+                    }
                 },
+                .element_end => break,
                 else => {},
             }
         }
 
         return .{
-            .name = name orelse return error.InvalidGir,
+            .name = name,
             .c_type = c_type,
             .parent = parent,
             .implements = try implements.toOwnedSlice(),
@@ -503,7 +484,7 @@ pub const Class = struct {
             .properties = try properties.toOwnedSlice(),
             .signals = try signals.toOwnedSlice(),
             .constants = try constants.toOwnedSlice(),
-            .get_type = get_type orelse return error.InvalidGir,
+            .get_type = get_type,
             .ref_func = ref_func,
             .unref_func = unref_func,
             .type_struct = type_struct,
@@ -530,9 +511,15 @@ pub const Interface = struct {
     symbol_prefix: ?[]const u8 = null,
     documentation: ?Documentation = null,
 
-    fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Interface {
-        var name: ?Name = null;
-        var c_type: ?[]const u8 = null;
+    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !Interface {
+        const name = name: {
+            const index = reader.attributeIndex("name") orelse return error.InvalidGir;
+            break :name try Name.parse(allocator, try reader.attributeValue(index), current_ns);
+        };
+        const c_type = c_type: {
+            const index = reader.attributeIndexNs(ns.c, "type") orelse break :c_type null;
+            break :c_type try reader.attributeValueAlloc(allocator, index);
+        };
         var prerequisites = std.ArrayList(Prerequisite).init(allocator);
         var functions = std.ArrayList(Function).init(allocator);
         var constructors = std.ArrayList(Constructor).init(allocator);
@@ -541,54 +528,53 @@ pub const Interface = struct {
         var properties = std.ArrayList(Property).init(allocator);
         var signals = std.ArrayList(Signal).init(allocator);
         var constants = std.ArrayList(Constant).init(allocator);
-        var get_type: ?[]const u8 = null;
-        var type_struct: ?Name = null;
-        var symbol_prefix: ?[]const u8 = null;
+        const get_type = get_type: {
+            const index = reader.attributeIndexNs(ns.glib, "get-type") orelse return error.InvalidGir;
+            break :get_type try reader.attributeValueAlloc(allocator, index);
+        };
+        const type_struct = type_struct: {
+            const index = reader.attributeIndexNs(ns.glib, "type-struct") orelse break :type_struct null;
+            break :type_struct try Name.parse(allocator, try reader.attributeValue(index), current_ns);
+        };
+        const symbol_prefix = symbol_prefix: {
+            const index = reader.attributeIndexNs(ns.c, "symbol-prefix") orelse break :symbol_prefix null;
+            break :symbol_prefix try reader.attributeValueAlloc(allocator, index);
+        };
         var documentation: ?Documentation = null;
 
-        for (start.attributes) |attr| {
-            if (attr.name.is(null, "name")) {
-                name = try Name.parse(allocator, attr.value, current_ns);
-            } else if (attr.name.is(ns.c, "type")) {
-                c_type = try allocator.dupe(u8, attr.value);
-            } else if (attr.name.is(ns.glib, "get-type")) {
-                get_type = try allocator.dupe(u8, attr.value);
-            } else if (attr.name.is(ns.glib, "type-struct")) {
-                type_struct = try Name.parse(allocator, attr.value, current_ns);
-            } else if (attr.name.is(ns.c, "symbol-prefix")) {
-                symbol_prefix = try allocator.dupe(u8, attr.value);
-            }
-        }
-
-        while (try children.next()) |event| {
-            switch (event) {
-                .element_start => |child| if (child.name.is(ns.core, "prerequisite")) {
-                    try prerequisites.append(try Prerequisite.parse(allocator, child, children.children(), current_ns));
-                } else if (child.name.is(ns.core, "function")) {
-                    try functions.append(try Function.parse(allocator, child, children.children(), current_ns));
-                } else if (child.name.is(ns.core, "constructor")) {
-                    try constructors.append(try Constructor.parse(allocator, child, children.children(), current_ns));
-                } else if (child.name.is(ns.core, "method")) {
-                    try methods.append(try Method.parse(allocator, child, children.children(), current_ns));
-                } else if (child.name.is(ns.core, "virtual-method")) {
-                    try virtual_methods.append(try VirtualMethod.parse(allocator, child, children.children(), current_ns));
-                } else if (child.name.is(ns.core, "property")) {
-                    try properties.append(try Property.parse(allocator, child, children.children(), current_ns));
-                } else if (child.name.is(ns.glib, "signal")) {
-                    try signals.append(try Signal.parse(allocator, child, children.children(), current_ns));
-                } else if (child.name.is(ns.core, "constant")) {
-                    try constants.append(try Constant.parse(allocator, child, children.children(), current_ns));
-                } else if (child.name.is(ns.core, "doc")) {
-                    documentation = try Documentation.parse(allocator, children.children());
-                } else {
-                    try children.children().skip();
+        while (true) {
+            switch (try reader.read()) {
+                .element_start => {
+                    const child = reader.elementNameNs();
+                    if (child.is(ns.core, "prerequisite")) {
+                        try prerequisites.append(try Prerequisite.parse(allocator, reader, current_ns));
+                    } else if (child.is(ns.core, "function")) {
+                        try functions.append(try Function.parse(allocator, reader, current_ns));
+                    } else if (child.is(ns.core, "constructor")) {
+                        try constructors.append(try Constructor.parse(allocator, reader, current_ns));
+                    } else if (child.is(ns.core, "method")) {
+                        try methods.append(try Method.parse(allocator, reader, current_ns));
+                    } else if (child.is(ns.core, "virtual-method")) {
+                        try virtual_methods.append(try VirtualMethod.parse(allocator, reader, current_ns));
+                    } else if (child.is(ns.core, "property")) {
+                        try properties.append(try Property.parse(allocator, reader, current_ns));
+                    } else if (child.is(ns.glib, "signal")) {
+                        try signals.append(try Signal.parse(allocator, reader, current_ns));
+                    } else if (child.is(ns.core, "constant")) {
+                        try constants.append(try Constant.parse(allocator, reader, current_ns));
+                    } else if (child.is(ns.core, "doc")) {
+                        documentation = try Documentation.parse(allocator, reader);
+                    } else {
+                        try reader.skipElement();
+                    }
                 },
+                .element_end => break,
                 else => {},
             }
         }
 
         return .{
-            .name = name orelse return error.InvalidGir,
+            .name = name,
             .c_type = c_type,
             .prerequisites = try prerequisites.toOwnedSlice(),
             .functions = try functions.toOwnedSlice(),
@@ -598,7 +584,7 @@ pub const Interface = struct {
             .properties = try properties.toOwnedSlice(),
             .signals = try signals.toOwnedSlice(),
             .constants = try constants.toOwnedSlice(),
-            .get_type = get_type orelse return error.InvalidGir,
+            .get_type = get_type,
             .type_struct = type_struct,
             .symbol_prefix = symbol_prefix,
             .documentation = documentation,
@@ -631,66 +617,74 @@ pub const Record = struct {
         return record.@"opaque" or (record.disguised and !record.pointer) or record.layout_elements.len == 0;
     }
 
-    fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Record {
-        var name: ?Name = null;
-        var c_type: ?[]const u8 = null;
+    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !Record {
+        const name = name: {
+            const index = reader.attributeIndex("name") orelse return error.InvalidGir;
+            break :name try Name.parse(allocator, try reader.attributeValue(index), current_ns);
+        };
+        const c_type = c_type: {
+            const index = reader.attributeIndexNs(ns.c, "type") orelse break :c_type null;
+            break :c_type try reader.attributeValueAlloc(allocator, index);
+        };
         var layout_elements = std.ArrayList(LayoutElement).init(allocator);
         var functions = std.ArrayList(Function).init(allocator);
         var constructors = std.ArrayList(Constructor).init(allocator);
         var methods = std.ArrayList(Method).init(allocator);
-        var get_type: ?[]const u8 = null;
-        var disguised = false;
-        var @"opaque" = false;
-        var pointer = false;
-        var is_gtype_struct_for: ?Name = null;
-        var symbol_prefix: ?[]const u8 = null;
+        const get_type = get_type: {
+            const index = reader.attributeIndexNs(ns.glib, "get-type") orelse break :get_type null;
+            break :get_type try reader.attributeValueAlloc(allocator, index);
+        };
+        const disguised = disguised: {
+            const index = reader.attributeIndex("disguised") orelse break :disguised false;
+            break :disguised mem.eql(u8, try reader.attributeValue(index), "1");
+        };
+        const @"opaque" = @"opaque": {
+            const index = reader.attributeIndex("opaque") orelse break :@"opaque" false;
+            break :@"opaque" mem.eql(u8, try reader.attributeValue(index), "1");
+        };
+        const pointer = pointer: {
+            const index = reader.attributeIndex("pointer") orelse break :pointer false;
+            break :pointer mem.eql(u8, try reader.attributeValue(index), "1");
+        };
+        const is_gtype_struct_for = is_gtype_struct_for: {
+            const index = reader.attributeIndexNs(ns.glib, "is-gtype-struct-for") orelse break :is_gtype_struct_for null;
+            break :is_gtype_struct_for try Name.parse(allocator, try reader.attributeValueAlloc(allocator, index), current_ns);
+        };
+        const symbol_prefix = symbol_prefix: {
+            const index = reader.attributeIndexNs(ns.c, "symbol-prefix") orelse break :symbol_prefix null;
+            break :symbol_prefix try reader.attributeValueAlloc(allocator, index);
+        };
         var documentation: ?Documentation = null;
 
-        for (start.attributes) |attr| {
-            if (attr.name.is(null, "name")) {
-                name = try Name.parse(allocator, attr.value, current_ns);
-            } else if (attr.name.is(ns.c, "type")) {
-                c_type = try allocator.dupe(u8, attr.value);
-            } else if (attr.name.is(ns.glib, "get-type")) {
-                get_type = try allocator.dupe(u8, attr.value);
-            } else if (attr.name.is(null, "disguised")) {
-                disguised = mem.eql(u8, attr.value, "1");
-            } else if (attr.name.is(null, "opaque")) {
-                @"opaque" = mem.eql(u8, attr.value, "1");
-            } else if (attr.name.is(null, "pointer")) {
-                pointer = mem.eql(u8, attr.value, "1");
-            } else if (attr.name.is(ns.glib, "is-gtype-struct-for")) {
-                is_gtype_struct_for = try Name.parse(allocator, attr.value, current_ns);
-            } else if (attr.name.is(ns.c, "symbol-prefix")) {
-                symbol_prefix = try allocator.dupe(u8, attr.value);
-            }
-        }
-
-        while (try children.next()) |event| {
-            switch (event) {
-                .element_start => |child| if (child.name.is(ns.core, "field")) {
-                    try layout_elements.append(.{ .field = try Field.parse(allocator, child, children.children(), current_ns) });
-                } else if (child.name.is(ns.core, "record")) {
-                    try layout_elements.append(.{ .record = try AnonymousRecord.parse(allocator, children.children(), current_ns) });
-                } else if (child.name.is(ns.core, "union")) {
-                    try layout_elements.append(.{ .@"union" = try AnonymousUnion.parse(allocator, children.children(), current_ns) });
-                } else if (child.name.is(ns.core, "function")) {
-                    try functions.append(try Function.parse(allocator, child, children.children(), current_ns));
-                } else if (child.name.is(ns.core, "constructor")) {
-                    try constructors.append(try Constructor.parse(allocator, child, children.children(), current_ns));
-                } else if (child.name.is(ns.core, "method")) {
-                    try methods.append(try Method.parse(allocator, child, children.children(), current_ns));
-                } else if (child.name.is(ns.core, "doc")) {
-                    documentation = try Documentation.parse(allocator, children.children());
-                } else {
-                    try children.children().skip();
+        while (true) {
+            switch (try reader.read()) {
+                .element_start => {
+                    const child = reader.elementNameNs();
+                    if (child.is(ns.core, "field")) {
+                        try layout_elements.append(.{ .field = try Field.parse(allocator, reader, current_ns) });
+                    } else if (child.is(ns.core, "record")) {
+                        try layout_elements.append(.{ .record = try AnonymousRecord.parse(allocator, reader, current_ns) });
+                    } else if (child.is(ns.core, "union")) {
+                        try layout_elements.append(.{ .@"union" = try AnonymousUnion.parse(allocator, reader, current_ns) });
+                    } else if (child.is(ns.core, "function")) {
+                        try functions.append(try Function.parse(allocator, reader, current_ns));
+                    } else if (child.is(ns.core, "constructor")) {
+                        try constructors.append(try Constructor.parse(allocator, reader, current_ns));
+                    } else if (child.is(ns.core, "method")) {
+                        try methods.append(try Method.parse(allocator, reader, current_ns));
+                    } else if (child.is(ns.core, "doc")) {
+                        documentation = try Documentation.parse(allocator, reader);
+                    } else {
+                        try reader.skipElement();
+                    }
                 },
+                .element_end => break,
                 else => {},
             }
         }
 
         return .{
-            .name = name orelse return error.InvalidGir,
+            .name = name,
             .c_type = c_type,
             .layout_elements = try layout_elements.toOwnedSlice(),
             .functions = try functions.toOwnedSlice(),
@@ -722,54 +716,58 @@ pub const Union = struct {
         return @"union".layout_elements.len == 0;
     }
 
-    fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Union {
-        var name: ?Name = null;
-        var c_type: ?[]const u8 = null;
+    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !Union {
+        const name = name: {
+            const index = reader.attributeIndex("name") orelse return error.InvalidGir;
+            break :name try Name.parse(allocator, try reader.attributeValue(index), current_ns);
+        };
+        const c_type = c_type: {
+            const index = reader.attributeIndexNs(ns.c, "type") orelse break :c_type null;
+            break :c_type try reader.attributeValueAlloc(allocator, index);
+        };
         var layout_elements = std.ArrayList(LayoutElement).init(allocator);
         var functions = std.ArrayList(Function).init(allocator);
         var constructors = std.ArrayList(Constructor).init(allocator);
         var methods = std.ArrayList(Method).init(allocator);
-        var get_type: ?[]const u8 = null;
-        var symbol_prefix: ?[]const u8 = null;
+        const get_type = get_type: {
+            const index = reader.attributeIndexNs(ns.glib, "get-type") orelse break :get_type null;
+            break :get_type try reader.attributeValueAlloc(allocator, index);
+        };
+        const symbol_prefix = symbol_prefix: {
+            const index = reader.attributeIndexNs(ns.c, "symbol-prefix") orelse break :symbol_prefix null;
+            break :symbol_prefix try reader.attributeValueAlloc(allocator, index);
+        };
         var documentation: ?Documentation = null;
 
-        for (start.attributes) |attr| {
-            if (attr.name.is(null, "name")) {
-                name = try Name.parse(allocator, attr.value, current_ns);
-            } else if (attr.name.is(ns.c, "type")) {
-                c_type = try allocator.dupe(u8, attr.value);
-            } else if (attr.name.is(ns.glib, "get-type")) {
-                get_type = try allocator.dupe(u8, attr.value);
-            } else if (attr.name.is(ns.c, "symbol-prefix")) {
-                symbol_prefix = try allocator.dupe(u8, attr.value);
-            }
-        }
-
-        while (try children.next()) |event| {
-            switch (event) {
-                .element_start => |child| if (child.name.is(ns.core, "field")) {
-                    try layout_elements.append(.{ .field = try Field.parse(allocator, child, children.children(), current_ns) });
-                } else if (child.name.is(ns.core, "record")) {
-                    try layout_elements.append(.{ .record = try AnonymousRecord.parse(allocator, children.children(), current_ns) });
-                } else if (child.name.is(ns.core, "union")) {
-                    try layout_elements.append(.{ .@"union" = try AnonymousUnion.parse(allocator, children.children(), current_ns) });
-                } else if (child.name.is(ns.core, "function")) {
-                    try functions.append(try Function.parse(allocator, child, children.children(), current_ns));
-                } else if (child.name.is(ns.core, "constructor")) {
-                    try constructors.append(try Constructor.parse(allocator, child, children.children(), current_ns));
-                } else if (child.name.is(ns.core, "method")) {
-                    try methods.append(try Method.parse(allocator, child, children.children(), current_ns));
-                } else if (child.name.is(ns.core, "doc")) {
-                    documentation = try Documentation.parse(allocator, children.children());
-                } else {
-                    try children.children().skip();
+        while (true) {
+            switch (try reader.read()) {
+                .element_start => {
+                    const child = reader.elementNameNs();
+                    if (child.is(ns.core, "field")) {
+                        try layout_elements.append(.{ .field = try Field.parse(allocator, reader, current_ns) });
+                    } else if (child.is(ns.core, "record")) {
+                        try layout_elements.append(.{ .record = try AnonymousRecord.parse(allocator, reader, current_ns) });
+                    } else if (child.is(ns.core, "union")) {
+                        try layout_elements.append(.{ .@"union" = try AnonymousUnion.parse(allocator, reader, current_ns) });
+                    } else if (child.is(ns.core, "function")) {
+                        try functions.append(try Function.parse(allocator, reader, current_ns));
+                    } else if (child.is(ns.core, "constructor")) {
+                        try constructors.append(try Constructor.parse(allocator, reader, current_ns));
+                    } else if (child.is(ns.core, "method")) {
+                        try methods.append(try Method.parse(allocator, reader, current_ns));
+                    } else if (child.is(ns.core, "doc")) {
+                        documentation = try Documentation.parse(allocator, reader);
+                    } else {
+                        try reader.skipElement();
+                    }
                 },
+                .element_end => break,
                 else => {},
             }
         }
 
         return .{
-            .name = name orelse return error.InvalidGir,
+            .name = name,
             .c_type = c_type,
             .layout_elements = try layout_elements.toOwnedSlice(),
             .functions = try functions.toOwnedSlice(),
@@ -798,39 +796,41 @@ pub const Field = struct {
     bits: ?u16 = null,
     documentation: ?Documentation = null,
 
-    fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Field {
-        var name: ?[]const u8 = null;
+    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !Field {
+        const name = name: {
+            const index = reader.attributeIndex("name") orelse return error.InvalidGir;
+            break :name try reader.attributeValueAlloc(allocator, index);
+        };
         var @"type": ?FieldType = null;
-        var bits: ?u16 = null;
+        const bits = bits: {
+            const index = reader.attributeIndex("bits") orelse break :bits null;
+            break :bits std.fmt.parseInt(u16, try reader.attributeValue(index), 10) catch return error.InvalidGir;
+        };
         var documentation: ?Documentation = null;
 
-        for (start.attributes) |attr| {
-            if (attr.name.is(null, "name")) {
-                name = try allocator.dupe(u8, attr.value);
-            } else if (attr.name.is(null, "bits")) {
-                bits = std.fmt.parseInt(u16, attr.value, 10) catch return error.InvalidGir;
-            }
-        }
-
-        while (try children.next()) |event| {
-            switch (event) {
-                .element_start => |child| if (child.name.is(ns.core, "type")) {
-                    @"type" = .{ .simple = try Type.parse(allocator, child, children.children(), current_ns) };
-                } else if (child.name.is(ns.core, "array")) {
-                    @"type" = .{ .array = try ArrayType.parse(allocator, child, children.children(), current_ns) };
-                } else if (child.name.is(ns.core, "callback")) {
-                    @"type" = .{ .callback = try Callback.parse(allocator, child, children.children(), current_ns) };
-                } else if (child.name.is(ns.core, "doc")) {
-                    documentation = try Documentation.parse(allocator, children.children());
-                } else {
-                    try children.children().skip();
+        while (true) {
+            switch (try reader.read()) {
+                .element_start => {
+                    const child = reader.elementNameNs();
+                    if (child.is(ns.core, "type")) {
+                        @"type" = .{ .simple = try Type.parse(allocator, reader, current_ns) };
+                    } else if (child.is(ns.core, "array")) {
+                        @"type" = .{ .array = try ArrayType.parse(allocator, reader, current_ns) };
+                    } else if (child.is(ns.core, "callback")) {
+                        @"type" = .{ .callback = try Callback.parse(allocator, reader, current_ns) };
+                    } else if (child.is(ns.core, "doc")) {
+                        documentation = try Documentation.parse(allocator, reader);
+                    } else {
+                        try reader.skipElement();
+                    }
                 },
+                .element_end => break,
                 else => {},
             }
         }
 
         return .{
-            .name = name orelse return error.InvalidGir,
+            .name = name,
             .type = @"type" orelse return error.InvalidGir,
             .bits = bits,
             .documentation = documentation,
@@ -844,35 +844,35 @@ pub const FieldType = union(enum) {
     callback: Callback,
 };
 
-fn ParseError(comptime Children: type) type {
-    // WTF
-    const ReaderType = @typeInfo(std.meta.fieldInfo(Children, .reader).type).Pointer.child;
-    return error{InvalidGir} || ReaderType.Error || Allocator.Error;
-}
-
 pub const AnonymousRecord = struct {
     layout_elements: []const LayoutElement,
 
     // Explicit error type needed due to https://github.com/ziglang/zig/issues/2971
-    fn parse(allocator: Allocator, children: anytype, current_ns: []const u8) ParseError(@TypeOf(children))!AnonymousRecord {
+    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) (@TypeOf(reader.*).ReadError || Allocator.Error || error{InvalidGir})!AnonymousRecord {
         var layout_elements = std.ArrayList(LayoutElement).init(allocator);
 
-        while (try children.next()) |event| {
-            switch (event) {
-                .element_start => |child| if (child.name.is(ns.core, "field")) {
-                    try layout_elements.append(.{ .field = try Field.parse(allocator, child, children.children(), current_ns) });
-                } else if (child.name.is(ns.core, "record")) {
-                    try layout_elements.append(.{ .record = try AnonymousRecord.parse(allocator, children.children(), current_ns) });
-                } else if (child.name.is(ns.core, "union")) {
-                    try layout_elements.append(.{ .@"union" = try AnonymousUnion.parse(allocator, children.children(), current_ns) });
-                } else {
-                    try children.children().skip();
+        while (true) {
+            switch (try reader.read()) {
+                .element_start => {
+                    const child = reader.elementNameNs();
+                    if (child.is(ns.core, "field")) {
+                        try layout_elements.append(.{ .field = try Field.parse(allocator, reader, current_ns) });
+                    } else if (child.is(ns.core, "record")) {
+                        try layout_elements.append(.{ .record = try AnonymousRecord.parse(allocator, reader, current_ns) });
+                    } else if (child.is(ns.core, "union")) {
+                        try layout_elements.append(.{ .@"union" = try AnonymousUnion.parse(allocator, reader, current_ns) });
+                    } else {
+                        try reader.skipElement();
+                    }
                 },
+                .element_end => break,
                 else => {},
             }
         }
 
-        return .{ .layout_elements = try layout_elements.toOwnedSlice() };
+        return .{
+            .layout_elements = try layout_elements.toOwnedSlice(),
+        };
     }
 };
 
@@ -880,10 +880,12 @@ pub const AnonymousUnion = struct {
     layout_elements: []const LayoutElement,
 
     // Explicit error type needed due to https://github.com/ziglang/zig/issues/2971
-    fn parse(allocator: Allocator, children: anytype, current_ns: []const u8) ParseError(@TypeOf(children))!AnonymousUnion {
+    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) (@TypeOf(reader.*).ReadError || Allocator.Error || error{InvalidGir})!AnonymousUnion {
         // AnonymousUnion has the same structure as AnonymousRecord
-        const record = try AnonymousRecord.parse(allocator, children, current_ns);
-        return .{ .layout_elements = record.layout_elements };
+        const record = try AnonymousRecord.parse(allocator, reader, current_ns);
+        return .{
+            .layout_elements = record.layout_elements,
+        };
     }
 };
 
@@ -897,44 +899,48 @@ pub const BitField = struct {
     get_type: ?[]const u8 = null,
     documentation: ?Documentation = null,
 
-    fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !BitField {
-        var name: ?Name = null;
-        var c_type: ?[]const u8 = null;
-        var bits: ?u16 = null;
+    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !BitField {
+        const name = name: {
+            const index = reader.attributeIndex("name") orelse return error.InvalidGir;
+            break :name try Name.parse(allocator, try reader.attributeValue(index), current_ns);
+        };
+        const c_type = c_type: {
+            const index = reader.attributeIndexNs(ns.c, "type") orelse break :c_type null;
+            break :c_type try reader.attributeValueAlloc(allocator, index);
+        };
+        const bits = bits: {
+            const index = reader.attributeIndex("bits") orelse break :bits null;
+            break :bits std.fmt.parseInt(u16, try reader.attributeValue(index), 10) catch return error.InvalidGir;
+        };
         var members = std.ArrayList(Member).init(allocator);
         var functions = std.ArrayList(Function).init(allocator);
-        var get_type: ?[]const u8 = null;
+        const get_type = get_type: {
+            const index = reader.attributeIndexNs(ns.glib, "get-type") orelse break :get_type null;
+            break :get_type try reader.attributeValueAlloc(allocator, index);
+        };
         var documentation: ?Documentation = null;
 
-        for (start.attributes) |attr| {
-            if (attr.name.is(null, "name")) {
-                name = try Name.parse(allocator, attr.value, current_ns);
-            } else if (attr.name.is(ns.c, "type")) {
-                c_type = try allocator.dupe(u8, attr.value);
-            } else if (attr.name.is(null, "bits")) {
-                bits = std.fmt.parseInt(u16, attr.value, 10) catch return error.InvalidGir;
-            } else if (attr.name.is(ns.glib, "get-type")) {
-                get_type = try allocator.dupe(u8, attr.value);
-            }
-        }
-
-        while (try children.next()) |event| {
-            switch (event) {
-                .element_start => |child| if (child.name.is(ns.core, "member")) {
-                    try members.append(try Member.parse(allocator, child, children.children()));
-                } else if (child.name.is(ns.core, "function")) {
-                    try functions.append(try Function.parse(allocator, child, children.children(), current_ns));
-                } else if (child.name.is(ns.core, "doc")) {
-                    documentation = try Documentation.parse(allocator, children.children());
-                } else {
-                    try children.children().skip();
+        while (true) {
+            switch (try reader.read()) {
+                .element_start => {
+                    const child = reader.elementNameNs();
+                    if (child.is(ns.core, "member")) {
+                        try members.append(try Member.parse(allocator, reader));
+                    } else if (child.is(ns.core, "function")) {
+                        try functions.append(try Function.parse(allocator, reader, current_ns));
+                    } else if (child.is(ns.core, "doc")) {
+                        documentation = try Documentation.parse(allocator, reader);
+                    } else {
+                        try reader.skipElement();
+                    }
                 },
+                .element_end => break,
                 else => {},
             }
         }
 
         return .{
-            .name = name orelse return error.InvalidGir,
+            .name = name,
             .c_type = c_type,
             .bits = bits,
             .members = try members.toOwnedSlice(),
@@ -955,44 +961,48 @@ pub const Enum = struct {
     get_type: ?[]const u8 = null,
     documentation: ?Documentation = null,
 
-    fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Enum {
-        var name: ?Name = null;
-        var c_type: ?[]const u8 = null;
-        var bits: ?u16 = null;
+    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !Enum {
+        const name = name: {
+            const index = reader.attributeIndex("name") orelse return error.InvalidGir;
+            break :name try Name.parse(allocator, try reader.attributeValue(index), current_ns);
+        };
+        const c_type = c_type: {
+            const index = reader.attributeIndexNs(ns.c, "type") orelse break :c_type null;
+            break :c_type try reader.attributeValueAlloc(allocator, index);
+        };
+        const bits = bits: {
+            const index = reader.attributeIndex("bits") orelse break :bits null;
+            break :bits std.fmt.parseInt(u16, try reader.attributeValue(index), 10) catch return error.InvalidGir;
+        };
         var members = std.ArrayList(Member).init(allocator);
         var functions = std.ArrayList(Function).init(allocator);
-        var get_type: ?[]const u8 = null;
+        const get_type = get_type: {
+            const index = reader.attributeIndexNs(ns.glib, "get-type") orelse break :get_type null;
+            break :get_type try reader.attributeValueAlloc(allocator, index);
+        };
         var documentation: ?Documentation = null;
 
-        for (start.attributes) |attr| {
-            if (attr.name.is(null, "name")) {
-                name = try Name.parse(allocator, attr.value, current_ns);
-            } else if (attr.name.is(ns.c, "type")) {
-                c_type = try allocator.dupe(u8, attr.value);
-            } else if (attr.name.is(null, "bits")) {
-                bits = std.fmt.parseInt(u16, attr.value, 10) catch return error.InvalidGir;
-            } else if (attr.name.is(ns.glib, "get-type")) {
-                get_type = try allocator.dupe(u8, attr.value);
-            }
-        }
-
-        while (try children.next()) |event| {
-            switch (event) {
-                .element_start => |child| if (child.name.is(ns.core, "member")) {
-                    try members.append(try Member.parse(allocator, child, children.children()));
-                } else if (child.name.is(ns.core, "function")) {
-                    try functions.append(try Function.parse(allocator, child, children.children(), current_ns));
-                } else if (child.name.is(ns.core, "doc")) {
-                    documentation = try Documentation.parse(allocator, children.children());
-                } else {
-                    try children.children().skip();
+        while (true) {
+            switch (try reader.read()) {
+                .element_start => {
+                    const child = reader.elementNameNs();
+                    if (child.is(ns.core, "member")) {
+                        try members.append(try Member.parse(allocator, reader));
+                    } else if (child.is(ns.core, "function")) {
+                        try functions.append(try Function.parse(allocator, reader, current_ns));
+                    } else if (child.is(ns.core, "doc")) {
+                        documentation = try Documentation.parse(allocator, reader);
+                    } else {
+                        try reader.skipElement();
+                    }
                 },
+                .element_end => break,
                 else => {},
             }
         }
 
         return .{
-            .name = name orelse return error.InvalidGir,
+            .name = name,
             .c_type = c_type,
             .bits = bits,
             .members = try members.toOwnedSlice(),
@@ -1008,33 +1018,35 @@ pub const Member = struct {
     value: i65, // big enough to hold an i32 or u64
     documentation: ?Documentation = null,
 
-    fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype) !Member {
-        var name: ?[]const u8 = null;
-        var value: ?i65 = null;
+    fn parse(allocator: Allocator, reader: anytype) !Member {
+        const name = name: {
+            const index = reader.attributeIndex("name") orelse return error.InvalidGir;
+            break :name try reader.attributeValueAlloc(allocator, index);
+        };
+        const value = value: {
+            const index = reader.attributeIndex("value") orelse return error.InvalidGir;
+            break :value std.fmt.parseInt(i65, try reader.attributeValue(index), 10) catch return error.InvalidGir;
+        };
         var documentation: ?Documentation = null;
 
-        for (start.attributes) |attr| {
-            if (attr.name.is(null, "name")) {
-                name = try allocator.dupe(u8, attr.value);
-            } else if (attr.name.is(null, "value")) {
-                value = std.fmt.parseInt(i65, attr.value, 10) catch return error.InvalidGir;
-            }
-        }
-
-        while (try children.next()) |event| {
-            switch (event) {
-                .element_start => |child| if (child.name.is(ns.core, "doc")) {
-                    documentation = try Documentation.parse(allocator, children.children());
-                } else {
-                    try children.children().skip();
+        while (true) {
+            switch (try reader.read()) {
+                .element_start => {
+                    const child = reader.elementNameNs();
+                    if (child.is(ns.core, "doc")) {
+                        documentation = try Documentation.parse(allocator, reader);
+                    } else {
+                        try reader.skipElement();
+                    }
                 },
+                .element_end => break,
                 else => {},
             }
         }
 
         return .{
-            .name = name orelse return error.InvalidGir,
-            .value = value orelse return error.InvalidGir,
+            .name = name,
+            .value = value,
             .documentation = documentation,
         };
     }
@@ -1049,45 +1061,49 @@ pub const Function = struct {
     throws: bool = false,
     documentation: ?Documentation = null,
 
-    fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Function {
-        var name: ?[]const u8 = null;
-        var c_identifier: ?[]const u8 = null;
-        var moved_to: ?[]const u8 = null;
+    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !Function {
+        const name = name: {
+            const index = reader.attributeIndex("name") orelse return error.InvalidGir;
+            break :name try reader.attributeValueAlloc(allocator, index);
+        };
+        const c_identifier = c_identifier: {
+            const index = reader.attributeIndexNs(ns.c, "identifier") orelse return error.InvalidGir;
+            break :c_identifier try reader.attributeValueAlloc(allocator, index);
+        };
+        const moved_to = moved_to: {
+            const index = reader.attributeIndex("moved-to") orelse break :moved_to null;
+            break :moved_to try reader.attributeValueAlloc(allocator, index);
+        };
         var parameters = std.ArrayList(Parameter).init(allocator);
         var return_value: ?ReturnValue = null;
-        var throws = false;
+        const throws = throws: {
+            const index = reader.attributeIndex("throws") orelse break :throws false;
+            break :throws mem.eql(u8, try reader.attributeValue(index), "1");
+        };
         var documentation: ?Documentation = null;
 
-        for (start.attributes) |attr| {
-            if (attr.name.is(null, "name")) {
-                name = try allocator.dupe(u8, attr.value);
-            } else if (attr.name.is(ns.c, "identifier")) {
-                c_identifier = try allocator.dupe(u8, attr.value);
-            } else if (attr.name.is(null, "moved-to")) {
-                moved_to = try allocator.dupe(u8, attr.value);
-            } else if (attr.name.is(null, "throws")) {
-                throws = mem.eql(u8, attr.value, "1");
-            }
-        }
-
-        while (try children.next()) |event| {
-            switch (event) {
-                .element_start => |child| if (child.name.is(ns.core, "parameters")) {
-                    try Parameter.parseMany(allocator, &parameters, children.children(), current_ns);
-                } else if (child.name.is(ns.core, "return-value")) {
-                    return_value = try ReturnValue.parse(allocator, child, children.children(), current_ns);
-                } else if (child.name.is(ns.core, "doc")) {
-                    documentation = try Documentation.parse(allocator, children.children());
-                } else {
-                    try children.children().skip();
+        while (true) {
+            switch (try reader.read()) {
+                .element_start => {
+                    const child = reader.elementNameNs();
+                    if (child.is(ns.core, "parameters")) {
+                        try Parameter.parseMany(allocator, &parameters, reader, current_ns);
+                    } else if (child.is(ns.core, "return-value")) {
+                        return_value = try ReturnValue.parse(allocator, reader, current_ns);
+                    } else if (child.is(ns.core, "doc")) {
+                        documentation = try Documentation.parse(allocator, reader);
+                    } else {
+                        try reader.skipElement();
+                    }
                 },
+                .element_end => break,
                 else => {},
             }
         }
 
         return .{
-            .name = name orelse return error.InvalidGir,
-            .c_identifier = c_identifier orelse return error.InvalidGir,
+            .name = name,
+            .c_identifier = c_identifier,
             .moved_to = moved_to,
             .parameters = try parameters.toOwnedSlice(),
             .return_value = return_value orelse return error.InvalidGir,
@@ -1106,9 +1122,9 @@ pub const Constructor = struct {
     throws: bool = false,
     documentation: ?Documentation = null,
 
-    fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Constructor {
+    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !Constructor {
         // Constructors currently have the same structure as functions
-        const function = try Function.parse(allocator, start, children, current_ns);
+        const function = try Function.parse(allocator, reader, current_ns);
         return .{
             .name = function.name,
             .c_identifier = function.c_identifier,
@@ -1130,9 +1146,9 @@ pub const Method = struct {
     throws: bool = false,
     documentation: ?Documentation,
 
-    fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Method {
+    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !Method {
         // Methods currently have the same structure as functions
-        const function = try Function.parse(allocator, start, children, current_ns);
+        const function = try Function.parse(allocator, reader, current_ns);
         return .{
             .name = function.name,
             .c_identifier = function.c_identifier,
@@ -1152,38 +1168,40 @@ pub const VirtualMethod = struct {
     throws: bool = false,
     documentation: ?Documentation = null,
 
-    fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !VirtualMethod {
-        var name: ?[]const u8 = null;
+    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !VirtualMethod {
+        const name = name: {
+            const index = reader.attributeIndex("name") orelse return error.InvalidGir;
+            break :name try reader.attributeValueAlloc(allocator, index);
+        };
         var parameters = std.ArrayList(Parameter).init(allocator);
         var return_value: ?ReturnValue = null;
-        var throws = false;
+        const throws = throws: {
+            const index = reader.attributeIndex("throws") orelse break :throws false;
+            break :throws mem.eql(u8, try reader.attributeValue(index), "1");
+        };
         var documentation: ?Documentation = null;
 
-        for (start.attributes) |attr| {
-            if (attr.name.is(null, "name")) {
-                name = try allocator.dupe(u8, attr.value);
-            } else if (attr.name.is(null, "throws")) {
-                throws = mem.eql(u8, attr.value, "1");
-            }
-        }
-
-        while (try children.next()) |event| {
-            switch (event) {
-                .element_start => |child| if (child.name.is(ns.core, "parameters")) {
-                    try Parameter.parseMany(allocator, &parameters, children.children(), current_ns);
-                } else if (child.name.is(ns.core, "return-value")) {
-                    return_value = try ReturnValue.parse(allocator, child, children.children(), current_ns);
-                } else if (child.name.is(ns.core, "doc")) {
-                    documentation = try Documentation.parse(allocator, children.children());
-                } else {
-                    try children.children().skip();
+        while (true) {
+            switch (try reader.read()) {
+                .element_start => {
+                    const child = reader.elementNameNs();
+                    if (child.is(ns.core, "parameters")) {
+                        try Parameter.parseMany(allocator, &parameters, reader, current_ns);
+                    } else if (child.is(ns.core, "return-value")) {
+                        return_value = try ReturnValue.parse(allocator, reader, current_ns);
+                    } else if (child.is(ns.core, "doc")) {
+                        documentation = try Documentation.parse(allocator, reader);
+                    } else {
+                        try reader.skipElement();
+                    }
                 },
+                .element_end => break,
                 else => {},
             }
         }
 
         return .{
-            .name = name orelse return error.InvalidGir,
+            .name = name,
             .parameters = try parameters.toOwnedSlice(),
             .return_value = return_value orelse return error.InvalidGir,
             .throws = throws,
@@ -1197,34 +1215,35 @@ pub const Property = struct {
     type: AnyType,
     documentation: ?Documentation = null,
 
-    fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Property {
-        var name: ?[]const u8 = null;
+    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !Property {
+        const name = name: {
+            const index = reader.attributeIndex("name") orelse return error.InvalidGir;
+            break :name try reader.attributeValueAlloc(allocator, index);
+        };
         var @"type": ?AnyType = null;
         var documentation: ?Documentation = null;
 
-        for (start.attributes) |attr| {
-            if (attr.name.is(null, "name")) {
-                name = try allocator.dupe(u8, attr.value);
-            }
-        }
-
-        while (try children.next()) |event| {
-            switch (event) {
-                .element_start => |child| if (child.name.is(ns.core, "type")) {
-                    @"type" = .{ .simple = try Type.parse(allocator, child, children.children(), current_ns) };
-                } else if (child.name.is(ns.core, "array")) {
-                    @"type" = .{ .array = try ArrayType.parse(allocator, child, children.children(), current_ns) };
-                } else if (child.name.is(ns.core, "doc")) {
-                    documentation = try Documentation.parse(allocator, children.children());
-                } else {
-                    try children.children().skip();
+        while (true) {
+            switch (try reader.read()) {
+                .element_start => {
+                    const child = reader.elementNameNs();
+                    if (child.is(ns.core, "type")) {
+                        @"type" = .{ .simple = try Type.parse(allocator, reader, current_ns) };
+                    } else if (child.is(ns.core, "array")) {
+                        @"type" = .{ .array = try ArrayType.parse(allocator, reader, current_ns) };
+                    } else if (child.is(ns.core, "doc")) {
+                        documentation = try Documentation.parse(allocator, reader);
+                    } else {
+                        try reader.skipElement();
+                    }
                 },
+                .element_end => break,
                 else => {},
             }
         }
 
         return .{
-            .name = name orelse return error.InvalidGir,
+            .name = name,
             .type = @"type" orelse return error.InvalidGir,
             .documentation = documentation,
         };
@@ -1237,35 +1256,36 @@ pub const Signal = struct {
     return_value: ReturnValue,
     documentation: ?Documentation = null,
 
-    fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Signal {
-        var name: ?[]const u8 = null;
+    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !Signal {
+        const name = name: {
+            const index = reader.attributeIndex("name") orelse return error.InvalidGir;
+            break :name try reader.attributeValueAlloc(allocator, index);
+        };
         var parameters = std.ArrayList(Parameter).init(allocator);
         var return_value: ?ReturnValue = null;
         var documentation: ?Documentation = null;
 
-        for (start.attributes) |attr| {
-            if (attr.name.is(null, "name")) {
-                name = try allocator.dupe(u8, attr.value);
-            }
-        }
-
-        while (try children.next()) |event| {
-            switch (event) {
-                .element_start => |child| if (child.name.is(ns.core, "parameters")) {
-                    try Parameter.parseMany(allocator, &parameters, children.children(), current_ns);
-                } else if (child.name.is(ns.core, "return-value")) {
-                    return_value = try ReturnValue.parse(allocator, child, children.children(), current_ns);
-                } else if (child.name.is(ns.core, "doc")) {
-                    documentation = try Documentation.parse(allocator, children.children());
-                } else {
-                    try children.children().skip();
+        while (true) {
+            switch (try reader.read()) {
+                .element_start => {
+                    const child = reader.elementNameNs();
+                    if (child.is(ns.core, "parameters")) {
+                        try Parameter.parseMany(allocator, &parameters, reader, current_ns);
+                    } else if (child.is(ns.core, "return-value")) {
+                        return_value = try ReturnValue.parse(allocator, reader, current_ns);
+                    } else if (child.is(ns.core, "doc")) {
+                        documentation = try Documentation.parse(allocator, reader);
+                    } else {
+                        try reader.skipElement();
+                    }
                 },
+                .element_end => break,
                 else => {},
             }
         }
 
         return .{
-            .name = name orelse return error.InvalidGir,
+            .name = name,
             .parameters = try parameters.toOwnedSlice(),
             .return_value = return_value orelse return error.InvalidGir,
             .documentation = documentation,
@@ -1280,42 +1300,45 @@ pub const Constant = struct {
     type: AnyType,
     documentation: ?Documentation = null,
 
-    fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Constant {
-        var name: ?[]const u8 = null;
-        var c_identifier: ?[]const u8 = null;
-        var value: ?[]const u8 = null;
+    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !Constant {
+        const name = name: {
+            const index = reader.attributeIndex("name") orelse return error.InvalidGir;
+            break :name try reader.attributeValueAlloc(allocator, index);
+        };
+        const c_identifier = c_identifier: {
+            const index = reader.attributeIndexNs(ns.c, "identifier") orelse break :c_identifier null;
+            break :c_identifier try reader.attributeValueAlloc(allocator, index);
+        };
+        const value = value: {
+            const index = reader.attributeIndex("value") orelse return error.InvalidGir;
+            break :value try reader.attributeValueAlloc(allocator, index);
+        };
         var @"type": ?AnyType = null;
         var documentation: ?Documentation = null;
 
-        for (start.attributes) |attr| {
-            if (attr.name.is(null, "name")) {
-                name = try allocator.dupe(u8, attr.value);
-            } else if (attr.name.is(ns.c, "identifier")) {
-                c_identifier = try allocator.dupe(u8, attr.value);
-            } else if (attr.name.is(null, "value")) {
-                value = try allocator.dupe(u8, attr.value);
-            }
-        }
-
-        while (try children.next()) |event| {
-            switch (event) {
-                .element_start => |child| if (child.name.is(ns.core, "type")) {
-                    @"type" = .{ .simple = try Type.parse(allocator, child, children.children(), current_ns) };
-                } else if (child.name.is(ns.core, "array")) {
-                    @"type" = .{ .array = try ArrayType.parse(allocator, child, children.children(), current_ns) };
-                } else if (child.name.is(ns.core, "doc")) {
-                    documentation = try Documentation.parse(allocator, children.children());
-                } else {
-                    try children.children().skip();
+        while (true) {
+            switch (try reader.read()) {
+                .element_start => {
+                    const child = reader.elementNameNs();
+                    if (child.is(ns.core, "type")) {
+                        @"type" = .{ .simple = try Type.parse(allocator, reader, current_ns) };
+                    } else if (child.is(ns.core, "array")) {
+                        @"type" = .{ .array = try ArrayType.parse(allocator, reader, current_ns) };
+                    } else if (child.is(ns.core, "doc")) {
+                        documentation = try Documentation.parse(allocator, reader);
+                    } else {
+                        try reader.skipElement();
+                    }
                 },
+                .element_end => break,
                 else => {},
             }
         }
 
         return .{
-            .name = name orelse return error.InvalidGir,
+            .name = name,
             .c_identifier = c_identifier,
-            .value = value orelse return error.InvalidGir,
+            .value = value,
             .type = @"type" orelse return error.InvalidGir,
             .documentation = documentation,
         };
@@ -1331,19 +1354,17 @@ pub const Type = struct {
     name: ?Name = null,
     c_type: ?[]const u8 = null,
 
-    fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Type {
-        var name: ?Name = null;
-        var c_type: ?[]const u8 = null;
+    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !Type {
+        const name = name: {
+            const index = reader.attributeIndex("name") orelse break :name null;
+            break :name try Name.parse(allocator, try reader.attributeValue(index), current_ns);
+        };
+        const c_type = c_type: {
+            const index = reader.attributeIndexNs(ns.c, "type") orelse break :c_type null;
+            break :c_type try reader.attributeValueAlloc(allocator, index);
+        };
 
-        for (start.attributes) |attr| {
-            if (attr.name.is(null, "name")) {
-                name = try Name.parse(allocator, attr.value, current_ns);
-            } else if (attr.name.is(ns.c, "type")) {
-                c_type = try allocator.dupe(u8, attr.value);
-            }
-        }
-
-        try children.skip();
+        try reader.skipElement();
 
         return .{
             .name = name,
@@ -1359,34 +1380,38 @@ pub const ArrayType = struct {
     fixed_size: ?u32 = null,
     zero_terminated: bool = false,
 
-    fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !ArrayType {
-        var name: ?Name = null;
-        var c_type: ?[]const u8 = null;
+    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !ArrayType {
+        const name = name: {
+            const index = reader.attributeIndex("name") orelse break :name null;
+            break :name try Name.parse(allocator, try reader.attributeValue(index), current_ns);
+        };
+        const c_type = c_type: {
+            const index = reader.attributeIndexNs(ns.c, "type") orelse break :c_type null;
+            break :c_type try reader.attributeValueAlloc(allocator, index);
+        };
         var element: ?AnyType = null;
-        var fixed_size: ?u32 = null;
-        var zero_terminated = false;
+        const fixed_size = fixed_size: {
+            const index = reader.attributeIndex("fixed-size") orelse break :fixed_size null;
+            break :fixed_size std.fmt.parseInt(u32, try reader.attributeValue(index), 10) catch return error.InvalidGir;
+        };
+        const zero_terminated = zero_terminated: {
+            const index = reader.attributeIndex("zero-terminated") orelse break :zero_terminated false;
+            break :zero_terminated mem.eql(u8, try reader.attributeValue(index), "1");
+        };
 
-        for (start.attributes) |attr| {
-            if (attr.name.is(null, "name")) {
-                name = try Name.parse(allocator, attr.value, current_ns);
-            } else if (attr.name.is(ns.c, "type")) {
-                c_type = try allocator.dupe(u8, attr.value);
-            } else if (attr.name.is(null, "fixed-size")) {
-                fixed_size = std.fmt.parseInt(u32, attr.value, 10) catch return error.InvalidGir;
-            } else if (attr.name.is(null, "zero-terminated")) {
-                zero_terminated = mem.eql(u8, attr.value, "1");
-            }
-        }
-
-        while (try children.next()) |event| {
-            switch (event) {
-                .element_start => |child| if (child.name.is(ns.core, "type")) {
-                    element = .{ .simple = try Type.parse(allocator, child, children.children(), current_ns) };
-                } else if (child.name.is(ns.core, "array")) {
-                    element = .{ .array = try ArrayType.parse(allocator, child, children.children(), current_ns) };
-                } else {
-                    try children.children().skip();
+        while (true) {
+            switch (try reader.read()) {
+                .element_start => {
+                    const child = reader.elementNameNs();
+                    if (child.is(ns.core, "type")) {
+                        element = .{ .simple = try Type.parse(allocator, reader, current_ns) };
+                    } else if (child.is(ns.core, "array")) {
+                        element = .{ .array = try ArrayType.parse(allocator, reader, current_ns) };
+                    } else {
+                        try reader.skipElement();
+                    }
                 },
+                .element_end => break,
                 else => {},
             }
         }
@@ -1394,7 +1419,11 @@ pub const ArrayType = struct {
         return .{
             .name = name,
             .c_type = c_type,
-            .element = &(try allocator.dupe(AnyType, &.{element orelse return error.InvalidGir}))[0],
+            .element = element: {
+                const copy = try allocator.create(AnyType);
+                copy.* = element orelse return error.InvalidGir;
+                break :element copy;
+            },
             .fixed_size = fixed_size,
             .zero_terminated = zero_terminated,
         };
@@ -1409,41 +1438,44 @@ pub const Callback = struct {
     throws: bool = false,
     documentation: ?Documentation = null,
 
-    fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Callback {
-        var name: ?[]const u8 = null;
-        var c_type: ?[]const u8 = null;
+    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !Callback {
+        const name = name: {
+            const index = reader.attributeIndex("name") orelse return error.InvalidGir;
+            break :name try reader.attributeValueAlloc(allocator, index);
+        };
+        const c_type = c_type: {
+            const index = reader.attributeIndexNs(ns.c, "type") orelse break :c_type null;
+            break :c_type try reader.attributeValueAlloc(allocator, index);
+        };
         var parameters = std.ArrayList(Parameter).init(allocator);
         var return_value: ?ReturnValue = null;
-        var throws = false;
+        const throws = throws: {
+            const index = reader.attributeIndex("throws") orelse break :throws false;
+            break :throws mem.eql(u8, try reader.attributeValue(index), "1");
+        };
         var documentation: ?Documentation = null;
 
-        for (start.attributes) |attr| {
-            if (attr.name.is(null, "name")) {
-                name = try allocator.dupe(u8, attr.value);
-            } else if (attr.name.is(ns.c, "type")) {
-                c_type = try allocator.dupe(u8, attr.value);
-            } else if (attr.name.is(null, "throws")) {
-                throws = mem.eql(u8, attr.value, "1");
-            }
-        }
-
-        while (try children.next()) |event| {
-            switch (event) {
-                .element_start => |child| if (child.name.is(ns.core, "parameters")) {
-                    try Parameter.parseMany(allocator, &parameters, children.children(), current_ns);
-                } else if (child.name.is(ns.core, "return-value")) {
-                    return_value = try ReturnValue.parse(allocator, child, children.children(), current_ns);
-                } else if (child.name.is(ns.core, "doc")) {
-                    documentation = try Documentation.parse(allocator, children.children());
-                } else {
-                    try children.children().skip();
+        while (true) {
+            switch (try reader.read()) {
+                .element_start => {
+                    const child = reader.elementNameNs();
+                    if (child.is(ns.core, "parameters")) {
+                        try Parameter.parseMany(allocator, &parameters, reader, current_ns);
+                    } else if (child.is(ns.core, "return-value")) {
+                        return_value = try ReturnValue.parse(allocator, reader, current_ns);
+                    } else if (child.is(ns.core, "doc")) {
+                        documentation = try Documentation.parse(allocator, reader);
+                    } else {
+                        try reader.skipElement();
+                    }
                 },
+                .element_end => break,
                 else => {},
             }
         }
 
         return .{
-            .name = name orelse return error.InvalidGir,
+            .name = name,
             .c_type = c_type,
             .parameters = try parameters.toOwnedSlice(),
             .return_value = return_value orelse return error.InvalidGir,
@@ -1468,64 +1500,75 @@ pub const Parameter = struct {
         return parameter.allow_none or parameter.nullable or parameter.optional;
     }
 
-    fn parseMany(allocator: Allocator, parameters: *std.ArrayList(Parameter), children: anytype, current_ns: []const u8) !void {
-        while (try children.next()) |event| {
-            switch (event) {
-                .element_start => |child| if (child.name.is(ns.core, "parameter") or child.name.is(ns.core, "instance-parameter")) {
-                    try parameters.append(try parse(allocator, child, children.children(), current_ns, child.name.is(ns.core, "instance-parameter")));
-                } else {
-                    try children.children().skip();
+    fn parseMany(allocator: Allocator, parameters: *std.ArrayList(Parameter), reader: anytype, current_ns: []const u8) !void {
+        while (true) {
+            switch (try reader.read()) {
+                .element_start => {
+                    const child = reader.elementNameNs();
+                    if (child.is(ns.core, "parameter") or child.is(ns.core, "instance-parameter")) {
+                        try parameters.append(try parse(allocator, reader, current_ns, child.is(ns.core, "instance-parameter")));
+                    } else {
+                        try reader.skipElement();
+                    }
                 },
+                .element_end => break,
                 else => {},
             }
         }
     }
 
-    fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8, instance: bool) !Parameter {
-        var name: ?[]const u8 = null;
+    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8, instance: bool) !Parameter {
+        const name = name: {
+            const index = reader.attributeIndex("name") orelse return error.InvalidGir;
+            break :name try reader.attributeValueAlloc(allocator, index);
+        };
         var @"type": ?ParameterType = null;
-        var allow_none = false;
-        var nullable = false;
-        var optional = false;
-        var closure: ?usize = null;
-        var destroy: ?usize = null;
+        const allow_none = allow_none: {
+            const index = reader.attributeIndex("allow-none") orelse break :allow_none false;
+            break :allow_none mem.eql(u8, try reader.attributeValue(index), "1");
+        };
+        const nullable = nullable: {
+            const index = reader.attributeIndex("nullable") orelse break :nullable false;
+            break :nullable mem.eql(u8, try reader.attributeValue(index), "1");
+        };
+        const optional = optional: {
+            const index = reader.attributeIndex("optional") orelse break :optional false;
+            break :optional mem.eql(u8, try reader.attributeValue(index), "1");
+        };
+        const closure = closure: {
+            const index = reader.attributeIndex("closure") orelse break :closure null;
+            break :closure std.fmt.parseInt(usize, try reader.attributeValue(index), 10) catch return error.InvalidGir;
+        };
+        const destroy = destroy: {
+            const index = reader.attributeIndex("destroy") orelse break :destroy null;
+            break :destroy std.fmt.parseInt(usize, try reader.attributeValue(index), 10) catch return error.InvalidGir;
+        };
         var documentation: ?Documentation = null;
 
-        for (start.attributes) |attr| {
-            if (attr.name.is(null, "name")) {
-                name = try allocator.dupe(u8, attr.value);
-            } else if (attr.name.is(null, "allow-none")) {
-                allow_none = mem.eql(u8, attr.value, "1");
-            } else if (attr.name.is(null, "nullable")) {
-                nullable = mem.eql(u8, attr.value, "1");
-            } else if (attr.name.is(null, "optional")) {
-                optional = mem.eql(u8, attr.value, "1");
-            } else if (attr.name.is(null, "closure")) {
-                closure = std.fmt.parseInt(usize, attr.value, 10) catch return error.InvalidGir;
-            } else if (attr.name.is(null, "destroy")) {
-                destroy = std.fmt.parseInt(usize, attr.value, 10) catch return error.InvalidGir;
-            }
-        }
-
-        while (try children.next()) |event| {
-            switch (event) {
-                .element_start => |child| if (child.name.is(ns.core, "type")) {
-                    @"type" = .{ .simple = try Type.parse(allocator, child, children.children(), current_ns) };
-                } else if (child.name.is(ns.core, "array")) {
-                    @"type" = .{ .array = try ArrayType.parse(allocator, child, children.children(), current_ns) };
-                } else if (child.name.is(ns.core, "varargs")) {
-                    @"type" = .varargs;
-                } else if (child.name.is(ns.core, "doc")) {
-                    documentation = try Documentation.parse(allocator, children.children());
-                } else {
-                    try children.children().skip();
+        while (true) {
+            switch (try reader.read()) {
+                .element_start => {
+                    const child = reader.elementNameNs();
+                    if (child.is(ns.core, "type")) {
+                        @"type" = .{ .simple = try Type.parse(allocator, reader, current_ns) };
+                    } else if (child.is(ns.core, "array")) {
+                        @"type" = .{ .array = try ArrayType.parse(allocator, reader, current_ns) };
+                    } else if (child.is(ns.core, "varargs")) {
+                        @"type" = .varargs;
+                        try reader.skipElement();
+                    } else if (child.is(ns.core, "doc")) {
+                        documentation = try Documentation.parse(allocator, reader);
+                    } else {
+                        try reader.skipElement();
+                    }
                 },
+                .element_end => break,
                 else => {},
             }
         }
 
         return .{
-            .name = name orelse return error.InvalidGir,
+            .name = name,
             .type = @"type" orelse return error.InvalidGir,
             .allow_none = allow_none,
             .nullable = nullable,
@@ -1554,31 +1597,33 @@ pub const ReturnValue = struct {
         return return_value.allow_none or return_value.nullable;
     }
 
-    fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !ReturnValue {
+    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !ReturnValue {
         var @"type": ?AnyType = null;
-        var allow_none = false;
-        var nullable = false;
+        const allow_none = allow_none: {
+            const index = reader.attributeIndex("allow-none") orelse break :allow_none false;
+            break :allow_none mem.eql(u8, try reader.attributeValue(index), "1");
+        };
+        const nullable = nullable: {
+            const index = reader.attributeIndex("nullable") orelse break :nullable false;
+            break :nullable mem.eql(u8, try reader.attributeValue(index), "1");
+        };
         var documentation: ?Documentation = null;
 
-        for (start.attributes) |attr| {
-            if (attr.name.is(null, "allow-none")) {
-                allow_none = mem.eql(u8, attr.value, "1");
-            } else if (attr.name.is(null, "nullable")) {
-                nullable = mem.eql(u8, attr.value, "1");
-            }
-        }
-
-        while (try children.next()) |event| {
-            switch (event) {
-                .element_start => |child| if (child.name.is(ns.core, "type")) {
-                    @"type" = .{ .simple = try Type.parse(allocator, child, children.children(), current_ns) };
-                } else if (child.name.is(ns.core, "array")) {
-                    @"type" = .{ .array = try ArrayType.parse(allocator, child, children.children(), current_ns) };
-                } else if (child.name.is(ns.core, "doc")) {
-                    documentation = try Documentation.parse(allocator, children.children());
-                } else {
-                    try children.children().skip();
+        while (true) {
+            switch (try reader.read()) {
+                .element_start => {
+                    const child = reader.elementNameNs();
+                    if (child.is(ns.core, "type")) {
+                        @"type" = .{ .simple = try Type.parse(allocator, reader, current_ns) };
+                    } else if (child.is(ns.core, "array")) {
+                        @"type" = .{ .array = try ArrayType.parse(allocator, reader, current_ns) };
+                    } else if (child.is(ns.core, "doc")) {
+                        documentation = try Documentation.parse(allocator, reader);
+                    } else {
+                        try reader.skipElement();
+                    }
                 },
+                .element_end => break,
                 else => {},
             }
         }
@@ -1595,51 +1640,44 @@ pub const ReturnValue = struct {
 pub const Implements = struct {
     name: Name,
 
-    fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Implements {
-        var name: ?Name = null;
+    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !Implements {
+        const name = name: {
+            const index = reader.attributeIndex("name") orelse return error.InvalidGir;
+            break :name try Name.parse(allocator, try reader.attributeValue(index), current_ns);
+        };
 
-        for (start.attributes) |attr| {
-            if (attr.name.is(null, "name")) {
-                name = try Name.parse(allocator, attr.value, current_ns);
-            }
-        }
+        try reader.skipElement();
 
-        try children.skip();
-
-        return .{ .name = name orelse return error.InvalidGir };
+        return .{
+            .name = name,
+        };
     }
 };
 
 pub const Prerequisite = struct {
     name: Name,
 
-    fn parse(allocator: Allocator, start: xml.Event.ElementStart, children: anytype, current_ns: []const u8) !Prerequisite {
-        var name: ?Name = null;
+    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !Prerequisite {
+        const name = name: {
+            const index = reader.attributeIndex("name") orelse return error.InvalidGir;
+            break :name try Name.parse(allocator, try reader.attributeValue(index), current_ns);
+        };
 
-        for (start.attributes) |attr| {
-            if (attr.name.is(null, "name")) {
-                name = try Name.parse(allocator, attr.value, current_ns);
-            }
-        }
+        try reader.skipElement();
 
-        try children.skip();
-
-        return .{ .name = name orelse return error.InvalidGir };
+        return .{
+            .name = name,
+        };
     }
 };
 
 pub const Documentation = struct {
     text: []const u8,
 
-    fn parse(allocator: Allocator, children: anytype) !Documentation {
-        var text = std.ArrayList(u8).init(allocator);
-        while (try children.next()) |event| {
-            switch (event) {
-                .element_content => |e| try text.appendSlice(e.content),
-                else => {},
-            }
-        }
-        return .{ .text = try text.toOwnedSlice() };
+    fn parse(allocator: Allocator, reader: anytype) !Documentation {
+        return .{
+            .text = try reader.readElementTextAlloc(allocator),
+        };
     }
 };
 
