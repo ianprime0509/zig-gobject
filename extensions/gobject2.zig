@@ -1,6 +1,7 @@
 const glib = @import("glib2");
 const gobject = @import("gobject2");
 const std = @import("std");
+const compat = @import("compat");
 
 /// Fundamental types.
 pub const types = struct {
@@ -172,7 +173,7 @@ pub fn defineClass(
     comptime Instance: type,
     comptime options: DefineClassOptions(Instance),
 ) fn () callconv(.C) gobject.Type {
-    const instance_info = @typeInfo(Instance);
+    const instance_info = compat.typeInfo(Instance);
     if (instance_info != .@"struct" or instance_info.@"struct".layout != .@"extern") {
         @compileError("an instance type must be an extern struct");
     }
@@ -180,7 +181,7 @@ pub fn defineClass(
     if (!@hasDecl(Instance, "Parent")) {
         @compileError("a class type must have a declaration named Parent pointing to the parent type");
     }
-    const parent_info = @typeInfo(Instance.Parent);
+    const parent_info = compat.typeInfo(Instance.Parent);
     if (parent_info != .@"struct" or parent_info.@"struct".layout != .@"extern" or !@hasDecl(Instance.Parent, "getGObjectType")) {
         @compileError("the defined parent type " ++ @typeName(Instance.Parent) ++ " does not appear to be a GObject class type");
     }
@@ -191,7 +192,7 @@ pub fn defineClass(
     if (!@hasDecl(Instance, "Class")) {
         @compileError("a class type must have a member named Class pointing to the class record");
     }
-    const class_info = @typeInfo(Instance.Class);
+    const class_info = compat.typeInfo(Instance.Class);
     if (class_info != .@"struct" or class_info.@"struct".layout != .@"extern") {
         @compileError("a class type must be an extern struct");
     }
@@ -337,7 +338,7 @@ pub fn defineEnum(
     comptime Enum: type,
     comptime options: DefineEnumOptions,
 ) fn () callconv(.C) gobject.Type {
-    const enum_info = @typeInfo(Enum);
+    const enum_info = compat.typeInfo(Enum);
     if (enum_info != .@"enum" or enum_info.@"enum".tag_type != c_int) {
         @compileError("an enum type must have a tag type of c_int");
     }
@@ -393,7 +394,7 @@ pub fn defineFlags(
     comptime Flags: type,
     comptime options: DefineFlagsOptions,
 ) fn () callconv(.C) gobject.Type {
-    const flags_info = @typeInfo(Flags);
+    const flags_info = compat.typeInfo(Flags);
     if (flags_info != .@"struct" or flags_info.@"struct".layout != .@"packed" or flags_info.@"struct".backing_integer != c_uint) {
         @compileError("a flags type must have a backing integer type of c_uint");
     }
@@ -458,7 +459,7 @@ pub fn Accessor(comptime Owner: type, comptime Data: type) type {
 }
 
 fn FieldType(comptime T: type, comptime name: []const u8) type {
-    return for (@typeInfo(T).@"struct".fields) |field| {
+    return for (compat.typeInfo(T).@"struct".fields) |field| {
         if (std.mem.eql(u8, field.name, name)) break field.type;
     } else @compileError("no field named " ++ name ++ " in " ++ @typeName(T));
 }
@@ -697,7 +698,7 @@ pub fn defineProperty(
                     flags,
                 );
             } else if (std.meta.hasFn(Data, "getGObjectType")) {
-                return switch (@typeInfo(Data)) {
+                return switch (compat.typeInfo(Data)) {
                     .@"enum" => gobject.paramSpecEnum(
                         name,
                         options.nick orelse null,
@@ -752,7 +753,7 @@ pub fn defineProperty(
 /// The properties passed in `properties` should be the structs returned by
 /// `defineProperty`.
 pub fn registerProperties(class: anytype, properties: []const type) void {
-    const Instance = @typeInfo(@TypeOf(class)).pointer.child.Instance;
+    const Instance = compat.typeInfo(@TypeOf(class)).pointer.child.Instance;
     gobject.Object.virtual_methods.get_property.implement(class, struct {
         fn getProperty(object: *Instance, id: c_uint, value: *gobject.Value, _: *gobject.ParamSpec) callconv(.C) void {
             inline for (properties, 1..) |property, i| {
@@ -777,7 +778,7 @@ pub fn registerProperties(class: anytype, properties: []const type) void {
 }
 
 pub fn SignalHandler(comptime Itype: type, comptime param_types: []const type, comptime DataType: type, comptime ReturnType: type) type {
-    return *const @Type(.{ .@"fn" = .{
+    return *const compat.Reify(.{ .@"fn" = .{
         .calling_convention = .C,
         .is_generic = false,
         .is_var_args = false,
@@ -810,7 +811,7 @@ pub fn defineSignal(
     comptime param_types: []const type,
     comptime ReturnType: type,
 ) type {
-    const EmitParams = @Type(.{ .@"struct" = .{
+    const EmitParams = compat.Reify(.{ .@"struct" = .{
         .layout = .auto,
         .fields = fields: {
             var fields: [param_types.len]std.builtin.Type.StructField = undefined;
@@ -878,7 +879,7 @@ pub fn defineSignal(
         pub fn connect(
             target: anytype,
             comptime T: type,
-            callback: SignalHandler(@typeInfo(@TypeOf(target)).pointer.child, param_types, T, ReturnType),
+            callback: SignalHandler(compat.typeInfo(@TypeOf(target)).pointer.child, param_types, T, ReturnType),
             data: T,
             options: struct {
                 after: bool = false,
@@ -916,7 +917,7 @@ pub const impl_helpers = struct {
 /// emitting a compilation error if the safety of the cast cannot be
 /// guaranteed.
 pub inline fn as(comptime T: type, self: anytype) *T {
-    const self_info = @typeInfo(@TypeOf(self));
+    const self_info = compat.typeInfo(@TypeOf(self));
     if (self_info != .pointer or self_info.pointer.size != .One) {
         @compileError("cannot cast a non-pointer type");
     }
@@ -979,7 +980,7 @@ pub fn isA(self: anytype, comptime T: type) bool {
 
 /// Creates a new instance of an object type with the given properties.
 pub fn newInstance(comptime T: type, properties: anytype) *T {
-    const typeInfo = @typeInfo(@TypeOf(properties)).@"struct";
+    const typeInfo = compat.typeInfo(@TypeOf(properties)).@"struct";
     const n_props = typeInfo.fields.len;
     var names: [n_props][*:0]const u8 = undefined;
     var values: [n_props]gobject.Value = undefined;
@@ -1085,10 +1086,10 @@ pub const Value = struct {
         } else if (T == f64) {
             return value.getDouble();
         } else if (isCString(T)) {
-            if (@typeInfo(T) != .optional) {
+            if (compat.typeInfo(T) != .optional) {
                 @compileError("cannot guarantee value is non-null");
             }
-            const Pointer = @typeInfo(@typeInfo(T).optional.child).pointer;
+            const Pointer = compat.typeInfo(compat.typeInfo(T).optional.child).pointer;
             if (!Pointer.is_const) {
                 @compileError("get does not take ownership; can only return const strings");
             }
@@ -1098,13 +1099,13 @@ pub const Value = struct {
                 .Slice => std.mem.span(value.getString() orelse return null),
             };
         } else if (std.meta.hasFn(T, "getGObjectType")) {
-            return switch (@typeInfo(T)) {
+            return switch (compat.typeInfo(T)) {
                 .@"enum" => @enumFromInt(value.getEnum()),
                 .@"struct" => @bitCast(value.getFlags()),
                 else => @compileError("cannot extract " ++ @typeName(T) ++ " from Value"),
             };
         } else if (singlePointerChild(T)) |Child| {
-            if (@typeInfo(T) != .optional) {
+            if (compat.typeInfo(T) != .optional) {
                 @compileError("cannot guarantee value is non-null");
             }
             if (Child == gobject.ParamSpec) {
@@ -1155,13 +1156,13 @@ pub const Value = struct {
             value.setDouble(contents);
         } else if (comptime isCString(T)) {
             // orelse null as temporary workaround for https://github.com/ziglang/zig/issues/12523
-            switch (@typeInfo(T)) {
+            switch (compat.typeInfo(T)) {
                 .pointer => value.setString(contents),
                 .optional => value.setString(contents orelse null),
                 else => unreachable,
             }
         } else if (std.meta.hasFn(T, "getGObjectType")) {
-            switch (@typeInfo(T)) {
+            switch (compat.typeInfo(T)) {
                 .@"enum" => value.setEnum(@intFromEnum(contents)),
                 .@"struct" => value.setFlags(@bitCast(contents)),
                 else => @compileError("cannot construct Value from " ++ @typeName(T)),
@@ -1191,18 +1192,18 @@ inline fn isObject(comptime T: type) bool {
 }
 
 inline fn isCString(comptime T: type) bool {
-    return switch (@typeInfo(T)) {
+    return switch (compat.typeInfo(T)) {
         .pointer => |pointer| switch (pointer.size) {
-            .One => switch (@typeInfo(pointer.child)) {
+            .One => switch (compat.typeInfo(pointer.child)) {
                 .array => |child| child.child == u8 and std.meta.sentinel(pointer.child) == @as(u8, 0),
                 else => false,
             },
             .Many, .Slice => pointer.child == u8 and std.meta.sentinel(T) == @as(u8, 0),
             .C => pointer.child == u8,
         },
-        .optional => |optional| switch (@typeInfo(optional.child)) {
+        .optional => |optional| switch (compat.typeInfo(optional.child)) {
             .pointer => |pointer| switch (pointer.size) {
-                .One => switch (@typeInfo(pointer.child)) {
+                .One => switch (compat.typeInfo(pointer.child)) {
                     .array => |child| child.child == u8 and std.meta.sentinel(pointer.child) == @as(u8, 0),
                     else => false,
                 },
@@ -1216,12 +1217,12 @@ inline fn isCString(comptime T: type) bool {
 }
 
 inline fn singlePointerChild(comptime T: type) ?type {
-    return switch (@typeInfo(T)) {
+    return switch (compat.typeInfo(T)) {
         .pointer => |pointer| switch (pointer.size) {
             .One, .C => pointer.child,
             else => null,
         },
-        .optional => |optional| switch (@typeInfo(optional.child)) {
+        .optional => |optional| switch (compat.typeInfo(optional.child)) {
             .pointer => |pointer| switch (pointer.size) {
                 .One => pointer.child,
                 else => null,

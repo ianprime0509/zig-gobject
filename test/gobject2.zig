@@ -1,4 +1,5 @@
 const gobject = @import("gobject");
+const compat = @import("abi/compat.zig");
 
 const std = @import("std");
 const bindings = @import("bindings.zig");
@@ -109,7 +110,7 @@ test "Value" {
             one: bool = false,
             two: bool = false,
             three: bool = false,
-            _padding1: @Type(.{ .int = .{
+            _padding1: compat.Reify(.{ .int = .{
                 .signedness = .unsigned,
                 .bits = @bitSizeOf(c_uint) - 3,
             } }) = 0,
@@ -228,7 +229,7 @@ test "flags type" {
         two: i1 = -1,
         _padding0: u2 = 0,
         three: u1 = 1,
-        _padding1: @Type(.{ .int = .{
+        _padding1: compat.Reify(.{ .int = .{
             .signedness = .unsigned,
             .bits = @bitSizeOf(c_uint) - 5,
         } }) = 0,

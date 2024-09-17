@@ -2,6 +2,7 @@ const glib = @import("glib2");
 const gobject = @import("gobject2");
 const gtk = @import("gtk4");
 const std = @import("std");
+const compat = @import("compat");
 
 pub const BindTemplateChildOptions = struct {
     field: ?[]const u8 = null,
@@ -57,16 +58,16 @@ pub const impl_helpers = struct {
     }
 
     fn ensureWidgetType(comptime Container: type, comptime field_name: []const u8) void {
-        inline for (@typeInfo(Container).@"struct".fields) |field| {
+        inline for (compat.typeInfo(Container).@"struct".fields) |field| {
             if (comptime std.mem.eql(u8, field.name, field_name)) {
-                const WidgetType = switch (@typeInfo(field.type)) {
+                const WidgetType = switch (compat.typeInfo(field.type)) {
                     .pointer => |pointer| widget_type: {
                         if (pointer.size != .One) {
                             @compileError("bound child type must be a single pointer");
                         }
                         break :widget_type pointer.child;
                     },
-                    .optional => |optional| switch (@typeInfo(optional.child)) {
+                    .optional => |optional| switch (compat.typeInfo(optional.child)) {
                         .pointer => |pointer| widget_type: {
                             if (pointer.size != .One) {
                                 @compileError("bound child type must be a single pointer");

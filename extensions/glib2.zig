@@ -1,5 +1,6 @@
 const glib = @import("glib2");
 const std = @import("std");
+const compat = @import("compat");
 
 /// Creates a heap-allocated value of type `T` using `glib.malloc`. `T` must not
 /// be zero-sized or aligned more than `std.c.max_align_t`.
@@ -19,7 +20,7 @@ pub inline fn new(comptime T: type, value: T) *T {
 
 /// Destroys a value created using `create`.
 pub fn destroy(ptr: anytype) void {
-    const type_info = @typeInfo(@TypeOf(ptr));
+    const type_info = compat.typeInfo(@TypeOf(ptr));
     if (type_info != .pointer or type_info.pointer.size != .One) @compileError("must be a single-item pointer");
     glib.freeSized(@ptrCast(ptr), @sizeOf(type_info.pointer.child));
 }
@@ -35,7 +36,7 @@ pub fn alloc(comptime T: type, n: usize) []T {
 
 /// Frees a slice created using `alloc`.
 pub fn free(ptr: anytype) void {
-    const type_info = @typeInfo(@TypeOf(ptr));
+    const type_info = compat.typeInfo(@TypeOf(ptr));
     if (type_info != .pointer or type_info.pointer.size != .Slice) @compileError("must be a slice");
     glib.freeSized(@ptrCast(ptr.ptr), @sizeOf(type_info.pointer.child) * ptr.len);
 }
@@ -60,7 +61,7 @@ pub const Variant = struct {
     /// This does not take ownership of the value (if applicable).
     pub fn newFrom(contents: anytype) *glib.Variant {
         const T = @TypeOf(contents);
-        const type_info = @typeInfo(T);
+        const type_info = compat.typeInfo(T);
         if (T == bool) {
             return glib.Variant.newBoolean(@intFromBool(contents));
         } else if (T == u8) {
@@ -129,7 +130,7 @@ pub const VariantType = struct {
 
     /// Returns the variant type string corresponding to the given type.
     pub fn stringFor(comptime T: type) [:0]const u8 {
-        const type_info = @typeInfo(T);
+        const type_info = compat.typeInfo(T);
         if (T == bool) {
             return "b";
         } else if (T == u8) {
@@ -171,9 +172,9 @@ pub const VariantType = struct {
 };
 
 fn isCString(comptime T: type) bool {
-    return switch (@typeInfo(T)) {
+    return switch (compat.typeInfo(T)) {
         .pointer => |info| switch (info.size) {
-            .One => switch (@typeInfo(info.child)) {
+            .One => switch (compat.typeInfo(info.child)) {
                 .array => |child| child.child == u8 and std.meta.sentinel(info.child) == @as(u8, 0),
                 else => false,
             },
