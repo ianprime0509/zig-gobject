@@ -887,7 +887,7 @@ fn translateLayoutElements(allocator: Allocator, layout_elements: []const gir.La
                     try out.print("bitfields$L: packed struct(c_uint) {\n", .{n_bit_fields});
                 }
                 try translateDocumentation(allocator, field.documentation, ctx, out);
-                try out.print("$I: u$L,\n", .{ field.name, bits });
+                try out.print("f_$L: u$L,\n", .{ field.name, bits });
                 bit_field_offset += bits;
                 // This implementation does not handle bit fields with members
                 // crossing storage boundaries, since this does not appear in
@@ -900,7 +900,7 @@ fn translateLayoutElements(allocator: Allocator, layout_elements: []const gir.La
                 }
             } else {
                 try translateDocumentation(allocator, field.documentation, ctx, out);
-                try out.print("$I: @compileError(\"can't translate bitfields unless backed by guint\"),\n", .{field.name});
+                try out.print("f_$L: @compileError(\"can't translate bitfields unless backed by guint\"),\n", .{field.name});
             }
         } else {
             if (bit_field_offset > 0) {
@@ -913,7 +913,7 @@ fn translateLayoutElements(allocator: Allocator, layout_elements: []const gir.La
             switch (layout_element) {
                 .field => |field| {
                     try translateDocumentation(allocator, field.documentation, ctx, out);
-                    try out.print("$I: ", .{field.name});
+                    try out.print("f_$L: ", .{field.name});
                     try translateFieldType(allocator, field.type, ctx, out);
                     try out.print(",\n", .{});
                 },
@@ -995,19 +995,16 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: Transla
     }
 
     try out.print("\n", .{});
-    // Adding all values as constants makes sure we don't miss anything that was
-    // 0, not a power of 2, etc. It may be somewhat confusing to have the
-    // members we just translated as fields also included here, but this is
-    // actually useful for some weird bit field types which are not entirely bit
-    // fields anyways. As an example of this, see DebugColorFlags in Gst-1.0. We
-    // also need to keep track of duplicate members, since GstVideo-1.0 has
-    // multiple members with the same name :thinking:
+    // Some "bit field" types are also used as flags, and some specified values
+    // may not be powers of two (such as Gst.DebugColorFlags). We also need to
+    // keep track of duplicate members, since GstVideo-1.0 has multiple members
+    // with the same name:
     // https://gitlab.gnome.org/GNOME/gobject-introspection/-/issues/264
     var seen = std.StringHashMap(void).init(allocator);
     defer seen.deinit();
     for (bit_field.members) |member| {
         if (!seen.contains(member.name)) {
-            try out.print("const $I: $I = @bitCast(@as($L, $L));\n", .{ member.name, name, backing_int, member.value });
+            try out.print("const flags_$L: $I = @bitCast(@as($L, $L));\n", .{ member.name, name, backing_int, member.value });
         }
         try seen.put(member.name, {});
     }
@@ -1209,7 +1206,7 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
         .force_nullable = virtual_method.throws,
     }, ctx, out);
     try out.print(" {\n", .{});
-    try out.print("return p_class.as($I.$I).$I.?(", .{ type_name, type_struct_name, virtual_method.name });
+    try out.print("return p_class.as($I.$I).f_$L.?(", .{ type_name, type_struct_name, virtual_method.name });
     try translateParameterNames(allocator, virtual_method.parameters, .{
         .throws = virtual_method.throws,
     }, out);
@@ -1227,7 +1224,7 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
         .force_nullable = virtual_method.throws,
     }, ctx, out);
     try out.print(") void {\n", .{});
-    try out.print("p_class.as($I.$I).$I = @ptrCast(p_implementation);\n", .{ type_name, type_struct_name, virtual_method.name });
+    try out.print("p_class.as($I.$I).f_$L = @ptrCast(p_implementation);\n", .{ type_name, type_struct_name, virtual_method.name });
     try out.print("}\n", .{});
 
     try out.print("};\n\n", .{});

@@ -145,9 +145,9 @@ pub fn implement(comptime Iface: type, comptime options: ImplementOptions(Iface)
     return .{
         .Iface = Iface,
         .info = .{
-            .interface_init = @ptrCast(options.init),
-            .interface_finalize = @ptrCast(options.finalize),
-            .interface_data = null,
+            .f_interface_init = @ptrCast(options.init),
+            .f_interface_finalize = @ptrCast(options.finalize),
+            .f_interface_data = null,
         },
     };
 }
@@ -222,17 +222,17 @@ pub fn defineClass(
                         }
                     }
                 }.classInit;
-                const info = gobject.TypeInfo{
-                    .class_size = @sizeOf(Instance.Class),
-                    .base_init = @ptrCast(options.baseInit),
-                    .base_finalize = @ptrCast(options.baseFinalize),
-                    .class_init = @ptrCast(&classInitFunc),
-                    .class_finalize = @ptrCast(options.classFinalize),
-                    .class_data = null,
-                    .instance_size = @sizeOf(Instance),
-                    .n_preallocs = 0,
-                    .instance_init = @ptrCast(options.instanceInit),
-                    .value_table = null,
+                const info: gobject.TypeInfo = .{
+                    .f_class_size = @sizeOf(Instance.Class),
+                    .f_base_init = @ptrCast(options.baseInit),
+                    .f_base_finalize = @ptrCast(options.baseFinalize),
+                    .f_class_init = @ptrCast(&classInitFunc),
+                    .f_class_finalize = @ptrCast(options.classFinalize),
+                    .f_class_data = null,
+                    .f_instance_size = @sizeOf(Instance),
+                    .f_n_preallocs = 0,
+                    .f_instance_init = @ptrCast(options.instanceInit),
+                    .f_value_table = null,
                 };
 
                 const type_id = gobject.typeRegisterStatic(
