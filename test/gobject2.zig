@@ -1,4 +1,5 @@
 const gobject = @import("gobject");
+const compat = @import("abi/compat.zig");
 
 const std = @import("std");
 const bindings = @import("bindings.zig");
@@ -109,7 +110,7 @@ test "Value" {
             one: bool = false,
             two: bool = false,
             three: bool = false,
-            _padding1: @Type(.{ .Int = .{
+            _padding1: compat.Reify(.{ .int = .{
                 .signedness = .unsigned,
                 .bits = @bitSizeOf(c_uint) - 3,
             } }) = 0,
@@ -217,9 +218,9 @@ test "enum type" {
     };
 
     const enum_type_class: *gobject.EnumClass = @ptrCast(gobject.TypeClass.ref(MyEnum.getGObjectType()));
-    try expectEqual(1, enum_type_class.minimum);
-    try expectEqual(3, enum_type_class.maximum);
-    try expectEqual(3, enum_type_class.n_values);
+    try expectEqual(1, enum_type_class.f_minimum);
+    try expectEqual(3, enum_type_class.f_maximum);
+    try expectEqual(3, enum_type_class.f_n_values);
 }
 
 test "flags type" {
@@ -228,7 +229,7 @@ test "flags type" {
         two: i1 = -1,
         _padding0: u2 = 0,
         three: u1 = 1,
-        _padding1: @Type(.{ .Int = .{
+        _padding1: compat.Reify(.{ .int = .{
             .signedness = .unsigned,
             .bits = @bitSizeOf(c_uint) - 5,
         } }) = 0,
@@ -237,6 +238,6 @@ test "flags type" {
     };
 
     const flags_type_class: *gobject.FlagsClass = @ptrCast(gobject.TypeClass.ref(MyFlags.getGObjectType()));
-    try expectEqual(0b10011, flags_type_class.mask);
-    try expectEqual(3, flags_type_class.n_values);
+    try expectEqual(0b10011, flags_type_class.f_mask);
+    try expectEqual(3, flags_type_class.f_n_values);
 }

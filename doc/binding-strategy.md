@@ -24,6 +24,31 @@ such as the use of the correct pointer type `?[*:0]const u8` for the application
 ID, rather than the limited `[*c]const u8` which `zig translate-c` would
 produce.
 
+## Naming
+
+Zig and GObject-based libraries have different naming conventions in some
+aspects, and Zig also enforces more stringent naming practices in several ways:
+for example, fields and decls may not have the same name, names may not shadow
+others in their enclosing scope. The generated bindings rename the original
+library symbols as follows:
+
+- Namespace names: lowercased (e.g. `Gtk` becomes `gtk`).
+- Type names: remain the same, as GObject and Zig both use `PascalCase`.
+  - Exception: type names which would conflict with one of the built-in
+    metadata fields are "mangled" by adding a trailing `_`. For example, a type
+    in a library originally named `Class` will be translated as `Class_`.
+- Function names: translated from `snake_case` into `camelCase` (e.g.
+  `signal_connect_data` becomes `signalConnectData`).
+- Constant names: remain the same. Although Zig prefers lowercase constant
+  names, in contrast to GObject's `SCREAMING_SNAKE_CASE`, uniformly lowercasing
+  constant names would lead to some conflicts (e.g. GDK's `KEY_A` and `KEY_a`
+  would become ambiguous).
+- Enum and bit field (flags) members: remain the same (`snake_case`).
+- Field names: remain the same, but prefixed with `f_` to avoid potentially
+  conflicting with other declarations on the types.
+- Parameter names: remain the same, but prefixed with `p_` to avoid potentially
+  shadowing other names in the enclosing scope.
+
 ## Usage conventions
 
 While it is possible for functions in Zig to be called using method call syntax
@@ -107,7 +132,7 @@ pub fn implement(
     /// The type struct instance on which to implement the method.
     class: anytype,
     /// The implementation of the method.
-    impl: *const fn(*@typeInfo(@TypeOf(class)).Pointer.child.Instance, ...method parameters...) ...method return type...,
+    impl: *const fn(*@typeInfo(@TypeOf(class)).pointer.child.Instance, ...method parameters...) ...method return type...,
 )
 ```
 

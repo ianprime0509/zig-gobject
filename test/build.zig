@@ -480,7 +480,7 @@ pub fn build(b: *std.Build) void {
                 .optimize = optimize,
             });
             abi_tests.root_module.addImport(module, gobject.module(module));
-            inline for (@typeInfo(gobject_build.libraries).Struct.decls) |lib_decl| {
+            inline for (comptime std.meta.declarations(gobject_build.libraries)) |lib_decl| {
                 if (std.mem.eql(u8, lib_decl.name, module)) {
                     @field(gobject_build.libraries, lib_decl.name).linkTo(&abi_tests.root_module);
                 }

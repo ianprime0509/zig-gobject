@@ -293,6 +293,25 @@ pub fn createBindings(
     deps: *Dependencies,
     diag: *Diagnostics,
 ) Allocator.Error!void {
+    compat_module: {
+        const compat_output_dir_path = try std.fs.path.join(allocator, &.{ output_dir_path, "compat" });
+        defer allocator.free(compat_output_dir_path);
+        std.fs.cwd().makePath(compat_output_dir_path) catch |err| {
+            try diag.add("failed to create output directory {s}: {}", .{ compat_output_dir_path, err });
+            break :compat_module;
+        };
+
+        const compat_file_path = try std.fs.path.join(allocator, &.{ compat_output_dir_path, "compat.zig" });
+        defer allocator.free(compat_file_path);
+        std.fs.cwd().writeFile(.{
+            .sub_path = compat_file_path,
+            .data = @embedFile("compat.zig"),
+        }) catch |err| {
+            try diag.add("failed to write output file {s}: {}", .{ compat_file_path, err });
+            break :compat_module;
+        };
+    }
+
     var repository_map = RepositoryMap.init(allocator);
     defer repository_map.deinit();
     for (repositories) |repo| {
@@ -475,6 +494,8 @@ fn translateIncludes(allocator: Allocator, ns: gir.Namespace, repository_map: Re
 
     // std is needed for std.builtin.VaList
     try out.print("const std = @import(\"std\");\n", .{});
+    // compat is used by all modules for Zig cross-version compatibility.
+    try out.print("const compat = @import(\"compat\");\n", .{});
 
     var seen = RepositorySet.init(allocator);
     defer seen.deinit();
@@ -866,7 +887,7 @@ fn translateLayoutElements(allocator: Allocator, layout_elements: []const gir.La
                     try out.print("bitfields$L: packed struct(c_uint) {\n", .{n_bit_fields});
                 }
                 try translateDocumentation(allocator, field.documentation, ctx, out);
-                try out.print("$I: u$L,\n", .{ field.name, bits });
+                try out.print("f_$L: u$L,\n", .{ field.name, bits });
                 bit_field_offset += bits;
                 // This implementation does not handle bit fields with members
                 // crossing storage boundaries, since this does not appear in
@@ -879,7 +900,7 @@ fn translateLayoutElements(allocator: Allocator, layout_elements: []const gir.La
                 }
             } else {
                 try translateDocumentation(allocator, field.documentation, ctx, out);
-                try out.print("$I: @compileError(\"can't translate bitfields unless backed by guint\"),\n", .{field.name});
+                try out.print("f_$L: @compileError(\"can't translate bitfields unless backed by guint\"),\n", .{field.name});
             }
         } else {
             if (bit_field_offset > 0) {
@@ -892,7 +913,7 @@ fn translateLayoutElements(allocator: Allocator, layout_elements: []const gir.La
             switch (layout_element) {
                 .field => |field| {
                     try translateDocumentation(allocator, field.documentation, ctx, out);
-                    try out.print("$I: ", .{field.name});
+                    try out.print("f_$L: ", .{field.name});
                     try translateFieldType(allocator, field.type, ctx, out);
                     try out.print(",\n", .{});
                 },
@@ -974,19 +995,16 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: Transla
     }
 
     try out.print("\n", .{});
-    // Adding all values as constants makes sure we don't miss anything that was
-    // 0, not a power of 2, etc. It may be somewhat confusing to have the
-    // members we just translated as fields also included here, but this is
-    // actually useful for some weird bit field types which are not entirely bit
-    // fields anyways. As an example of this, see DebugColorFlags in Gst-1.0. We
-    // also need to keep track of duplicate members, since GstVideo-1.0 has
-    // multiple members with the same name :thinking:
+    // Some "bit field" types are also used as flags, and some specified values
+    // may not be powers of two (such as Gst.DebugColorFlags). We also need to
+    // keep track of duplicate members, since GstVideo-1.0 has multiple members
+    // with the same name:
     // https://gitlab.gnome.org/GNOME/gobject-introspection/-/issues/264
     var seen = std.StringHashMap(void).init(allocator);
     defer seen.deinit();
     for (bit_field.members) |member| {
         if (!seen.contains(member.name)) {
-            try out.print("const $I: $I = @bitCast(@as($L, $L));\n", .{ member.name, name, backing_int, member.value });
+            try out.print("const flags_$L: $I = @bitCast(@as($L, $L));\n", .{ member.name, name, backing_int, member.value });
         }
         try seen.put(member.name, {});
     }
@@ -1180,7 +1198,7 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
 
     try out.print("pub fn call(p_class: anytype, ", .{});
     try translateParameters(allocator, virtual_method.parameters, .{
-        .self_type = "@typeInfo(@TypeOf(p_class)).Pointer.child.Instance",
+        .self_type = "compat.typeInfo(@TypeOf(p_class)).pointer.child.Instance",
         .throws = virtual_method.throws,
     }, ctx, out);
     try out.print(") ", .{});
@@ -1188,7 +1206,7 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
         .force_nullable = virtual_method.throws,
     }, ctx, out);
     try out.print(" {\n", .{});
-    try out.print("return p_class.as($I.$I).$I.?(", .{ type_name, type_struct_name, virtual_method.name });
+    try out.print("return p_class.as($I.$I).f_$L.?(", .{ type_name, type_struct_name, virtual_method.name });
     try translateParameterNames(allocator, virtual_method.parameters, .{
         .throws = virtual_method.throws,
     }, out);
@@ -1198,7 +1216,7 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
     try out.print("pub fn implement(p_class: anytype, p_implementation: ", .{});
     try out.print("*const fn (", .{});
     try translateParameters(allocator, virtual_method.parameters, .{
-        .self_type = "@typeInfo(@TypeOf(p_class)).Pointer.child.Instance",
+        .self_type = "compat.typeInfo(@TypeOf(p_class)).pointer.child.Instance",
         .throws = virtual_method.throws,
     }, ctx, out);
     try out.print(") callconv(.C) ", .{});
@@ -1206,7 +1224,7 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
         .force_nullable = virtual_method.throws,
     }, ctx, out);
     try out.print(") void {\n", .{});
-    try out.print("p_class.as($I.$I).$I = @ptrCast(p_implementation);\n", .{ type_name, type_struct_name, virtual_method.name });
+    try out.print("p_class.as($I.$I).f_$L = @ptrCast(p_implementation);\n", .{ type_name, type_struct_name, virtual_method.name });
     try out.print("}\n", .{});
 
     try out.print("};\n\n", .{});
@@ -2791,6 +2809,15 @@ fn createBuildZig(
         \\
     , .{});
 
+    try out.print(
+        \\const compat = b.createModule(.{
+        \\    .root_source_file = b.path("src/compat/compat.zig"),
+        \\    .target = target,
+        \\    .optimize = optimize,
+        \\});
+        \\
+    , .{});
+
     for (repositories) |repo| {
         try deps.add(output_path, &.{repo.path});
 
@@ -2810,6 +2837,7 @@ fn createBuildZig(
         for (repo.packages) |package| {
             try out.print("$I.linkSystemLibrary($S, .{});\n", .{ module_name, package.name });
         }
+        try out.print("$I.addImport(\"compat\", compat);\n", .{module_name});
     }
 
     for (repositories) |repo| {
@@ -3002,6 +3030,17 @@ pub fn createAbiTests(
     std.fs.cwd().makePath(output_dir_path) catch |err|
         return diag.add("failed to create output directory {s}: {}", .{ output_dir_path, err });
 
+    {
+        const compat_file_path = try std.fs.path.join(allocator, &.{ output_dir_path, "compat.zig" });
+        defer allocator.free(compat_file_path);
+        std.fs.cwd().writeFile(.{
+            .sub_path = compat_file_path,
+            .data = @embedFile("compat.zig"),
+        }) catch |err| {
+            try diag.add("failed to write output file {s}: {}", .{ compat_file_path, err });
+        };
+    }
+
     for (repositories) |repo| {
         var raw_source = std.ArrayList(u8).init(allocator);
         defer raw_source.deinit();
@@ -3017,6 +3056,7 @@ pub fn createAbiTests(
         }
         try out.print("});\n", .{});
         try out.print("const std = @import(\"std\");\n", .{});
+        try out.print("const compat = @import(\"compat.zig\");\n", .{});
         const import_name = try moduleNameAlloc(allocator, ns.name, ns.version);
         defer allocator.free(import_name);
         try out.print("const $I = @import($S);\n\n", .{ pkg, import_name });
@@ -3026,32 +3066,32 @@ pub fn createAbiTests(
             \\    // translate-c doesn't seem to want to translate va_list to std.builtin.VaList
             \\    if (ActualType == std.builtin.VaList) return;
             \\
-            \\    const expected_type_info = @typeInfo(ExpectedType);
-            \\    const actual_type_info = @typeInfo(ActualType);
+            \\    const expected_type_info = compat.typeInfo(ExpectedType);
+            \\    const actual_type_info = compat.typeInfo(ActualType);
             \\    switch (expected_type_info) {
-            \\        .Void => switch (actual_type_info) {
-            \\            .Void => {},
+            \\        .void => switch (actual_type_info) {
+            \\            .void => {},
             \\            else => {
             \\                std.debug.print("incompatible types: expected {s}, actual {s}\n", .{@typeName(ExpectedType), @typeName(ActualType)});
             \\                return error.TestUnexpectedType;
             \\            },
             \\        },
-            \\        .Bool => switch (actual_type_info) {
-            \\            .Bool => {},
+            \\        .bool => switch (actual_type_info) {
+            \\            .bool => {},
             \\            else => {
             \\                std.debug.print("incompatible types: expected {s}, actual {s}\n", .{@typeName(ExpectedType), @typeName(ActualType)});
             \\                return error.TestUnexpectedType;
             \\            },
             \\        },
-            \\        .Float => |expected_float| switch (actual_type_info) {
-            \\            .Float => |actual_float| try std.testing.expectEqual(expected_float.bits, actual_float.bits),
+            \\        .float => |expected_float| switch (actual_type_info) {
+            \\            .float => |actual_float| try std.testing.expectEqual(expected_float.bits, actual_float.bits),
             \\            else => {
             \\                std.debug.print("incompatible types: expected {s}, actual {s}\n", .{@typeName(ExpectedType), @typeName(ActualType)});
             \\                return error.TestUnexpectedType;
             \\            },
             \\        },
-            \\        .Array => |expected_array| switch (actual_type_info) {
-            \\            .Array => |actual_array| {
+            \\        .array => |expected_array| switch (actual_type_info) {
+            \\            .array => |actual_array| {
             \\                try std.testing.expectEqual(expected_array.len, actual_array.len);
             \\                try checkCompatibility(expected_array.child, actual_array.child);
             \\            },
@@ -3060,8 +3100,8 @@ pub fn createAbiTests(
             \\                return error.TestUnexpectedType;
             \\            },
             \\        },
-            \\        .Struct => switch (actual_type_info) {
-            \\            .Struct => {
+            \\        .@"struct" => switch (actual_type_info) {
+            \\            .@"struct" => {
             \\                try std.testing.expectEqual(@sizeOf(ExpectedType), @sizeOf(ActualType));
             \\                try std.testing.expectEqual(@alignOf(ExpectedType), @alignOf(ActualType));
             \\            },
@@ -3070,8 +3110,8 @@ pub fn createAbiTests(
             \\                return error.TestUnexpectedType;
             \\            },
             \\        },
-            \\        .Union => switch (actual_type_info) {
-            \\            .Union => {
+            \\        .@"union" => switch (actual_type_info) {
+            \\            .@"union" => {
             \\                try std.testing.expectEqual(@sizeOf(ExpectedType), @sizeOf(ActualType));
             \\                try std.testing.expectEqual(@alignOf(ExpectedType), @alignOf(ActualType));
             \\            },
@@ -3083,13 +3123,13 @@ pub fn createAbiTests(
             \\        // Opaque types show up more frequently in translate-c output due to its
             \\        // limitations. We'll just treat "opaque" as "I don't know" and accept any
             \\        // translation from zig-gobject.
-            \\        .Opaque => {},
-            \\        .Int => |expected_int| switch (actual_type_info) {
+            \\        .@"opaque" => {},
+            \\        .int => |expected_int| switch (actual_type_info) {
             \\            // Checking signedness here turns out to be too strict for many cases
             \\            // and does not affect actual ABI compatibility.
-            \\            .Int => |actual_int| try std.testing.expectEqual(expected_int.bits, actual_int.bits),
-            \\            .Enum => |actual_enum| try checkCompatibility(ExpectedType, actual_enum.tag_type),
-            \\            .Struct => |actual_struct| {
+            \\            .int => |actual_int| try std.testing.expectEqual(expected_int.bits, actual_int.bits),
+            \\            .@"enum" => |actual_enum| try checkCompatibility(ExpectedType, actual_enum.tag_type),
+            \\            .@"struct" => |actual_struct| {
             \\                try std.testing.expect(actual_struct.layout == .@"packed");
             \\                try checkCompatibility(ExpectedType, actual_struct.backing_integer.?);
             \\            },
@@ -3100,23 +3140,23 @@ pub fn createAbiTests(
             \\        },
             \\        // Pointers are tricky to assert on, since we may translate some pointers
             \\        // differently from how they appear in C (e.g. *GtkWindow rather than *GtkWidget)
-            \\        .Pointer => switch (actual_type_info) {
-            \\            .Pointer => {},
-            \\            .Optional => |actual_optional| try std.testing.expect(@typeInfo(actual_optional.child) == .Pointer),
+            \\        .pointer => switch (actual_type_info) {
+            \\            .pointer => {},
+            \\            .@"optional" => |actual_optional| try std.testing.expect(compat.typeInfo(actual_optional.child) == .pointer),
             \\            else => {
             \\                std.debug.print("incompatible types: expected {s}, actual {s}\n", .{@typeName(ExpectedType), @typeName(ActualType)}) ;
             \\                return error.TestUnexpectedType;
             \\            }
             \\        },
-            \\        .Optional => |expected_optional| switch (@typeInfo(expected_optional.child)) {
-            \\            .Pointer => try checkCompatibility(expected_optional.child, ActualType),
+            \\        .@"optional" => |expected_optional| switch (compat.typeInfo(expected_optional.child)) {
+            \\            .pointer => try checkCompatibility(expected_optional.child, ActualType),
             \\            else => {
             \\                std.debug.print("unexpected C translated type: {s}\n", .{@typeName(ExpectedType)});
             \\                return error.TestUnexpectedType;
             \\            }
             \\        },
-            \\        .Fn => |expected_fn| switch (actual_type_info) {
-            \\            .Fn => |actual_fn| {
+            \\        .@"fn" => |expected_fn| switch (actual_type_info) {
+            \\            .@"fn" => |actual_fn| {
             \\                try std.testing.expectEqual(expected_fn.params.len, actual_fn.params.len);
             \\                try std.testing.expectEqual(expected_fn.calling_convention, actual_fn.calling_convention);
             \\                // The special casing of zero arguments here is because there are some
@@ -3173,7 +3213,7 @@ pub fn createAbiTests(
                     try out.print(
                         \\const ExpectedType = c.$I;
                         \\const ActualType = $I.$I;
-                        \\try std.testing.expect(@typeInfo(ExpectedType) == .Struct);
+                        \\try std.testing.expect(compat.typeInfo(ExpectedType) == .@"struct");
                         \\try checkCompatibility(ExpectedType, ActualType);
                         \\
                     , .{ c_type, pkg, class_name });
@@ -3216,9 +3256,9 @@ pub fn createAbiTests(
                         \\
                     , .{ c_type, pkg, record_name });
                     if (record.isPointer()) {
-                        try out.print("try std.testing.expect(@typeInfo(ExpectedType) == .Pointer);\n", .{});
+                        try out.print("try std.testing.expect(compat.typeInfo(ExpectedType) == .pointer);\n", .{});
                     } else {
-                        try out.print("try std.testing.expect(@typeInfo(ExpectedType) == .Struct);\n", .{});
+                        try out.print("try std.testing.expect(compat.typeInfo(ExpectedType) == .@\"struct\");\n", .{});
                     }
                     try out.print("try checkCompatibility(ExpectedType, ActualType);\n", .{});
                     try out.print("}\n\n", .{});
@@ -3258,7 +3298,7 @@ pub fn createAbiTests(
                     try out.print(
                         \\const ExpectedType = c.$I;
                         \\const ActualType = $I.$I;
-                        \\try std.testing.expect(@typeInfo(ExpectedType) == .Union);
+                        \\try std.testing.expect(compat.typeInfo(ExpectedType) == .@"union");
                         \\try checkCompatibility(ExpectedType, ActualType);
                         \\
                     , .{ c_type, pkg, union_name });
@@ -3296,7 +3336,7 @@ pub fn createAbiTests(
                 try out.print(
                     \\const ExpectedType = c.$I;
                     \\const ActualType = $I.$I;
-                    \\try std.testing.expect(@typeInfo(ExpectedType) == .Int);
+                    \\try std.testing.expect(compat.typeInfo(ExpectedType) == .int);
                     \\try checkCompatibility(ExpectedType, ActualType);
                     \\
                 , .{ c_type, pkg, bit_field_name });
@@ -3319,7 +3359,7 @@ pub fn createAbiTests(
                 try out.print(
                     \\const ExpectedType = c.$I;
                     \\const ActualType = $I.$I;
-                    \\try std.testing.expect(@typeInfo(ExpectedType) == .Int);
+                    \\try std.testing.expect(compat.typeInfo(ExpectedType) == .int);
                     \\try checkCompatibility(ExpectedType, ActualType);
                     \\
                 , .{ c_type, pkg, enum_name });
@@ -3343,7 +3383,7 @@ pub fn createAbiTests(
             try out.print(
                 \\const ExpectedFnType = @TypeOf(c.$I);
                 \\const ActualFnType = @TypeOf($I.$I);
-                \\try std.testing.expect(@typeInfo(ExpectedFnType) == .Fn);
+                \\try std.testing.expect(compat.typeInfo(ExpectedFnType) == .@"fn");
                 \\try checkCompatibility(ExpectedFnType, ActualFnType);
                 \\
             , .{ function.c_identifier, pkg, function_name });
@@ -3379,7 +3419,7 @@ fn createFunctionTest(
     try out.print(
         \\const ExpectedFnType = @TypeOf(c.$I);
         \\const ActualFnType = @TypeOf($I.$I.$I);
-        \\try std.testing.expect(@typeInfo(ExpectedFnType) == .Fn);
+        \\try std.testing.expect(compat.typeInfo(ExpectedFnType) == .@"fn");
         \\try checkCompatibility(ExpectedFnType, ActualFnType);
         \\
     , .{ c_name, pkg_name, container_name, function_name });
@@ -3399,7 +3439,7 @@ fn createMethodTest(
         \\const ExpectedFnType = @TypeOf(c.$I);
         \\const ActualType = $I.$I;
         \\const ActualFnType = @TypeOf(ActualType.$I);
-        \\try std.testing.expect(@typeInfo(ExpectedFnType) == .Fn);
+        \\try std.testing.expect(compat.typeInfo(ExpectedFnType) == .@"fn");
         \\try checkCompatibility(ExpectedFnType, ActualFnType);
         \\
     , .{ c_name, pkg_name, container_name, function_name });
