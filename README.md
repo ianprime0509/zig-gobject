@@ -97,6 +97,13 @@ the directory to the GIR search path.
 
 Fixes for known GIR issues are maintained in `gir-fixes`.
 
+The XSLT stylesheets are applied using `xsltproc`, which is part of the libxslt
+project. By default, the `xsltproc` installed on the system will be used.
+However, by passing `-fno-sys=xsltproc` to `zig build`, it can be built from
+source using [`zig-libxml2`](https://github.com/ianprime0509/zig-libxml2).
+Please note that there is an open issue preventing this from working very well,
+however: https://github.com/ianprime0509/zig-libxml2/issues/1
+
 ### Writing bindings by hand
 
 While the binding generator is capable of generating good bindings from GIR

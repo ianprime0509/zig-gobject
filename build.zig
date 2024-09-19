@@ -280,13 +280,20 @@ pub fn build(b: *std.Build) void {
             fix(b, "freetype2-2.0", "common"),
         },
     } else &.{};
+    const system_xsltproc = b.systemIntegrationOption("xsltproc", .{
+        // Defaults to true to prevent issues due to https://github.com/ianprime0509/zig-libxml2/issues/1
+        .default = true,
+    });
     if (gir_fixes.len > 0) gir_fixes: {
-        const libxml2 = b.lazyDependency("libxml2", .{
-            .target = target,
-            .optimize = optimize,
-            .xslt = true,
-        }) orelse break :gir_fixes;
-        const xsltproc = libxml2.artifact("xsltproc");
+        const xsltproc = xsltproc: {
+            if (system_xsltproc) break :xsltproc undefined;
+            const libxml2 = b.lazyDependency("libxml2", .{
+                .target = target,
+                .optimize = optimize,
+                .xslt = true,
+            }) orelse break :gir_fixes;
+            break :xsltproc libxml2.artifact("xsltproc");
+        };
         const fixed_files = b.addWriteFiles();
 
         for (gir_fixes) |gir_fix| {
@@ -295,7 +302,10 @@ pub fn build(b: *std.Build) void {
             const source_gir_path = b.pathJoin(&.{ gir_files_path, target_gir });
             const xslt_path = gir_fix[sep_pos + 1 ..];
 
-            const run_xsltproc = b.addRunArtifact(xsltproc);
+            const run_xsltproc = if (system_xsltproc)
+                b.addSystemCommand(&.{"xsltproc"})
+            else
+                b.addRunArtifact(xsltproc);
             run_xsltproc.addArg("-o");
             const output_gir = run_xsltproc.addOutputFileArg("gir-fix");
             run_xsltproc.addArg(xslt_path);
