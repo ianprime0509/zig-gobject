@@ -608,6 +608,13 @@ fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContex
         try out.print("pub const Class = ", .{});
         try translateName(allocator, type_struct, out);
         try out.print(";\n", .{});
+    } else {
+        try out.print(
+            \\pub const Class = opaque {
+            \\    pub const Instance = $I;
+            \\};
+            \\
+        , .{name});
     }
 
     if (!class.isOpaque()) {
@@ -715,6 +722,13 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, ctx: Trans
         try out.print("pub const Iface = ", .{});
         try translateName(allocator, type_struct, out);
         try out.print(";\n", .{});
+    } else {
+        try out.print(
+            \\pub const Iface = opaque {
+            \\    pub const Instance = $I;
+            \\};
+            \\
+        , .{name});
     }
 
     try out.print("pub const virtual_methods = struct {\n", .{});
