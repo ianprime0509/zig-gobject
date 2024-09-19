@@ -55,8 +55,7 @@ pub fn ZigWriter(comptime Writer: type) type {
                     },
                     'L' => {
                         const arg = @field(args, arg_fields[current_arg].name);
-                        const arg_type_info = @typeInfo(@TypeOf(arg));
-                        if (arg_type_info == .pointer and arg_type_info.pointer.size == .Slice and arg_type_info.pointer.child == u8) {
+                        if (isString(@TypeOf(arg))) {
                             for (arg) |char| {
                                 switch (char) {
                                     // Zig is very tab-hostile, so we have to replace tabs with spaces.
@@ -97,6 +96,21 @@ pub fn ZigWriter(comptime Writer: type) type {
                 @compileError("unused arguments remaining");
             }
         }
+    };
+}
+
+inline fn isString(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        .pointer => |pointer| if (pointer.size == .Slice)
+            pointer.child == u8
+        else if (pointer.size == .One)
+            switch (@typeInfo(pointer.child)) {
+                .array => |array| array.child == u8,
+                else => false,
+            }
+        else
+            false,
+        else => false,
     };
 }
 

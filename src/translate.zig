@@ -1196,9 +1196,11 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
     try translateDocumentation(allocator, virtual_method.documentation, ctx, out);
     try out.print("pub const $I = struct {\n", .{virtual_method.name});
 
+    const instance_type = "compat.typeInfo(@TypeOf(p_class)).pointer.child.Instance";
+
     try out.print("pub fn call(p_class: anytype, ", .{});
     try translateParameters(allocator, virtual_method.parameters, .{
-        .self_type = "compat.typeInfo(@TypeOf(p_class)).pointer.child.Instance",
+        .self_type = instance_type,
         .throws = virtual_method.throws,
     }, ctx, out);
     try out.print(") ", .{});
@@ -1206,17 +1208,29 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
         .force_nullable = virtual_method.throws,
     }, ctx, out);
     try out.print(" {\n", .{});
-    try out.print("return p_class.as($I.$I).f_$L.?(", .{ type_name, type_struct_name, virtual_method.name });
-    try translateParameterNames(allocator, virtual_method.parameters, .{
-        .throws = virtual_method.throws,
-    }, out);
+    try out.print("return gobject.ext.as($I.$I, p_class).f_$L.?(", .{ type_name, type_struct_name, virtual_method.name });
+    for (virtual_method.parameters, 0..) |parameter, i| {
+        if (parameter.instance) {
+            try out.print("gobject.ext.as($I, ", .{type_name});
+            try translateParameterName(allocator, parameter.name, out);
+            try out.print(")", .{});
+        } else {
+            try translateParameterName(allocator, parameter.name, out);
+        }
+        if (virtual_method.throws or i < virtual_method.parameters.len - 1) {
+            try out.print(", ", .{});
+        }
+    }
+    if (virtual_method.throws) {
+        try out.print("p_error", .{});
+    }
     try out.print(");\n", .{});
     try out.print("}\n\n", .{});
 
     try out.print("pub fn implement(p_class: anytype, p_implementation: ", .{});
     try out.print("*const fn (", .{});
     try translateParameters(allocator, virtual_method.parameters, .{
-        .self_type = "compat.typeInfo(@TypeOf(p_class)).pointer.child.Instance",
+        .self_type = instance_type,
         .throws = virtual_method.throws,
     }, ctx, out);
     try out.print(") callconv(.C) ", .{});
@@ -1224,7 +1238,7 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
         .force_nullable = virtual_method.throws,
     }, ctx, out);
     try out.print(") void {\n", .{});
-    try out.print("p_class.as($I.$I).f_$L = @ptrCast(p_implementation);\n", .{ type_name, type_struct_name, virtual_method.name });
+    try out.print("gobject.ext.as($I.$I, p_class).f_$L = @ptrCast(p_implementation);\n", .{ type_name, type_struct_name, virtual_method.name });
     try out.print("}\n", .{});
 
     try out.print("};\n\n", .{});
@@ -1278,7 +1292,7 @@ fn translateSignal(allocator: Allocator, signal: gir.Signal, type_name: []const 
     try out.print(", P_T) callconv(.C) ", .{});
     try translateReturnValue(allocator, signal.return_value, .{ .gobject_context = true }, ctx, out);
     try out.print(", p_data: P_T, p_options: struct { after: bool = false, destroyData: ?*const fn (P_T) callconv(.C) void = null }) c_ulong {\n", .{});
-    try out.print("return gobject.signalConnectData(@ptrCast(@alignCast(p_instance.as($I))), $S, @ptrCast(p_callback), p_data, @ptrCast(p_options.destroyData), .{ .after = p_options.after });\n", .{ type_name, signal.name });
+    try out.print("return gobject.signalConnectData(@ptrCast(@alignCast(gobject.ext.as($I, p_instance))), $S, @ptrCast(p_callback), p_data, @ptrCast(p_options.destroyData), .{ .after = p_options.after });\n", .{ type_name, signal.name });
     try out.print("}\n", .{});
 
     try out.print("};\n\n", .{});
@@ -2133,22 +2147,6 @@ fn translateParameter(allocator: Allocator, parameter: gir.Parameter, options: T
             .gobject_context = options.gobject_context,
         }, ctx, out),
         .varargs => unreachable, // handled above
-    }
-}
-
-const TranslateParameterNamesOptions = struct {
-    throws: bool = false,
-};
-
-fn translateParameterNames(allocator: Allocator, parameters: []const gir.Parameter, options: TranslateParameterNamesOptions, out: anytype) !void {
-    for (parameters, 0..) |parameter, i| {
-        try translateParameterName(allocator, parameter.name, out);
-        if (options.throws or i < parameters.len - 1) {
-            try out.print(", ", .{});
-        }
-    }
-    if (options.throws) {
-        try out.print("p_error", .{});
     }
 }
 
