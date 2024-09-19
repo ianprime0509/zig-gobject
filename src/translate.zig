@@ -1346,6 +1346,8 @@ const builtins = std.StaticStringMap([]const u8).initComptime(.{
     .{ "glong", "c_long" },
     .{ "unsigned long", "c_ulong" },
     .{ "gulong", "c_ulong" },
+    .{ "long long", "c_longlong" },
+    .{ "unsigned long long", "c_ulonglong" },
     .{ "size_t", "usize" },
     .{ "gsize", "usize" },
     .{ "ssize_t", "isize" },
@@ -1361,6 +1363,8 @@ const builtins = std.StaticStringMap([]const u8).initComptime(.{
     .{ "long double", "c_longdouble" },
     .{ "va_list", "std.builtin.VaList" },
     .{ "time_t", "std.posix.time_t" },
+    .{ "pid_t", "std.posix.pid_t" },
+    .{ "uid_t", "std.posix.uid_t" },
     // It might make sense on the surface to include void -> void as a mapping
     // here, but actually we don't want void to be a built-in type translated to
     // void, because a c_type of void may just be a type-erased buffer whose

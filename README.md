@@ -42,15 +42,12 @@ testing purposes. The best way to get a consistent environment for testing is to
 use [Flatpak](https://flatpak.org/):
 
 1. Install `flatpak`.
-2. Install the base SDK dependencies:
-   - `flatpak install org.freedesktop.Sdk//23.08`
-   - `flatpak install org.gnome.Sdk//46`
-   - `flatpak install org.freedesktop.Sdk.Extension.ziglang//23.08`
+2. Install the GNOME SDK: `flatpak install org.gnome.Sdk//47`
 
 The steps above only need to be done once per GNOME SDK version. To enter a
 development environment:
 
-1. Run `flatpak run --filesystem=home --share=network --share=ipc --socket=fallback-x11 --socket=wayland --device=dri --socket=session-bus org.gnome.Sdk//46`
+1. Run `flatpak run --filesystem=home --share=network --share=ipc --socket=fallback-x11 --socket=wayland --device=dri --socket=session-bus org.gnome.Sdk//47`
    - `--filesystem=home` - makes the user's home directory available within the
      container
    - `--share=network` - allows network access (needed to fetch `build.zig.zon`
@@ -60,9 +57,9 @@ development environment:
   - `--socket=session-bus` - allows access to the session bus
   - For convenience, this command is available as a script in this repository:
     `flatpak-env.sh`.
-2. Within the spawned shell, run `. /usr/lib/sdk/ziglang-master/enable.sh` to
-   add Zig to your `PATH` (don't forget the `.` at the beginning of that
-   command).
+2. Within the spawned shell, you can use the latest master version of Zig
+   downloaded from ziglang.org. Since the downloaded Zig is statically linked,
+   it is usable within the Flatpak environment with no additional setup.
 
 ## Running the binding generator
 
@@ -79,7 +76,8 @@ others).
 
 Alternatively, if a Flatpak development environment is set up (see the section
 above), a predefined GIR profile can be selected using `-Dgir-profile`, which
-includes all the modules available in a specific GNOME SDK.
+includes all the modules available in a specific GNOME SDK. The predefined
+profiles track the latest two GNOME releases.
 
 GIR files are assumed to be located in `/usr/share/gir-1.0` unless this is
 overridden via `-Dgir-files-path`.
