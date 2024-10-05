@@ -538,7 +538,7 @@ pub fn DefinePropertyOptions(comptime Owner: type, comptime Data: type) type {
 }
 
 /// Sets up a property definition, returning a type with various helpers related
-/// to the signal.
+/// to the property.
 pub fn defineProperty(
     comptime name: [:0]const u8,
     comptime Owner: type,
