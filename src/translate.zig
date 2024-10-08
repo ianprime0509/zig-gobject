@@ -1162,7 +1162,8 @@ fn isConstructorTranslatable(constructor: gir.Constructor) bool {
 }
 
 fn translateConstructor(allocator: Allocator, constructor: gir.Constructor, container_name: gir.Name, ctx: TranslationContext, out: anytype) !void {
-    const return_value_type: gir.AnyType = switch (constructor.return_value.type) {
+    var effective_return_value = constructor.return_value;
+    effective_return_value.type = switch (constructor.return_value.type) {
         // Some constructors are actually specified to return supertypes of the
         // actual type being constructed, e.g. most GTK constructors returning
         // gtk.Widget instead of the actual type. This is presumably to make the
@@ -1184,7 +1185,7 @@ fn translateConstructor(allocator: Allocator, constructor: gir.Constructor, cont
         .c_identifier = constructor.c_identifier,
         .moved_to = constructor.moved_to,
         .parameters = constructor.parameters,
-        .return_value = .{ .type = return_value_type },
+        .return_value = effective_return_value,
         .throws = constructor.throws,
         .documentation = constructor.documentation,
     }, .{}, ctx, out);
