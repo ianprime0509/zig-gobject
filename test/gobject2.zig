@@ -44,7 +44,29 @@ test "Value" {
         var value = gobject.ext.Value.new([*:0]const u8);
         defer value.unset();
         gobject.ext.Value.set(&value, "Hello, world!");
+        try expectEqualStrings("Hello, world!", std.mem.span(gobject.ext.Value.get(&value, ?[*:0]const u8).?));
+    }
+    {
+        var value = gobject.ext.Value.new(?[*:0]const u8);
+        defer value.unset();
+        gobject.ext.Value.set(&value, "Hello, world!");
+        try expectEqualStrings("Hello, world!", std.mem.span(gobject.ext.Value.get(&value, ?[*:0]const u8).?));
+        gobject.ext.Value.set(&value, @as(?[*:0]const u8, null));
+        try expectEqual(null, gobject.ext.Value.get(&value, ?[*:0]const u8));
+    }
+    {
+        var value = gobject.ext.Value.new([:0]const u8);
+        defer value.unset();
+        gobject.ext.Value.set(&value, "Hello, world!");
         try expectEqualStrings("Hello, world!", gobject.ext.Value.get(&value, ?[:0]const u8).?);
+    }
+    {
+        var value = gobject.ext.Value.new(?[:0]const u8);
+        defer value.unset();
+        gobject.ext.Value.set(&value, "Hello, world!");
+        try expectEqualStrings("Hello, world!", gobject.ext.Value.get(&value, ?[:0]const u8).?);
+        gobject.ext.Value.set(&value, @as(?[*:0]const u8, null));
+        try expectEqual(null, gobject.ext.Value.get(&value, ?[:0]const u8));
     }
     {
         const ValueTestObject = extern struct {
