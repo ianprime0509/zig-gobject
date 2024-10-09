@@ -271,17 +271,29 @@ pub fn build(b: *std.Build) void {
     // GIRs to the search path. Fixed GIRs are produced from their originals
     // using XSLT (deemed the most straightforward and complete way to transform
     // XML semantically).
-    const gir_fixes: []const []const u8 = b.option([]const []const u8, "gir-fixes", "GIR fixes to apply") orelse if (gir_profile) |profile| switch (profile) {
-        .gnome46 => &.{
-            fix(b, "AppStream-1.0", "gnome46"),
-            fix(b, "GObject-2.0", "common"),
-            fix(b, "freetype2-2.0", "common"),
+    const gir_fixes_common: []const []const u8 = &.{
+        "freetype2-2.0",
+        "GObject-2.0",
+    };
+    const gir_fixes_profiles: std.EnumArray(GirProfile, []const []const u8) = .init(.{
+        .gnome46 = &.{
+            "AppStream-1.0",
         },
-        .gnome47 => &.{
-            fix(b, "GObject-2.0", "common"),
-            fix(b, "freetype2-2.0", "common"),
-        },
-    } else &.{};
+        .gnome47 = &.{},
+    });
+    const gir_fixes: []const []const u8 = b.option([]const []const u8, "gir-fixes", "GIR fixes to apply") orelse gir_fixes: {
+        var applicable_fixes: std.ArrayList([]const u8) = .init(b.allocator);
+        defer applicable_fixes.deinit();
+        for (gir_fixes_common) |fix| {
+            applicable_fixes.append(b.fmt("{0s}=gir-fixes/common/{0s}.xslt", .{fix})) catch @panic("OOM");
+        }
+        if (gir_profile) |profile| {
+            for (gir_fixes_profiles.get(profile)) |fix| {
+                applicable_fixes.append(b.fmt("{1s}gir-fixes/{0}/{1s}.xslt", .{ profile, fix })) catch @panic("OOM");
+            }
+        }
+        break :gir_fixes applicable_fixes.toOwnedSlice() catch @panic("OOM");
+    };
     const system_xsltproc = b.systemIntegrationOption("xsltproc", .{
         // Defaults to true to prevent issues due to https://github.com/ianprime0509/zig-libxml2/issues/1
         .default = true,
@@ -343,9 +355,4 @@ pub fn build(b: *std.Build) void {
 
     const codegen_step = b.step("codegen", "Generate all bindings");
     codegen_step.dependOn(&install_bindings.step);
-}
-
-fn fix(b: *std.Build, module: []const u8, category: []const u8) []const u8 {
-    const path = b.pathFromRoot(b.fmt("gir-fixes/{s}/{s}.xslt", .{ category, module }));
-    return b.fmt("{s}={s}", .{ module, path });
 }
