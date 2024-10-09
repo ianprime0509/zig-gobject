@@ -467,14 +467,39 @@ fn FieldType(comptime T: type, comptime name: []const u8) type {
 /// Returns an `Accessor` which gets and sets a field `name` of `Owner`.
 pub fn fieldAccessor(comptime Owner: type, comptime name: []const u8) Accessor(Owner, FieldType(Owner, name)) {
     return .{
-        .getter = struct {
+        .getter = &struct {
             fn get(object: *Owner) FieldType(Owner, name) {
                 return @field(object, name);
             }
         }.get,
-        .setter = struct {
+        .setter = &struct {
             fn set(object: *Owner, value: FieldType(Owner, name)) void {
                 @field(object, name) = value;
+            }
+        }.set,
+    };
+}
+
+/// Returns an `Accessor` which gets and sets a private field `name` of `Owner`.
+///
+/// The private struct type, `Private`, and a pointer to its offset, `private_offset`,
+/// must be provided to specify how to access the private data. The value pointed to
+/// by `private_offset` must be initialized by the time the returned accessor is used.
+pub fn privateFieldAccessor(
+    comptime Owner: type,
+    comptime Private: type,
+    comptime private_offset: *const c_int,
+    comptime name: []const u8,
+) Accessor(Owner, FieldType(Private, name)) {
+    return .{
+        .getter = &struct {
+            fn get(object: *Owner) FieldType(Private, name) {
+                return @field(impl_helpers.getPrivate(object, Private, private_offset.*), name);
+            }
+        }.get,
+        .setter = &struct {
+            fn set(object: *Owner, value: FieldType(Private, name)) void {
+                @field(impl_helpers.getPrivate(object, Private, private_offset.*), name) = value;
             }
         }.set,
     };

@@ -70,6 +70,7 @@ const ExampleApplicationWindow = extern struct {
         \\        </child>
         \\        <child>
         \\          <object class="ExampleButton" id="button">
+        \\            <property name="counter">10</property>
         \\            <property name="halign">0.5</property>
         \\            <property name="hexpand">0</property>
         \\          </object>
@@ -172,20 +173,45 @@ const ExampleButton = extern struct {
         };
     };
 
+    pub const properties = struct {
+        pub const counter = struct {
+            pub const name = "counter";
+            const impl = gobject.ext.defineProperty(name, ExampleButton, c_uint, .{
+                .nick = "Counter",
+                .blurb = "The value of the counter.",
+                .minimum = 0,
+                .maximum = std.math.maxInt(c_uint),
+                .default = 0,
+                .accessor = gobject.ext.privateFieldAccessor(ExampleButton, Private, &Private.offset, "counter"),
+                .flags = .{ .readable = true, .writable = true },
+            });
+        };
+    };
+
     pub fn as(button: *ExampleButton, comptime T: type) *T {
         return gobject.ext.as(T, button);
     }
 
     fn init(button: *ExampleButton, _: *Class) callconv(.C) void {
+        // TODO: should use the signal detail: https://github.com/ianprime0509/zig-gobject/issues/76
+        // TODO: actually, the label should just be implemented using GtkExpression or something
+        _ = gobject.Object.signals.notify.connect(button, ?*anyopaque, &handleNotify, null, .{});
         _ = gtk.Button.signals.clicked.connect(button, ?*anyopaque, &handleClicked, null, .{});
+    }
 
-        button.updateLabel();
+    fn handleNotify(button: *ExampleButton, param: *gobject.ParamSpec, _: ?*anyopaque) callconv(.C) void {
+        if (std.mem.eql(u8, std.mem.span(param.getName()), "counter")) {
+            button.updateLabel();
+        }
     }
 
     fn handleClicked(button: *ExampleButton, _: ?*anyopaque) callconv(.C) void {
-        button.private().counter +|= 1;
-        button.updateLabel();
-        signals.counter_incremented.impl.emit(button, null, .{button.private().counter}, null);
+        var counter = gobject.ext.Value.new(c_uint);
+        defer counter.unset();
+        gobject.Object.getProperty(button.as(gobject.Object), "counter", &counter);
+        gobject.ext.Value.set(&counter, gobject.ext.Value.get(&counter, c_uint) +| 1);
+        gobject.Object.setProperty(button.as(gobject.Object), "counter", &counter);
+        signals.counter_incremented.impl.emit(button, null, .{gobject.ext.Value.get(&counter, c_uint)}, null);
     }
 
     fn updateLabel(button: *ExampleButton) void {
@@ -206,8 +232,11 @@ const ExampleButton = extern struct {
             return gobject.ext.as(T, class);
         }
 
-        fn init(_: *Class) callconv(.C) void {
+        fn init(class: *Class) callconv(.C) void {
             signals.counter_incremented.impl.register(.{});
+            gobject.ext.registerProperties(class, &.{
+                properties.counter.impl,
+            });
         }
     };
 };
