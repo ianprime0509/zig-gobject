@@ -193,16 +193,13 @@ const ExampleButton = extern struct {
     }
 
     fn init(button: *ExampleButton, _: *Class) callconv(.C) void {
-        // TODO: should use the signal detail: https://github.com/ianprime0509/zig-gobject/issues/76
         // TODO: actually, the label should just be implemented using GtkExpression or something
-        _ = gobject.Object.signals.notify.connect(button, ?*anyopaque, &handleNotify, null, .{});
+        _ = gobject.Object.signals.notify.connect(button, ?*anyopaque, &handleNotifyCounter, null, .{ .detail = "counter" });
         _ = gtk.Button.signals.clicked.connect(button, ?*anyopaque, &handleClicked, null, .{});
     }
 
-    fn handleNotify(button: *ExampleButton, param: *gobject.ParamSpec, _: ?*anyopaque) callconv(.C) void {
-        if (std.mem.eql(u8, std.mem.span(param.getName()), "counter")) {
-            button.updateLabel();
-        }
+    fn handleNotifyCounter(button: *ExampleButton, _: *gobject.ParamSpec, _: ?*anyopaque) callconv(.C) void {
+        button.updateLabel();
     }
 
     fn handleClicked(button: *ExampleButton, _: ?*anyopaque) callconv(.C) void {

@@ -1295,7 +1295,7 @@ fn translateSignal(allocator: Allocator, signal: gir.Signal, type_name: []const 
 
     try out.print("pub const name = $S;\n\n", .{signal.name});
 
-    try out.print("pub fn connect(p_instance: anytype, comptime P_T: type, p_callback: ", .{});
+    try out.print("pub fn connect(p_instance: anytype, comptime P_Data: type, p_callback: ", .{});
     try out.print("*const fn (@TypeOf(p_instance)", .{});
     if (signal.parameters.len > 0) {
         try out.print(", ", .{});
@@ -1304,10 +1304,19 @@ fn translateSignal(allocator: Allocator, signal: gir.Signal, type_name: []const 
         .self_type = "@TypeOf(p_instance)",
         .gobject_context = true,
     }, ctx, out);
-    try out.print(", P_T) callconv(.C) ", .{});
+    try out.print(", P_Data) callconv(.C) ", .{});
     try translateReturnValue(allocator, signal.return_value, .{ .gobject_context = true }, ctx, out);
-    try out.print(", p_data: P_T, p_options: struct { after: bool = false, destroyData: ?*const fn (P_T) callconv(.C) void = null }) c_ulong {\n", .{});
-    try out.print("return gobject.signalConnectData(@ptrCast(@alignCast(gobject.ext.as($I, p_instance))), $S, @ptrCast(p_callback), p_data, @ptrCast(p_options.destroyData), .{ .after = p_options.after });\n", .{ type_name, signal.name });
+    try out.print(", p_data: P_Data, p_options: gobject.ext.ConnectSignalOptions(P_Data)) c_ulong {\n", .{});
+    try out.print(
+        \\return gobject.signalConnectClosureById(
+        \\    @ptrCast(@alignCast(gobject.ext.as($I, p_instance))),
+        \\    gobject.signalLookup($S, $I.getGObjectType()),
+        \\    glib.quarkFromString(p_options.detail orelse null),
+        \\    gobject.CClosure.new(@ptrCast(p_callback), p_data, @ptrCast(p_options.destroyData)),
+        \\    @intFromBool(p_options.after),
+        \\);
+        \\
+    , .{ type_name, signal.name, type_name });
     try out.print("}\n", .{});
 
     try out.print("};\n\n", .{});

@@ -828,6 +828,14 @@ pub const RegisterSignalOptions = struct {
     c_marshaller: ?gobject.SignalCMarshaller = null,
 };
 
+pub fn ConnectSignalOptions(comptime Data: type) type {
+    return struct {
+        detail: ?[:0]const u8 = null,
+        after: bool = false,
+        destroyData: ?*const fn (Data) callconv(.C) void = null,
+    };
+}
+
 /// Sets up a signal definition, returning a type with various helpers
 /// related to the signal.
 pub fn defineSignal(
@@ -903,21 +911,17 @@ pub fn defineSignal(
         /// Connects a handler to the signal on an instance.
         pub fn connect(
             target: anytype,
-            comptime T: type,
-            callback: SignalHandler(compat.typeInfo(@TypeOf(target)).pointer.child, param_types, T, ReturnType),
-            data: T,
-            options: struct {
-                after: bool = false,
-                destroyData: ?*const fn (T) callconv(.C) void = null,
-            },
+            comptime Data: type,
+            callback: SignalHandler(compat.typeInfo(@TypeOf(target)).pointer.child, param_types, Data, ReturnType),
+            data: Data,
+            options: ConnectSignalOptions(Data),
         ) c_ulong {
-            return gobject.signalConnectData(
-                as(gobject.Object, as(Itype, target)),
-                name,
-                @as(gobject.Callback, @ptrCast(callback)),
-                data,
-                @ptrCast(options.destroyData),
-                .{ .after = options.after },
+            return gobject.signalConnectClosureById(
+                @ptrCast(@alignCast(as(Itype, target))),
+                gobject.signalLookup(name, Itype.getGObjectType()),
+                glib.quarkFromString(options.detail orelse null),
+                gobject.CClosure.new(@ptrCast(callback), data, @ptrCast(options.destroyData)),
+                @intFromBool(options.after),
             );
         }
     };
