@@ -289,7 +289,7 @@ pub fn build(b: *std.Build) void {
         }
         if (gir_profile) |profile| {
             for (gir_fixes_profiles.get(profile)) |fix| {
-                applicable_fixes.append(b.fmt("{1s}gir-fixes/{0}/{1s}.xslt", .{ profile, fix })) catch @panic("OOM");
+                applicable_fixes.append(b.fmt("{1s}=gir-fixes/{0s}/{1s}.xslt", .{ @tagName(profile), fix })) catch @panic("OOM");
             }
         }
         break :gir_fixes applicable_fixes.toOwnedSlice() catch @panic("OOM");
