@@ -54,9 +54,9 @@ development environment:
      dependencies)
    - `--share=ipc --socket=fallback-x11 --socket=wayland --device=dri` - allows
      graphical display through X11 or Wayland
-  - `--socket=session-bus` - allows access to the session bus
-  - For convenience, this command is available as a script in this repository:
-    `flatpak-env.sh`.
+   - `--socket=session-bus` - allows access to the session bus
+   - For convenience, this command is available as a script in this repository:
+     `flatpak-env.sh`.
 2. Within the spawned shell, you can use the latest master version of Zig
    downloaded from ziglang.org. Since the downloaded Zig is statically linked,
    it is usable within the Flatpak environment with no additional setup.
