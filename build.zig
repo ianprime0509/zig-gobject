@@ -275,14 +275,14 @@ pub fn build(b: *std.Build) void {
         "freetype2-2.0",
         "GObject-2.0",
     };
-    const gir_fixes_profiles: std.EnumArray(GirProfile, []const []const u8) = .init(.{
+    const gir_fixes_profiles = std.EnumArray(GirProfile, []const []const u8).init(.{
         .gnome46 = &.{
             "AppStream-1.0",
         },
         .gnome47 = &.{},
     });
     const gir_fixes: []const []const u8 = b.option([]const []const u8, "gir-fixes", "GIR fixes to apply") orelse gir_fixes: {
-        var applicable_fixes: std.ArrayList([]const u8) = .init(b.allocator);
+        var applicable_fixes = std.ArrayList([]const u8).init(b.allocator);
         defer applicable_fixes.deinit();
         for (gir_fixes_common) |fix| {
             applicable_fixes.append(b.fmt("{0s}=gir-fixes/common/{0s}.xslt", .{fix})) catch @panic("OOM");
