@@ -88,21 +88,14 @@ The bindings are generated to the `bindings` directory under the build prefix
 ### Fixing broken GIR files
 
 Sometimes, there are errors in GIR files which result in incorrect or incomplete
-bindings. The codegen process handles this by allowing GIR files to be
-transformed at build time using XSLT: providing the
-`-Dgir-fixes=module=transform.xslt` will cause the GIR for `module` to be
-transformed using `transform.xslt` prior to codegen.  This transformation is not
-destructive: it writes the transformed GIR to a temporary directory and prepends
-the directory to the GIR search path.
+bindings. The codegen process can handle this via XSLT stylesheets, which are
+named after the modules whose GIR files they correct. This project maintains
+stylesheets fixing known GIR issues in `gir-fixes`.
 
-Fixes for known GIR issues are maintained in `gir-fixes`.
-
-The XSLT stylesheets are applied using `xsltproc`, which is part of the libxslt
-project. By default, the `xsltproc` installed on the system will be used.
-However, by passing `-fno-sys=xsltproc` to `zig build`, it can be built from
-source using [`zig-libxml2`](https://github.com/ianprime0509/zig-libxml2).
-Please note that there is an open issue preventing this from working very well,
-however: https://github.com/ianprime0509/zig-libxml2/issues/1
+The XSLT stylesheets are applied using the `xsltproc` program, which is part of
+the libxslt project. At this time, this is a system command dependency; there is
+no support yet for building xsltproc from source due to
+https://github.com/ianprime0509/zig-libxml2/issues/1
 
 ### Writing bindings by hand
 

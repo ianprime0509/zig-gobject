@@ -9,6 +9,7 @@ const Diagnostics = @import("main.zig").Diagnostics;
 pub fn findRepositories(
     allocator: Allocator,
     gir_dir_paths: []const []const u8,
+    gir_fixes_dir_paths: []const []const u8,
     roots: []const Include,
     diag: *Diagnostics,
 ) Allocator.Error![]Repository {
@@ -21,7 +22,13 @@ pub fn findRepositories(
     try needed_repos.appendSlice(roots);
     while (needed_repos.popOrNull()) |needed_repo| {
         if (!repos.contains(needed_repo)) {
-            const repo = findRepository(allocator, gir_dir_paths, needed_repo, diag) catch |err| switch (err) {
+            const repo = findRepository(
+                allocator,
+                gir_dir_paths,
+                gir_fixes_dir_paths,
+                needed_repo,
+                diag,
+            ) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.FindFailed => continue,
             };
@@ -36,40 +43,103 @@ pub fn findRepositories(
 fn findRepository(
     allocator: Allocator,
     gir_dir_paths: []const []const u8,
+    gir_fixes_dir_paths: []const []const u8,
     include: Include,
     diag: *Diagnostics,
 ) !Repository {
-    const repo_path = try std.fmt.allocPrintZ(allocator, "{s}-{s}.gir", .{ include.name, include.version });
-    defer allocator.free(repo_path);
-
-    for (gir_dir_paths) |gir_dir_path| {
-        const path = try std.fs.path.join(allocator, &.{ gir_dir_path, repo_path });
-        defer allocator.free(path);
-
-        const file = std.fs.cwd().openFile(path, .{}) catch |err| switch (err) {
-            error.FileNotFound => continue,
-            else => {
-                try diag.add("failed to open GIR file: {s}: {}", .{ path, err });
-                return error.FindFailed;
-            },
+    const gir_path = path: {
+        const file_name = try std.fmt.allocPrint(allocator, "{s}-{s}.gir", .{ include.name, include.version });
+        defer allocator.free(file_name);
+        break :path try findFile(allocator, gir_dir_paths, file_name) orelse {
+            try diag.add("no GIR file found for {s}-{s}", .{ include.name, include.version });
+            return error.FindFailed;
         };
-        defer file.close();
-        var reader = std.io.bufferedReader(file.reader());
-        return Repository.parse(allocator, reader.reader(), path) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            error.InvalidGir => {
-                try diag.add("failed to parse GIR file: {s}", .{repo_path});
-                return error.FindFailed;
-            },
-            else => {
-                try diag.add("failed to read GIR file: {s}: {}", .{ repo_path, err });
-                return error.FindFailed;
-            },
-        };
-    }
+    };
 
-    try diag.add("failed to find GIR file: {s}", .{repo_path});
-    return error.FindFailed;
+    const gir_fix_path = path: {
+        const file_name = try std.fmt.allocPrint(allocator, "{s}-{s}.xslt", .{ include.name, include.version });
+        defer allocator.free(file_name);
+        break :path try findFile(allocator, gir_fixes_dir_paths, file_name);
+    };
+
+    const max_gir_size = 50 * 1024 * 1024;
+    const gir_content = content: {
+        if (gir_fix_path) |fix_path| {
+            const xsltproc_result = std.process.Child.run(.{
+                .allocator = allocator,
+                .argv = &.{ "xsltproc", fix_path, gir_path },
+                .max_output_bytes = max_gir_size,
+                .expand_arg0 = .expand,
+            }) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                else => |other| {
+                    try diag.add("failed to execute xsltproc {s}-{s}: {}", .{ include.name, include.version, other });
+                    return error.FindFailed;
+                },
+            };
+            errdefer allocator.free(xsltproc_result.stdout);
+            defer allocator.free(xsltproc_result.stderr);
+            switch (xsltproc_result.term) {
+                .Exited => |status| if (status != 0) {
+                    try diag.add(
+                        "xsltproc {s}-{s} exited with non-zero status: {}; stderr:\n{s}",
+                        .{ include.name, include.version, status, xsltproc_result.stderr },
+                    );
+                    return error.FindFailed;
+                },
+                .Signal => |signal| {
+                    try diag.add(
+                        "xsltproc {s}-{s} exited with signal: {}; stderr:\n{s}",
+                        .{ include.name, include.version, signal, xsltproc_result.stderr },
+                    );
+                    return error.FindFailed;
+                },
+                .Stopped => |code| {
+                    try diag.add(
+                        "xsltproc {s}-{s} stopped with code: {}; stderr:\n{s}",
+                        .{ include.name, include.version, code, xsltproc_result.stderr },
+                    );
+                    return error.FindFailed;
+                },
+                .Unknown => |code| {
+                    try diag.add(
+                        "xsltproc {s}-{s} terminated with unknown code: {}; stderr:\n{s}",
+                        .{ include.name, include.version, code, xsltproc_result.stderr },
+                    );
+                    return error.FindFailed;
+                },
+            }
+            break :content xsltproc_result.stdout;
+        } else {
+            break :content std.fs.cwd().readFileAlloc(allocator, gir_path, max_gir_size) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                else => |other| {
+                    try diag.add("failed to read GIR file '{s}': {}", .{ gir_path, other });
+                    return error.FindFailed;
+                },
+            };
+        }
+    };
+    defer allocator.free(gir_content);
+
+    return Repository.parse(allocator, gir_path, gir_fix_path, gir_content) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.InvalidGir => {
+            try diag.add("failed to parse GIR file '{s}'", .{gir_path});
+            return error.FindFailed;
+        },
+    };
+}
+
+fn findFile(allocator: Allocator, search_path: []const []const u8, file_name: []const u8) !?[]u8 {
+    return for (search_path) |dir| {
+        const path = try std.fs.path.join(allocator, &.{ dir, file_name });
+        if (std.fs.cwd().statFile(path)) |_| {
+            break path;
+        } else |_| {
+            allocator.free(path);
+        }
+    } else null;
 }
 
 const ns = struct {
@@ -80,18 +150,23 @@ const ns = struct {
 
 pub const Repository = struct {
     path: []const u8,
+    fix_path: ?[]const u8 = null,
     includes: []const Include = &.{},
     packages: []const Package = &.{},
     c_includes: []const CInclude = &.{},
     namespace: Namespace,
     arena: std.heap.ArenaAllocator,
 
-    pub fn parse(allocator: Allocator, reader: anytype, path: []const u8) (error{InvalidGir} || @TypeOf(reader).Error || Allocator.Error)!Repository {
-        var doc = xml.streamingDocument(allocator, reader);
-        defer doc.deinit();
+    pub fn parse(
+        allocator: Allocator,
+        path: []const u8,
+        fix_path: ?[]const u8,
+        content: []const u8,
+    ) (error{InvalidGir} || Allocator.Error)!Repository {
+        var doc = xml.StaticDocument.init(content);
         var r = doc.reader(allocator, .{});
         defer r.deinit();
-        return parseXml(allocator, &r, path) catch |err| switch (err) {
+        return parseXml(allocator, &r, path, fix_path) catch |err| switch (err) {
             error.MalformedXml => return error.InvalidGir,
             else => |other| return other,
         };
@@ -101,15 +176,15 @@ pub const Repository = struct {
         repository.arena.deinit();
     }
 
-    fn parseXml(allocator: Allocator, reader: anytype, path: []const u8) !Repository {
+    fn parseXml(allocator: Allocator, reader: anytype, path: []const u8, fix_path: ?[]const u8) !Repository {
         try reader.skipProlog();
         if (!reader.elementNameNs().is(ns.core, "repository")) return error.InvalidGir;
-        const repository = try parseInternal(allocator, reader, path);
+        const repository = try parseInternal(allocator, reader, path, fix_path);
         try reader.skipDocument();
         return repository;
     }
 
-    fn parseInternal(a: Allocator, reader: anytype, path: []const u8) !Repository {
+    fn parseInternal(a: Allocator, reader: anytype, path: []const u8, fix_path: ?[]const u8) !Repository {
         var arena = std.heap.ArenaAllocator.init(a);
         const allocator = arena.allocator();
 
@@ -141,6 +216,7 @@ pub const Repository = struct {
 
         return .{
             .path = try allocator.dupe(u8, path),
+            .fix_path = if (fix_path) |p| try allocator.dupe(u8, p) else null,
             .includes = try includes.toOwnedSlice(),
             .packages = try packages.toOwnedSlice(),
             .c_includes = try c_includes.toOwnedSlice(),

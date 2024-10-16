@@ -267,81 +267,13 @@ pub fn build(b: *std.Build) void {
 
     const codegen_cmd = b.addRunArtifact(exe);
 
-    // GIR fixes are handled by prepending a directory containing all the fixed
-    // GIRs to the search path. Fixed GIRs are produced from their originals
-    // using XSLT (deemed the most straightforward and complete way to transform
-    // XML semantically).
-    const gir_fixes_common: []const []const u8 = &.{
-        "freetype2-2.0",
-        "GObject-2.0",
-    };
-    const gir_fixes_profiles = std.EnumArray(GirProfile, []const []const u8).init(.{
-        .gnome46 = &.{
-            "AppStream-1.0",
-        },
-        .gnome47 = &.{},
-    });
-    const gir_fixes: []const []const u8 = b.option([]const []const u8, "gir-fixes", "GIR fixes to apply") orelse gir_fixes: {
-        var applicable_fixes = std.ArrayList([]const u8).init(b.allocator);
-        defer applicable_fixes.deinit();
-        for (gir_fixes_common) |fix| {
-            applicable_fixes.append(b.fmt("{0s}=gir-fixes/common/{0s}.xslt", .{fix})) catch @panic("OOM");
-        }
-        if (gir_profile) |profile| {
-            for (gir_fixes_profiles.get(profile)) |fix| {
-                applicable_fixes.append(b.fmt("{1s}=gir-fixes/{0s}/{1s}.xslt", .{ @tagName(profile), fix })) catch @panic("OOM");
-            }
-        }
-        break :gir_fixes applicable_fixes.toOwnedSlice() catch @panic("OOM");
-    };
-    const system_xsltproc = b.systemIntegrationOption("xsltproc", .{
-        // Defaults to true to prevent issues due to https://github.com/ianprime0509/zig-libxml2/issues/1
-        .default = true,
-    });
-    if (gir_fixes.len > 0) gir_fixes: {
-        const xsltproc = xsltproc: {
-            if (system_xsltproc) break :xsltproc undefined;
-            const libxml2 = b.lazyDependency("libxml2", .{
-                .target = target,
-                .optimize = optimize,
-                .xslt = true,
-            }) orelse break :gir_fixes;
-            break :xsltproc libxml2.artifact("xsltproc");
-        };
-        const fixed_files = b.addWriteFiles();
-
-        for (gir_fixes) |gir_fix| {
-            const sep_pos = std.mem.indexOfScalar(u8, gir_fix, '=') orelse @panic("Invalid GIR fix provided (format: module=xslt-path)");
-            const target_gir = b.fmt("{s}.gir", .{gir_fix[0..sep_pos]});
-            const source_gir_path = b.pathJoin(&.{ gir_files_path, target_gir });
-            const xslt_path = gir_fix[sep_pos + 1 ..];
-
-            const run_xsltproc = if (system_xsltproc)
-                b.addSystemCommand(&.{"xsltproc"})
-            else
-                b.addRunArtifact(xsltproc);
-            run_xsltproc.addArg("-o");
-            const output_gir = run_xsltproc.addOutputFileArg("gir-fix");
-            run_xsltproc.addArg(xslt_path);
-            run_xsltproc.addArg(source_gir_path);
-            run_xsltproc.extra_file_dependencies = b.dupeStrings(&.{ xslt_path, source_gir_path });
-            run_xsltproc.expectExitCode(0);
-
-            _ = fixed_files.addCopyFile(output_gir, target_gir);
-        }
-
-        codegen_cmd.addArg("--gir-dir");
-        codegen_cmd.addDirectoryArg(fixed_files.getDirectory());
-    }
-
-    codegen_cmd.addArgs(&.{ "--gir-dir", gir_files_path });
-    codegen_cmd.addArgs(&.{ "--bindings-dir", b.pathFromRoot("binding-overrides") });
-    codegen_cmd.addArgs(&.{ "--extensions-dir", b.pathFromRoot("extensions") });
-    codegen_cmd.addArg("--output-dir");
-    const bindings_dir = codegen_cmd.addOutputFileArg("bindings");
-    codegen_cmd.addArgs(&.{ "--abi-test-output-dir", b.pathFromRoot("test/abi") });
-    codegen_cmd.addArg("--dependency-file");
-    _ = codegen_cmd.addDepFileOutputArg("codegen-deps");
+    codegen_cmd.addPrefixedDirectoryArg("--gir-dir=", .{ .cwd_relative = gir_files_path });
+    codegen_cmd.addPrefixedDirectoryArg("--gir-fixes-dir=", b.path("gir-fixes"));
+    codegen_cmd.addPrefixedDirectoryArg("--bindings-dir=", b.path("binding-overrides"));
+    codegen_cmd.addPrefixedDirectoryArg("--extensions-dir=", b.path("extensions"));
+    const bindings_dir = codegen_cmd.addPrefixedOutputDirectoryArg("--output-dir=", "bindings");
+    codegen_cmd.addPrefixedDirectoryArg("--abi-test-output-dir=", b.path("test/abi"));
+    _ = codegen_cmd.addPrefixedDepFileOutputArg("--dependency-file=", "codegen-deps");
     codegen_cmd.addArgs(codegen_modules);
     // This is needed to tell Zig that the command run can be cached despite
     // having output files.

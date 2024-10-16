@@ -482,7 +482,7 @@ fn translateRepository(
         try diag.add("failed to write output source file {s}: {}", .{ output_path, err });
         return error.TranslateFailed;
     };
-    try deps.add(output_path, &.{repo.path});
+    try deps.addRepository(output_path, repo);
 }
 
 fn translateIncludes(allocator: Allocator, ns: gir.Namespace, repository_map: RepositoryMap, out: anytype) !void {
@@ -2845,7 +2845,7 @@ fn createBuildZig(
     , .{});
 
     for (repositories) |repo| {
-        try deps.add(output_path, &.{repo.path});
+        try deps.addRepository(output_path, repo);
 
         const module_name = try moduleNameAlloc(allocator, repo.namespace.name, repo.namespace.version);
         defer allocator.free(module_name);
@@ -3429,7 +3429,7 @@ pub fn createAbiTests(
             try diag.add("failed to write output source file {s}: {}", .{ file_path, err });
             try diag.add("failed to create ABI tests for {s}-{s}", .{ repo.namespace.name, repo.namespace.version });
         };
-        try deps.add(file_path, &.{repo.path});
+        try deps.addRepository(file_path, repo);
     }
 }
 

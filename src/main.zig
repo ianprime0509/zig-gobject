@@ -17,6 +17,7 @@ const usage =
     \\      --bindings-dir DIR              Add a directory to the bindings search path (for manual bindings)
     \\      --extensions-dir DIR            Add a directory to the extensions search path
     \\      --gir-dir DIR                   Add a directory to the GIR search path
+    \\      --gir-fixes-dir DIR             Add a directory to the GIR fixes search path
     \\      --output-dir DIR                Set the output directory
     \\      --abi-test-output-dir DIR       Set the output directory for ABI tests
     \\      --dependency-file PATH          Generate a dependency file
@@ -64,6 +65,7 @@ pub fn main() Allocator.Error!void {
     const cli_arena = cli_arena_state.allocator();
 
     var gir_dir_paths = std.ArrayList([]u8).init(cli_arena);
+    var gir_fixes_dir_paths = std.ArrayList([]u8).init(cli_arena);
     var bindings_dir_paths = std.ArrayList([]u8).init(cli_arena);
     var extensions_dir_paths = std.ArrayList([]u8).init(cli_arena);
     var maybe_output_dir_path: ?[]u8 = null;
@@ -87,6 +89,9 @@ pub fn main() Allocator.Error!void {
             } else if (option.is(null, "gir-dir")) {
                 const path = args.optionValue() orelse fatal("expected value for --gir-dir", .{});
                 try gir_dir_paths.append(try cli_arena.dupe(u8, path));
+            } else if (option.is(null, "gir-fixes-dir")) {
+                const path = args.optionValue() orelse fatal("expected value for --gir-fixes-dir", .{});
+                try gir_fixes_dir_paths.append(try cli_arena.dupe(u8, path));
             } else if (option.is(null, "output-dir")) {
                 const path = args.optionValue() orelse fatal("expected value for --output-dir", .{});
                 maybe_output_dir_path = try cli_arena.dupe(u8, path);
@@ -119,7 +124,13 @@ pub fn main() Allocator.Error!void {
     const repositories = repositories: {
         var diag: Diagnostics = .{ .allocator = allocator };
         defer diag.deinit();
-        const repositories = try gir.findRepositories(allocator, gir_dir_paths.items, roots.items, &diag);
+        const repositories = try gir.findRepositories(
+            allocator,
+            gir_dir_paths.items,
+            gir_fixes_dir_paths.items,
+            roots.items,
+            &diag,
+        );
         diag.report("failed to find and parse GIR repositories", .{});
         break :repositories repositories;
     };
@@ -220,6 +231,11 @@ pub const Dependencies = struct {
         for (dependencies) |dependency| {
             gop.value_ptr.appendAssumeCapacity(try arena.dupe(u8, dependency));
         }
+    }
+
+    pub fn addRepository(deps: *Dependencies, target: []const u8, repository: gir.Repository) Allocator.Error!void {
+        try deps.add(target, &.{repository.path});
+        if (repository.fix_path) |fix_path| try deps.add(target, &.{fix_path});
     }
 
     pub fn write(deps: Dependencies, writer: anytype) @TypeOf(writer).Error!void {
