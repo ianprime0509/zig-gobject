@@ -65,7 +65,7 @@ development environment:
 
 The binding generator can be invoked using `zig build codegen`, which accepts
 several useful options and is described further below, or by building the
-`zig-gobject` binary using `zig build` and invoking it directly.
+`translate-gir` binary using `zig build` and invoking it directly.
 
 `zig build codegen` requires a set of modules to be used as input. The input
 modules can be specified using `-Dmodules` to provide an explicit list of root

@@ -8,7 +8,7 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 
 const usage =
-    \\Usage: zig-gobject [options] [root...]
+    \\Usage: translate-gir [options] [root...]
     \\
     \\Generates bindings for the given root namespaces and their dependencies.
     \\

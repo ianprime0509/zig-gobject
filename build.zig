@@ -8,7 +8,7 @@ pub fn build(b: *std.Build) void {
     const xml = b.dependency("xml", .{}).module("xml");
 
     const exe = b.addExecutable(.{
-        .name = "zig-gobject",
+        .name = "translate-gir",
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
