@@ -2067,16 +2067,6 @@ const TranslateCallbackOptions = struct {
 
 fn translateCallback(allocator: Allocator, callback: gir.Callback, options: TranslateCallbackOptions, ctx: TranslationContext, out: anytype) !void {
     if (options.named) {
-        if (mem.eql(u8, callback.name, "ClosureNotify")) {
-            try out.print("pub const ClosureNotify = *const fn (p_data: ?*anyopaque, p_closure: *anyopaque) callconv(.C) void;\n\n", .{});
-            return;
-        } else if (mem.eql(u8, callback.name, "MemoryCopyFunction")) {
-            try out.print("pub const MemoryCopyFunction = *const fn (p_mem: ?*anyopaque, p_offset: isize, p_size: isize) callconv(.C) *anyopaque;\n\n", .{});
-            return;
-        }
-    }
-
-    if (options.named) {
         try translateDocumentation(allocator, callback.documentation, ctx, out);
         try out.print("pub const $I = ", .{escapeTypeName(callback.name)});
     }
