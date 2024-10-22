@@ -6,7 +6,7 @@
     xmlns:core="http://www.gtk.org/introspection/core/1.0"
     xmlns:c="http://www.gtk.org/introspection/c/1.0"
     xmlns:glib="http://www.gtk.org/introspection/glib/1.0">
-  <xsl:template match="/ | @* | node()">
+  <xsl:template match="@* | node()">
     <xsl:copy>
       <xsl:apply-templates select="@* | node()" />
     </xsl:copy>
