@@ -2823,6 +2823,7 @@ fn createBuildZig(
         \\const target = b.standardTargetOptions(.{});
         \\const optimize = b.standardOptimizeOption(.{});
         \\
+        \\
     , .{});
 
     try out.print(
@@ -2831,6 +2832,7 @@ fn createBuildZig(
         \\    .target = target,
         \\    .optimize = optimize,
         \\});
+        \\
         \\
     , .{});
 
@@ -2849,11 +2851,8 @@ fn createBuildZig(
             \\
         , .{ module_name, module_name, module_name, module_name });
 
-        try out.print("$I.link_libc = true;\n", .{module_name});
-        for (repo.packages) |package| {
-            try out.print("$I.linkSystemLibrary($S, .{});\n", .{ module_name, package.name });
-        }
-        try out.print("$I.addImport(\"compat\", compat);\n", .{module_name});
+        try out.print("libraries.$I.linkTo($I);\n", .{ module_name, module_name });
+        try out.print("$I.addImport(\"compat\", compat);\n\n", .{module_name});
     }
 
     for (repositories) |repo| {
@@ -2946,7 +2945,7 @@ fn createBuildZig(
         \\    pub fn linkTo(lib: Library, module: *std.Build.Module) void {
         \\        module.link_libc = true;
         \\        for (lib.system_libraries) |system_lib| {
-        \\            module.linkSystemLibrary(system_lib, .{});
+        \\            module.linkSystemLibrary(system_lib, .{ .use_pkg_config = .force });
         \\        }
         \\    }
         \\};
