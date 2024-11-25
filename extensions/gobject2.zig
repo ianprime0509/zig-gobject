@@ -1224,19 +1224,19 @@ inline fn isCString(comptime T: type) bool {
     return switch (compat.typeInfo(T)) {
         .pointer => |pointer| switch (pointer.size) {
             .One => switch (compat.typeInfo(pointer.child)) {
-                .array => |child| child.child == u8 and std.meta.sentinel(pointer.child) == @as(u8, 0),
+                .array => |child| child.child == u8 and std.meta.sentinel(pointer.child) == 0,
                 else => false,
             },
-            .Many, .Slice => pointer.child == u8 and std.meta.sentinel(T) == @as(u8, 0),
+            .Many, .Slice => pointer.child == u8 and std.meta.sentinel(T) == 0,
             .C => pointer.child == u8,
         },
         .optional => |optional| switch (compat.typeInfo(optional.child)) {
             .pointer => |pointer| switch (pointer.size) {
                 .One => switch (compat.typeInfo(pointer.child)) {
-                    .array => |child| child.child == u8 and std.meta.sentinel(pointer.child) == @as(u8, 0),
+                    .array => |child| child.child == u8 and std.meta.sentinel(pointer.child) == 0,
                     else => false,
                 },
-                .Many, .Slice => pointer.child == u8 and std.meta.sentinel(optional.child) == @as(u8, 0),
+                .Many, .Slice => pointer.child == u8 and std.meta.sentinel(optional.child) == 0,
                 .C => false,
             },
             else => false,

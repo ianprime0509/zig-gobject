@@ -175,10 +175,10 @@ fn isCString(comptime T: type) bool {
     return switch (compat.typeInfo(T)) {
         .pointer => |info| switch (info.size) {
             .One => switch (compat.typeInfo(info.child)) {
-                .array => |child| child.child == u8 and std.meta.sentinel(info.child) == @as(u8, 0),
+                .array => |child| child.child == u8 and std.meta.sentinel(info.child) == 0,
                 else => false,
             },
-            .Many, .Slice => info.child == u8 and std.meta.sentinel(T) == @as(u8, 0),
+            .Many, .Slice => info.child == u8 and std.meta.sentinel(T) == 0,
             else => false,
         },
         else => false,
