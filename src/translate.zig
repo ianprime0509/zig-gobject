@@ -2794,6 +2794,7 @@ pub fn createBuildFiles(
 
     try createBuildZig(allocator, repositories, output_dir_path, deps, diag);
     try createBuildZon(allocator, output_dir_path, deps, diag);
+    try createBuildHelpers(allocator, output_dir_path, deps, diag);
 }
 
 fn createBuildZig(
@@ -2816,7 +2817,7 @@ fn createBuildZig(
     defer raw_source.deinit();
     var out = zigWriter(raw_source.writer());
 
-    try out.print("const std = @import(\"std\");\n\n", .{});
+    try out.print("$L\n", .{@embedFile("build/build_base.zig")});
 
     try out.print("pub fn build(b: *std.Build) void {\n", .{});
     try out.print(
@@ -2926,32 +2927,6 @@ fn createBuildZig(
 
     try out.print("}\n\n", .{});
 
-    // Library metadata
-    try out.print(
-        \\/// A library accessible through the generated bindings.
-        \\///
-        \\/// While the generated bindings are typically used through modules
-        \\/// (e.g. `gobject.module("glib-2.0")`), there are cases where it is
-        \\/// useful to have additional information about the libraries exposed
-        \\/// to the build script. For example, if any files in the root module
-        \\/// of the application want to import a library's C headers directly,
-        \\/// it will be necessary to link the library directly to the root module
-        \\/// using `Library.linkTo` so the include paths will be available.
-        \\pub const Library = struct {
-        \\    /// System libraries to be linked using pkg-config.
-        \\    system_libraries: []const []const u8,
-        \\
-        \\    /// Links `lib` to `module`.
-        \\    pub fn linkTo(lib: Library, module: *std.Build.Module) void {
-        \\        module.link_libc = true;
-        \\        for (lib.system_libraries) |system_lib| {
-        \\            module.linkSystemLibrary(system_lib, .{ .use_pkg_config = .force });
-        \\        }
-        \\    }
-        \\};
-        \\
-        \\
-    , .{});
     try out.print("pub const libraries = struct {\n", .{});
     for (repositories) |repo| {
         const module_name = try moduleNameAlloc(allocator, repo.namespace.name, repo.namespace.version);
@@ -2969,34 +2944,6 @@ fn createBuildZig(
         try out.print("};\n\n", .{});
     }
     try out.print("};\n\n", .{});
-
-    // Helper functions
-    try out.print(
-        \\/// Returns a `std.Build.Module` created by compiling the GResources file at `path`.
-        \\///
-        \\/// This requires the `glib-compile-resources` system command to be available.
-        \\pub fn addCompileResources(
-        \\    b: *std.Build,
-        \\    target: std.Build.ResolvedTarget,
-        \\    path: std.Build.LazyPath,
-        \\) *std.Build.Module {
-        \\    const compile_resources = b.addSystemCommand(&.{ "glib-compile-resources", "--generate-source" });
-        \\    compile_resources.addArg("--target");
-        \\    const gresources_c = compile_resources.addOutputFileArg("gresources.c");
-        \\    compile_resources.addArg("--sourcedir");
-        \\    compile_resources.addDirectoryArg(path.dirname());
-        \\    compile_resources.addArg("--dependency-file");
-        \\    _ = compile_resources.addDepFileOutputArg("gresources-deps");
-        \\    compile_resources.addFileArg(path);
-        \\
-        \\    const module = b.createModule(.{ .target = target });
-        \\    module.addCSourceFile(.{ .file = gresources_c });
-        \\    libraries.gio2.linkTo(module);
-        \\    return module;
-        \\}
-        \\
-        \\
-    , .{});
 
     try raw_source.append(0);
     var ast = try std.zig.Ast.parse(allocator, raw_source.items[0 .. raw_source.items.len - 1 :0], .zig);
@@ -3033,6 +2980,29 @@ fn createBuildZon(
 
     std.fs.cwd().writeFile(.{ .sub_path = output_path, .data = source }) catch |err|
         return diag.add("failed to write {s}: {}", .{ output_path, err });
+}
+
+fn createBuildHelpers(
+    allocator: Allocator,
+    output_dir_path: []const u8,
+    deps: *Dependencies,
+    diag: *Diagnostics,
+) !void {
+    const helper_dir_path = try std.fs.path.join(allocator, &.{ output_dir_path, "build" });
+    defer allocator.free(helper_dir_path);
+    std.fs.cwd().makePath(helper_dir_path) catch |err|
+        return diag.add("failed to create output directory {s}: {}", .{ helper_dir_path, err });
+
+    const helpers: []const []const u8 = &.{"build_gresources_xml.zig"};
+    inline for (helpers) |helper| {
+        const output_path = try std.fs.path.join(allocator, &.{ helper_dir_path, helper });
+        defer allocator.free(output_path);
+
+        try deps.add(output_path, &.{});
+
+        std.fs.cwd().writeFile(.{ .sub_path = output_path, .data = @embedFile("build/" ++ helper) }) catch |err|
+            return diag.add("failed to write {s}: {}", .{ output_path, err });
+    }
 }
 
 pub fn createAbiTests(
