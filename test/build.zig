@@ -235,6 +235,18 @@ const module_options = std.StaticStringMap(ModuleOptions).initComptime(.{
             .test_abi = false,
         },
     },
+    .{
+        "WebKit2-4.1", ModuleOptions{
+            // Needs more comprehensive checks to skip indirect bit field references
+            .test_abi = false,
+        },
+    },
+    .{
+        "WebKit2WebExtension-4.1", ModuleOptions{
+            // Needs more comprehensive checks to skip indirect bit field references
+            .test_abi = false,
+        },
+    },
 });
 
 pub fn build(b: *std.Build) void {
@@ -347,8 +359,8 @@ pub fn build(b: *std.Build) void {
             "Soup-3.0",
             "Tracker-3.0",
             "Vulkan-1.0",
-            // "WebKit2-4.1", // Not enough type information available to translate
-            // "WebKit2WebExtension-4.1", // Not enough type information available to translate
+            "WebKit2-4.1",
+            "WebKit2WebExtension-4.1",
             "WebKit-6.0",
             "WebKitWebProcessExtension-6.0",
             "win32-1.0",
@@ -457,8 +469,8 @@ pub fn build(b: *std.Build) void {
             "Tracker-3.0",
             "Tsparql-3.0",
             "Vulkan-1.0",
-            // "WebKit2-4.1", // Not enough type information available to translate
-            // "WebKit2WebExtension-4.1", // Not enough type information available to translate
+            "WebKit2-4.1",
+            "WebKit2WebExtension-4.1",
             "WebKit-6.0",
             "WebKitWebProcessExtension-6.0",
             "win32-1.0",
