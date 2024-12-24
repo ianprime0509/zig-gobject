@@ -484,9 +484,15 @@ pub fn build(b: *std.Build) void {
                 .optimize = optimize,
             });
             abi_tests.root_module.addImport(module, gobject.module(module));
+            // For compatibility with Zig 0.13 and master: in master, the type
+            // of root_module is *std.Build.Module.
+            const abi_tests_root_module = if (@TypeOf(abi_tests.root_module) == *std.Build.Module)
+                abi_tests.root_module
+            else
+                &abi_tests.root_module;
             inline for (comptime std.meta.declarations(gobject_build.libraries)) |lib_decl| {
                 if (std.mem.eql(u8, lib_decl.name, module)) {
-                    @field(gobject_build.libraries, lib_decl.name).linkTo(&abi_tests.root_module);
+                    @field(gobject_build.libraries, lib_decl.name).linkTo(abi_tests_root_module);
                 }
             }
             test_step.dependOn(&b.addRunArtifact(abi_tests).step);
