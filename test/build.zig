@@ -31,6 +31,18 @@ const module_options = std.StaticStringMap(ModuleOptions).initComptime(.{
         },
     },
     .{
+        "Gck-1", ModuleOptions{
+            // C includes yield error "This API has not yet reached stability."
+            .test_abi = false,
+        },
+    },
+    .{
+        "Gck-2", ModuleOptions{
+            // C includes yield error "This API has not yet reached stability."
+            .test_abi = false,
+        },
+    },
+    .{
         "Gcr-3", ModuleOptions{
             // C includes yield error "This API has not yet reached stability."
             .test_abi = false,
@@ -253,8 +265,8 @@ pub fn build(b: *std.Build) void {
             "fontconfig-2.0",
             "freetype2-2.0",
             "GCab-1.0",
-            // "Gck-1", // Not enough type information available to translate
-            // "Gck-2", // Not enough type information available to translate
+            "Gck-1",
+            "Gck-2",
             "Gcr-3",
             "Gcr-4",
             "GcrUi-3",
@@ -359,8 +371,8 @@ pub fn build(b: *std.Build) void {
             "fontconfig-2.0",
             "freetype2-2.0",
             "GCab-1.0",
-            // "Gck-1", // Not enough type information available to translate
-            // "Gck-2", // Not enough type information available to translate
+            "Gck-1",
+            "Gck-2",
             "Gcr-3",
             "Gcr-4",
             "GcrUi-3",
