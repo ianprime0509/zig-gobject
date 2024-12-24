@@ -20,4 +20,72 @@
       <xsl:attribute name="c:type">gpointer</xsl:attribute>
     </xsl:copy>
   </xsl:template>
+
+  <xsl:template match="core:callback[@c:type='GstControlSourceGetValue']/core:parameters/core:parameter[@name='self']/core:type">
+    <!-- https://github.com/ianprime0509/zig-gobject/issues/33 -->
+    <xsl:copy>
+      <xsl:attribute name="name">gpointer</xsl:attribute>
+      <xsl:attribute name="c:type">gpointer</xsl:attribute>
+    </xsl:copy>
+  </xsl:template>
+
+  <xsl:template match="core:callback[@c:type='GstControlSourceGetValueArray']/core:parameters/core:parameter[@name='self']/core:type">
+    <!-- https://github.com/ianprime0509/zig-gobject/issues/33 -->
+    <xsl:copy>
+      <xsl:attribute name="name">gpointer</xsl:attribute>
+      <xsl:attribute name="c:type">gpointer</xsl:attribute>
+    </xsl:copy>
+  </xsl:template>
+
+  <xsl:template match="core:callback[@c:type='GstMemoryIsSpanFunction']/core:parameters/core:parameter[@name='mem1']/core:type |
+                       core:callback[@c:type='GstMemoryIsSpanFunction']/core:parameters/core:parameter[@name='mem2']/core:type">
+    <!-- https://github.com/ianprime0509/zig-gobject/issues/33 -->
+    <xsl:copy>
+      <xsl:attribute name="name">gpointer</xsl:attribute>
+      <xsl:attribute name="c:type">gpointer</xsl:attribute>
+    </xsl:copy>
+  </xsl:template>
+
+  <xsl:template match="core:callback[@c:type='GstMemoryMapFullFunction']/core:parameters/core:parameter[@name='mem']/core:type |
+                       core:callback[@c:type='GstMemoryMapFullFunction']/core:parameters/core:parameter[@name='info']/core:type">
+    <!-- https://github.com/ianprime0509/zig-gobject/issues/33 -->
+    <xsl:copy>
+      <xsl:attribute name="name">gpointer</xsl:attribute>
+      <xsl:attribute name="c:type">gpointer</xsl:attribute>
+    </xsl:copy>
+  </xsl:template>
+
+  <xsl:template match="core:callback[@c:type='GstMemoryMapFunction']/core:parameters/core:parameter[@name='mem']/core:type">
+    <!-- https://github.com/ianprime0509/zig-gobject/issues/33 -->
+    <xsl:copy>
+      <xsl:attribute name="name">gpointer</xsl:attribute>
+      <xsl:attribute name="c:type">gpointer</xsl:attribute>
+    </xsl:copy>
+  </xsl:template>
+
+  <xsl:template match="core:callback[@c:type='GstMemoryShareFunction']/core:parameters/core:parameter[@name='mem']/core:type |
+                       core:callback[@c:type='GstMemoryShareFunction']/core:return-value/core:type">
+    <!-- https://github.com/ianprime0509/zig-gobject/issues/33 -->
+    <xsl:copy>
+      <xsl:attribute name="name">gpointer</xsl:attribute>
+      <xsl:attribute name="c:type">gpointer</xsl:attribute>
+    </xsl:copy>
+  </xsl:template>
+
+  <xsl:template match="core:callback[@c:type='GstMemoryUnmapFullFunction']/core:parameters/core:parameter[@name='mem']/core:type |
+                       core:callback[@c:type='GstMemoryUnmapFullFunction']/core:parameters/core:parameter[@name='info']/core:type">
+    <!-- https://github.com/ianprime0509/zig-gobject/issues/33 -->
+    <xsl:copy>
+      <xsl:attribute name="name">gpointer</xsl:attribute>
+      <xsl:attribute name="c:type">gpointer</xsl:attribute>
+    </xsl:copy>
+  </xsl:template>
+
+  <xsl:template match="core:callback[@c:type='GstMemoryUnmapFunction']/core:parameters/core:parameter[@name='mem']/core:type">
+    <!-- https://github.com/ianprime0509/zig-gobject/issues/33 -->
+    <xsl:copy>
+      <xsl:attribute name="name">gpointer</xsl:attribute>
+      <xsl:attribute name="c:type">gpointer</xsl:attribute>
+    </xsl:copy>
+  </xsl:template>
 </xsl:stylesheet>
