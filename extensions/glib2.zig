@@ -10,6 +10,16 @@ pub fn create(comptime T: type) *T {
     return @ptrCast(@alignCast(glib.malloc(@sizeOf(T))));
 }
 
+test create {
+    const T = struct { a: u32, b: u64 };
+    const value = glib.ext.create(T);
+    defer glib.ext.destroy(value);
+    value.a = 123;
+    value.b = 456;
+    try std.testing.expectEqual(123, value.a);
+    try std.testing.expectEqual(456, value.b);
+}
+
 /// Creates a heap-allocated copy of `value` using `glib.malloc`. `T` must not
 /// be zero-sized or aligned more than `std.c.max_align_t`.
 pub inline fn new(comptime T: type, value: T) *T {
@@ -18,11 +28,29 @@ pub inline fn new(comptime T: type, value: T) *T {
     return new_value;
 }
 
+test new {
+    const T = struct { a: u32, b: u64 };
+    const value = glib.ext.new(T, .{ .a = 123, .b = 456 });
+    defer glib.ext.destroy(value);
+    try std.testing.expectEqual(123, value.a);
+    try std.testing.expectEqual(456, value.b);
+}
+
 /// Destroys a value created using `create`.
 pub fn destroy(ptr: anytype) void {
     const type_info = compat.typeInfo(@TypeOf(ptr));
     if (type_info != .pointer or type_info.pointer.size != .One) @compileError("must be a single-item pointer");
     glib.freeSized(@ptrCast(ptr), @sizeOf(type_info.pointer.child));
+}
+
+test destroy {
+    const T = struct { a: u32, b: u64 };
+    const value = glib.ext.create(T);
+    defer glib.ext.destroy(value);
+    value.a = 123;
+    value.b = 456;
+    try std.testing.expectEqual(123, value.a);
+    try std.testing.expectEqual(456, value.b);
 }
 
 /// Heap allocates a slice of `n` values of type `T` using `glib.mallocN`. `T`
@@ -34,11 +62,33 @@ pub fn alloc(comptime T: type, n: usize) []T {
     return ptr[0..n];
 }
 
+test alloc {
+    const slice = glib.ext.alloc(u32, 3);
+    defer glib.ext.free(slice);
+    slice[0] = 1;
+    slice[1] = 2;
+    slice[2] = 3;
+    try std.testing.expectEqual(1, slice[0]);
+    try std.testing.expectEqual(2, slice[1]);
+    try std.testing.expectEqual(3, slice[2]);
+}
+
 /// Frees a slice created using `alloc`.
 pub fn free(ptr: anytype) void {
     const type_info = compat.typeInfo(@TypeOf(ptr));
     if (type_info != .pointer or type_info.pointer.size != .Slice) @compileError("must be a slice");
     glib.freeSized(@ptrCast(ptr.ptr), @sizeOf(type_info.pointer.child) * ptr.len);
+}
+
+test free {
+    const slice = glib.ext.alloc(u32, 3);
+    defer glib.ext.free(slice);
+    slice[0] = 1;
+    slice[1] = 2;
+    slice[2] = 3;
+    try std.testing.expectEqual(1, slice[0]);
+    try std.testing.expectEqual(2, slice[1]);
+    try std.testing.expectEqual(3, slice[2]);
 }
 
 pub const Bytes = struct {
@@ -52,6 +102,20 @@ pub const Bytes = struct {
         var size: usize = undefined;
         const maybe_ptr = bytes.getData(&size);
         return if (maybe_ptr) |ptr| ptr[0..size] else &.{};
+    }
+
+    test getDataSlice {
+        const null_ptr = glib.Bytes.new(null, 0);
+        defer null_ptr.unref();
+        try std.testing.expectEqualStrings("", glib.ext.Bytes.getDataSlice(null_ptr));
+
+        const empty = glib.ext.Bytes.newFromSlice("");
+        defer empty.unref();
+        try std.testing.expectEqualStrings("", glib.ext.Bytes.getDataSlice(empty));
+
+        const non_empty = glib.ext.Bytes.newFromSlice("Hello");
+        defer non_empty.unref();
+        try std.testing.expectEqualStrings("Hello", glib.ext.Bytes.getDataSlice(non_empty));
     }
 };
 
@@ -119,6 +183,124 @@ pub const Variant = struct {
         } else {
             @compileError("cannot construct variant from " ++ @typeName(T));
         }
+    }
+
+    test "newFrom(integer)" {
+        try testVariantNewFrom(u8, 123, glib.Variant.getByte);
+        try testVariantNewFrom(i16, -12345, glib.Variant.getInt16);
+        try testVariantNewFrom(i32, -(1 << 24), glib.Variant.getInt32);
+        try testVariantNewFrom(i64, -(1 << 48), glib.Variant.getInt64);
+        try testVariantNewFrom(u16, 12345, glib.Variant.getUint16);
+        try testVariantNewFrom(u32, 1 << 24, glib.Variant.getUint32);
+        try testVariantNewFrom(u64, 1 << 48, glib.Variant.getUint64);
+        try testVariantNewFrom(f64, 3.1415926, glib.Variant.getDouble);
+    }
+
+    test "newFrom(bool)" {
+        const variant = glib.ext.Variant.newFrom(true);
+        defer variant.unref();
+        try std.testing.expectEqual(1, variant.getBoolean());
+    }
+
+    test "newFrom(string literal)" {
+        const variant = glib.ext.Variant.newFrom("Hello, world!");
+        defer variant.unref();
+        var len: usize = undefined;
+        const string = variant.getString(&len);
+        try std.testing.expectEqualStrings("Hello, world!", string[0..len]);
+    }
+
+    test "newFrom([*:0]const u8)" {
+        const str: [*:0]const u8 = "Hello, world!";
+        const variant = glib.ext.Variant.newFrom(str);
+        defer variant.unref();
+        var len: usize = undefined;
+        const string = variant.getString(&len);
+        try std.testing.expectEqualStrings("Hello, world!", string[0..len]);
+    }
+
+    test "newFrom([:0]const u8)" {
+        const str: [:0]const u8 = "Hello, world!";
+        const variant = glib.ext.Variant.newFrom(str);
+        defer variant.unref();
+        var len: usize = undefined;
+        const string = variant.getString(&len);
+        try std.testing.expectEqualStrings("Hello, world!", string[0..len]);
+    }
+
+    test "newFrom([4]u16)" {
+        const arr: [4]u16 = .{ 1, 2, 3, 4 };
+        const variant = glib.ext.Variant.newFrom(arr);
+        defer variant.unref();
+        try std.testing.expectEqual(arr.len, variant.nChildren());
+        for (arr, 0..) |item, i| {
+            const child = variant.getChildValue(i);
+            defer child.unref();
+            try std.testing.expectEqual(item, child.getUint16());
+        }
+    }
+
+    test "newFrom([]const u32)" {
+        const slice: []const u32 = &.{ 1, 2, 3, 4, 5 };
+        const variant = glib.ext.Variant.newFrom(slice);
+        defer variant.unref();
+        try std.testing.expectEqual(slice.len, variant.nChildren());
+        for (slice, 0..) |item, i| {
+            const child = variant.getChildValue(i);
+            defer child.unref();
+            try std.testing.expectEqual(item, child.getUint32());
+        }
+    }
+
+    test "newFrom(?i16)" {
+        {
+            const opt: ?i16 = -12345;
+            const variant = glib.ext.Variant.newFrom(opt);
+            defer variant.unref();
+            const maybe_child = variant.getMaybe();
+            defer if (maybe_child) |child| child.unref();
+            try std.testing.expect(maybe_child != null);
+            try std.testing.expectEqual(-12345, maybe_child.?.getInt16());
+        }
+
+        {
+            const opt: ?i16 = null;
+            const variant = glib.ext.Variant.newFrom(opt);
+            defer variant.unref();
+            try std.testing.expectEqual(null, variant.getMaybe());
+        }
+    }
+
+    test "newFrom(struct{u32, u64, i64})" {
+        const tuple: struct { u32, u64, i64 } = .{ 1, 2, -3 };
+        const variant = glib.ext.Variant.newFrom(tuple);
+        defer variant.unref();
+        try std.testing.expectEqual(tuple.len, variant.nChildren());
+        {
+            const child = variant.getChildValue(0);
+            defer child.unref();
+            try std.testing.expectEqual(tuple[0], child.getUint32());
+        }
+        {
+            const child = variant.getChildValue(1);
+            defer child.unref();
+            try std.testing.expectEqual(tuple[1], child.getUint64());
+        }
+        {
+            const child = variant.getChildValue(2);
+            defer child.unref();
+            try std.testing.expectEqual(tuple[2], child.getInt64());
+        }
+    }
+
+    fn testVariantNewFrom(
+        comptime T: type,
+        data: T,
+        getter: fn (*glib.Variant) callconv(.C) T,
+    ) !void {
+        const variant = glib.ext.Variant.newFrom(data);
+        defer variant.unref();
+        try std.testing.expectEqual(data, getter(variant));
     }
 };
 
