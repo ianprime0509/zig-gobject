@@ -643,6 +643,9 @@ fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContex
     for (class.constants) |constant| {
         try translateConstant(allocator, constant, ctx, out);
     }
+    for (class.callbacks) |callback| {
+        try translateCallback(allocator, callback, .{ .named = true }, ctx, out);
+    }
 
     var function_names = std.StringHashMap(void).init(allocator);
     defer function_names.deinit();
@@ -751,6 +754,9 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, ctx: Trans
 
     for (interface.constants) |constant| {
         try translateConstant(allocator, constant, ctx, out);
+    }
+    for (interface.callbacks) |callback| {
+        try translateCallback(allocator, callback, .{ .named = true }, ctx, out);
     }
 
     var function_names = std.StringHashMap(void).init(allocator);
@@ -2733,7 +2739,11 @@ fn escapeTypeName(name: []const u8) []const u8 {
 
 fn translateName(allocator: Allocator, name: gir.Name, out: anytype) !void {
     try translateNameNs(allocator, name.ns, out);
-    try out.print("$I", .{escapeTypeName(name.local)});
+    var local_parts = mem.splitScalar(u8, name.local, '.');
+    try out.print("$I", .{escapeTypeName(local_parts.first())});
+    while (local_parts.next()) |local_part| {
+        try out.print(".$I", .{escapeTypeName(local_part)});
+    }
 }
 
 fn translateNameNs(allocator: Allocator, nameNs: ?[]const u8, out: anytype) !void {

@@ -74,6 +74,14 @@ const module_options = std.StaticStringMap(ModuleOptions).initComptime(.{
         },
     },
     .{
+        "Gee-0.8", ModuleOptions{
+            // Either the GIR or the C header for gee_hazard_pointer_new is
+            // incorrect, but I don't know which one. There might be more
+            // examples of such discrepancies.
+            .test_abi = false,
+        },
+    },
+    .{
         "Gio-2.0", ModuleOptions{
             // Something weird going on with GSettingsBackend being translated as opaque
             .test_abi = false,
@@ -290,7 +298,7 @@ pub fn build(b: *std.Build) void {
             "GdkWayland-4.0",
             "GdkX11-3.0",
             "GdkX11-4.0",
-            // "Gee-0.8", // Several GIR issues, including referencing undefined types
+            "Gee-0.8",
             "Geoclue-2.0",
             "Gio-2.0",
             "GioUnix-2.0",
@@ -396,7 +404,7 @@ pub fn build(b: *std.Build) void {
             "GdkWayland-4.0",
             "GdkX11-3.0",
             "GdkX11-4.0",
-            // "Gee-0.8", // Several GIR issues, including referencing undefined types
+            "Gee-0.8",
             "Geoclue-2.0",
             "Gio-2.0",
             "GioUnix-2.0",

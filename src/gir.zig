@@ -450,6 +450,7 @@ pub const Class = struct {
     properties: []const Property = &.{},
     signals: []const Signal = &.{},
     constants: []const Constant = &.{},
+    callbacks: []const Callback = &.{},
     get_type: []const u8,
     ref_func: ?[]const u8 = null,
     unref_func: ?[]const u8 = null,
@@ -484,6 +485,7 @@ pub const Class = struct {
         var properties = std.ArrayList(Property).init(allocator);
         var signals = std.ArrayList(Signal).init(allocator);
         var constants = std.ArrayList(Constant).init(allocator);
+        var callbacks = std.ArrayList(Callback).init(allocator);
         const get_type = get_type: {
             const index = reader.attributeIndexNs(ns.glib, "get-type") orelse return error.InvalidGir;
             break :get_type try reader.attributeValueAlloc(allocator, index);
@@ -536,6 +538,8 @@ pub const Class = struct {
                         try signals.append(try Signal.parse(allocator, reader, current_ns));
                     } else if (child.is(ns.core, "constant")) {
                         try constants.append(try Constant.parse(allocator, reader, current_ns));
+                    } else if (child.is(ns.core, "callback")) {
+                        try callbacks.append(try Callback.parse(allocator, reader, current_ns));
                     } else if (child.is(ns.core, "doc")) {
                         documentation = try Documentation.parse(allocator, reader);
                     } else {
@@ -560,6 +564,7 @@ pub const Class = struct {
             .properties = try properties.toOwnedSlice(),
             .signals = try signals.toOwnedSlice(),
             .constants = try constants.toOwnedSlice(),
+            .callbacks = try callbacks.toOwnedSlice(),
             .get_type = get_type,
             .ref_func = ref_func,
             .unref_func = unref_func,
@@ -582,6 +587,7 @@ pub const Interface = struct {
     properties: []const Property = &.{},
     signals: []const Signal = &.{},
     constants: []const Constant = &.{},
+    callbacks: []const Callback = &.{},
     get_type: []const u8,
     type_struct: ?Name = null,
     symbol_prefix: ?[]const u8 = null,
@@ -604,6 +610,7 @@ pub const Interface = struct {
         var properties = std.ArrayList(Property).init(allocator);
         var signals = std.ArrayList(Signal).init(allocator);
         var constants = std.ArrayList(Constant).init(allocator);
+        var callbacks = std.ArrayList(Callback).init(allocator);
         const get_type = get_type: {
             const index = reader.attributeIndexNs(ns.glib, "get-type") orelse return error.InvalidGir;
             break :get_type try reader.attributeValueAlloc(allocator, index);
@@ -638,6 +645,8 @@ pub const Interface = struct {
                         try signals.append(try Signal.parse(allocator, reader, current_ns));
                     } else if (child.is(ns.core, "constant")) {
                         try constants.append(try Constant.parse(allocator, reader, current_ns));
+                    } else if (child.is(ns.core, "callback")) {
+                        try callbacks.append(try Callback.parse(allocator, reader, current_ns));
                     } else if (child.is(ns.core, "doc")) {
                         documentation = try Documentation.parse(allocator, reader);
                     } else {
@@ -660,6 +669,7 @@ pub const Interface = struct {
             .properties = try properties.toOwnedSlice(),
             .signals = try signals.toOwnedSlice(),
             .constants = try constants.toOwnedSlice(),
+            .callbacks = try callbacks.toOwnedSlice(),
             .get_type = get_type,
             .type_struct = type_struct,
             .symbol_prefix = symbol_prefix,
