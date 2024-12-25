@@ -190,18 +190,6 @@ const module_options = std.StaticStringMap(ModuleOptions).initComptime(.{
         },
     },
     .{
-        "GstVulkan-1.0", ModuleOptions{
-            // Missing include vulkan/vulkan_core.h
-            .test_abi = false,
-        },
-    },
-    .{
-        "GstVulkanWayland-1.0", ModuleOptions{
-            // Missing include vulkan/vulkan_core.h
-            .test_abi = false,
-        },
-    },
-    .{
         "Gtk-3.0", ModuleOptions{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
@@ -366,7 +354,7 @@ pub fn build(b: *std.Build) void {
             "Secret-1",
             "Soup-3.0",
             "Tracker-3.0",
-            "Vulkan-1.0",
+            // "Vulkan-1.0", // https://github.com/ianprime0509/zig-gobject/issues/89
             "WebKit2-4.1",
             "WebKit2WebExtension-4.1",
             "WebKit-6.0",
@@ -446,9 +434,9 @@ pub fn build(b: *std.Build) void {
             "GstTranscoder-1.0",
             "GstVa-1.0",
             "GstVideo-1.0",
-            // "GstVulkan-1.0", // Vulkan GIR is incorrect; all records should have pointer="1"
-            // "GstVulkanWayland-1.0", // Vulkan GIR is incorrect; all records should have pointer="1"
-            // "GstVulkanXCB-1.0", // Vulkan GIR is incorrect; all records should have pointer="1"
+            // "GstVulkan-1.0", // https://github.com/ianprime0509/zig-gobject/issues/89
+            // "GstVulkanWayland-1.0", // https://github.com/ianprime0509/zig-gobject/issues/89
+            // "GstVulkanXCB-1.0", // https://github.com/ianprime0509/zig-gobject/issues/89
             "GstWebRTC-1.0",
             "Gtk-3.0",
             "Gtk-4.0",
@@ -476,7 +464,7 @@ pub fn build(b: *std.Build) void {
             "Soup-3.0",
             "Tracker-3.0",
             "Tsparql-3.0",
-            "Vulkan-1.0",
+            // "Vulkan-1.0", // https://github.com/ianprime0509/zig-gobject/issues/89
             "WebKit2-4.1",
             "WebKit2WebExtension-4.1",
             "WebKit-6.0",
