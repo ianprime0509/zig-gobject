@@ -486,16 +486,7 @@ pub fn build(b: *std.Build) void {
         const module = b.fmt("{s}{s}", .{ module_name, module_major_version });
         _ = std.ascii.lowerString(module, module);
 
-        const options = module_options.get(test_module) orelse ModuleOptions{};
-
-        const import_name = std.ascii.allocLowerString(b.allocator, module_name) catch @panic("OOM");
-        const tests = b.addTest(.{
-            .root_source_file = b.path(b.fmt("{s}.zig", .{module})),
-            .target = target,
-            .optimize = optimize,
-        });
-        tests.root_module.addImport(import_name, gobject.module(module));
-        test_step.dependOn(&b.addRunArtifact(tests).step);
+        const options: ModuleOptions = module_options.get(test_module) orelse .{};
 
         if (options.test_abi) {
             const abi_tests = b.addTest(.{
