@@ -2834,10 +2834,9 @@ fn createBuildZig(
         \\const target = b.standardTargetOptions(.{});
         \\const optimize = b.standardOptimizeOption(.{});
         \\
+        \\const docs_step = b.step("docs", "Generate documentation");
+        \\const test_step = b.step("test", "Run tests");
         \\
-    , .{});
-
-    try out.print(
         \\const compat = b.createModule(.{
         \\    .root_source_file = b.path("src/compat/compat.zig"),
         \\    .target = target,
@@ -2864,11 +2863,28 @@ fn createBuildZig(
 
         try out.print("libraries.$I.linkTo($I);\n", .{ module_name, module_name });
         try out.print("$I.addImport(\"compat\", compat);\n\n", .{module_name});
+
+        const test_name = try std.fmt.allocPrint(allocator, "{s}_test", .{module_name});
+        defer allocator.free(test_name);
+
+        try out.print(
+            \\const $I = b.addTest(.{
+            \\    .root_source_file = b.path(b.pathJoin(&.{ "src", $S, $S ++ ".zig" })),
+            \\    .target = target,
+            \\    .optimize = optimize,
+            \\});
+            \\
+        , .{ test_name, module_name, module_name });
+        try out.print("libraries.$I.linkTo(rootModule($I));\n", .{ module_name, test_name });
+        try out.print("rootModule($I).addImport(\"compat\", compat);\n", .{test_name});
+        try out.print("test_step.dependOn(&b.addRunArtifact($I).step);\n\n", .{test_name});
     }
 
     for (repositories) |repo| {
         const module_name = try moduleNameAlloc(allocator, repo.namespace.name, repo.namespace.version);
         defer allocator.free(module_name);
+        const test_name = try std.fmt.allocPrint(allocator, "{s}_test", .{module_name});
+        defer allocator.free(test_name);
 
         var seen = RepositorySet.init(allocator);
         defer seen.deinit();
@@ -2882,6 +2898,7 @@ fn createBuildZig(
                 const dep_module_name = try moduleNameAlloc(allocator, needed_dep.name, needed_dep.version);
                 defer allocator.free(dep_module_name);
                 try out.print("$I.addImport($S, $I);\n", .{ module_name, dep_module_name, dep_module_name });
+                try out.print("rootModule($I).addImport($S, $I);\n", .{ test_name, dep_module_name, dep_module_name });
 
                 try seen.put(needed_dep, {});
                 if (repository_map.get(needed_dep)) |dep_repo| {
@@ -2891,7 +2908,8 @@ fn createBuildZig(
         }
 
         // The self-dependency is useful for extensions files to be able to import their own module by name
-        try out.print("$I.addImport($S, $I);\n\n", .{ module_name, module_name, module_name });
+        try out.print("$I.addImport($S, $I);\n", .{ module_name, module_name, module_name });
+        try out.print("rootModule($I).addImport($S, rootModule($I));\n\n", .{ test_name, module_name, test_name });
     }
 
     // Docs
@@ -2926,7 +2944,7 @@ fn createBuildZig(
         \\    .install_dir = .prefix,
         \\    .install_subdir = "docs",
         \\});
-        \\b.step("docs", "Generate documentation").dependOn(&install_docs.step);
+        \\docs_step.dependOn(&install_docs.step);
         \\
     , .{});
     for (repositories) |repo| {
