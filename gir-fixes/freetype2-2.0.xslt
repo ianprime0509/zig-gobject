@@ -2,7 +2,6 @@
 <xsl:stylesheet
     version="1.0"
     xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
-    xmlns="http://www.gtk.org/introspection/core/1.0"
     xmlns:core="http://www.gtk.org/introspection/core/1.0"
     xmlns:c="http://www.gtk.org/introspection/c/1.0"
     xmlns:glib="http://www.gtk.org/introspection/glib/1.0">
@@ -17,7 +16,7 @@
     <xsl:copy>
       <xsl:copy-of select="@*" />
 
-      <type name="gint32" c:type="gint32" />
+      <core:type name="gint32" c:type="gint32" />
     </xsl:copy>
   </xsl:template>
 
