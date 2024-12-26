@@ -571,6 +571,16 @@ fn translateNamespace(allocator: Allocator, ns: gir.Namespace, ctx: TranslationC
     for (ns.constants) |constant| {
         try translateConstant(allocator, constant, ctx, out);
     }
+
+    try out.print(
+        \\
+        \\test {
+        \\    @setEvalBranchQuota(100_000);
+        \\    std.testing.refAllDecls(@This());
+        \\    std.testing.refAllDecls(ext);
+        \\}
+        \\
+    , .{});
 }
 
 fn translateAlias(allocator: Allocator, alias: gir.Alias, ctx: TranslationContext, out: anytype) !void {
@@ -685,6 +695,15 @@ fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContex
         \\
     , .{name});
 
+    try out.print(
+        \\
+        \\test {
+        \\    @setEvalBranchQuota(100_000);
+        \\    std.testing.refAllDecls(@This());
+        \\}
+        \\
+    , .{});
+
     try out.print("};\n\n", .{});
 }
 
@@ -789,6 +808,15 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, ctx: Trans
         \\
     , .{name});
 
+    try out.print(
+        \\
+        \\test {
+        \\    @setEvalBranchQuota(100_000);
+        \\    std.testing.refAllDecls(@This());
+        \\}
+        \\
+    , .{});
+
     try out.print("};\n\n", .{});
 }
 
@@ -855,6 +883,15 @@ fn translateRecord(allocator: Allocator, record: gir.Record, ctx: TranslationCon
         , .{name});
     }
 
+    try out.print(
+        \\
+        \\test {
+        \\    @setEvalBranchQuota(100_000);
+        \\    std.testing.refAllDecls(@This());
+        \\}
+        \\
+    , .{});
+
     try out.print("};\n\n", .{});
 }
 
@@ -887,6 +924,15 @@ fn translateUnion(allocator: Allocator, @"union": gir.Union, ctx: TranslationCon
     if (@"union".get_type) |get_type| {
         try translateGetTypeFunction(allocator, "get_g_object_type", get_type, ctx, out);
     }
+
+    try out.print(
+        \\
+        \\test {
+        \\    @setEvalBranchQuota(100_000);
+        \\    std.testing.refAllDecls(@This());
+        \\}
+        \\
+    , .{});
 
     try out.print("};\n\n", .{});
 }
@@ -1037,6 +1083,15 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: Transla
         try translateGetTypeFunction(allocator, "get_g_object_type", get_type, ctx, out);
     }
 
+    try out.print(
+        \\
+        \\test {
+        \\    @setEvalBranchQuota(100_000);
+        \\    std.testing.refAllDecls(@This());
+        \\}
+        \\
+    , .{});
+
     try out.print("};\n\n", .{});
 }
 
@@ -1080,6 +1135,15 @@ fn translateEnum(allocator: Allocator, @"enum": gir.Enum, ctx: TranslationContex
     if (@"enum".get_type) |get_type| {
         try translateGetTypeFunction(allocator, "get_g_object_type", get_type, ctx, out);
     }
+
+    try out.print(
+        \\
+        \\test {
+        \\    @setEvalBranchQuota(100_000);
+        \\    std.testing.refAllDecls(@This());
+        \\}
+        \\
+    , .{});
 
     try out.print("};\n\n", .{});
 }
