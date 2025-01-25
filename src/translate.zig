@@ -1070,7 +1070,7 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: Transla
     defer seen.deinit();
     for (bit_field.members) |member| {
         if (!seen.contains(member.name)) {
-            try out.print("const flags_$L: $I = @bitCast(@as($L, $L));\n", .{ member.name, name, backing_int, member.value });
+            try out.print("pub const flags_$L: $I = @bitCast(@as($L, $L));\n", .{ member.name, name, backing_int, member.value });
         }
         try seen.put(member.name, {});
     }
