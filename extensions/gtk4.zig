@@ -2,7 +2,6 @@ const glib = @import("glib2");
 const gobject = @import("gobject2");
 const gtk = @import("gtk4");
 const std = @import("std");
-const compat = @import("compat");
 
 pub const BindTemplateChildOptions = struct {
     field: ?[]const u8 = null,
@@ -24,7 +23,7 @@ pub const impl_helpers = struct {
         comptime options: gtk.ext.BindTemplateChildOptions,
     ) void {
         const field = options.field orelse name;
-        const Instance = compat.typeInfo(@TypeOf(class)).pointer.child.Instance;
+        const Instance = @typeInfo(@TypeOf(class)).pointer.child.Instance;
         ensureWidgetType(Instance, field);
         gtk.Widget.Class.bindTemplateChildFull(
             gobject.ext.as(gtk.Widget.Class, class),
@@ -75,12 +74,12 @@ pub const impl_helpers = struct {
                 gobject.Object.unref(widget.as(gobject.Object));
             }
 
-            fn init(widget: *Self, _: *Class) callconv(.C) void {
+            fn init(widget: *Self, _: *Class) callconv(.c) void {
                 gtk.Widget.initTemplate(widget.as(gtk.Widget));
                 gtk.Widget.setLayoutManager(widget.as(gtk.Widget), gtk.BinLayout.new().as(gtk.LayoutManager));
             }
 
-            fn dispose(widget: *Self) callconv(.C) void {
+            fn dispose(widget: *Self) callconv(.c) void {
                 gtk.Widget.disposeTemplate(widget.as(gtk.Widget), getGObjectType());
                 gobject.Object.virtual_methods.dispose.call(Class.parent, widget.as(Parent));
             }
@@ -96,7 +95,7 @@ pub const impl_helpers = struct {
                     return gobject.ext.as(T, class);
                 }
 
-                fn init(class: *Class) callconv(.C) void {
+                fn init(class: *Class) callconv(.c) void {
                     gobject.Object.virtual_methods.dispose.implement(class, &dispose);
                     gtk.ext.WidgetClass.setTemplateFromSlice(class.as(gtk.Widget.Class), template);
                     class.bindTemplateChild("label", .{});
@@ -190,12 +189,12 @@ pub const impl_helpers = struct {
                 return std.mem.span(widget.private().label.getLabel());
             }
 
-            fn init(widget: *Self, _: *Class) callconv(.C) void {
+            fn init(widget: *Self, _: *Class) callconv(.c) void {
                 gtk.Widget.initTemplate(widget.as(gtk.Widget));
                 gtk.Widget.setLayoutManager(widget.as(gtk.Widget), gtk.BinLayout.new().as(gtk.LayoutManager));
             }
 
-            fn dispose(widget: *Self) callconv(.C) void {
+            fn dispose(widget: *Self) callconv(.c) void {
                 gtk.Widget.disposeTemplate(widget.as(gtk.Widget), getGObjectType());
                 gobject.Object.virtual_methods.dispose.call(Class.parent, widget.as(Parent));
             }
@@ -215,7 +214,7 @@ pub const impl_helpers = struct {
                     return gobject.ext.as(T, class);
                 }
 
-                fn init(class: *Class) callconv(.C) void {
+                fn init(class: *Class) callconv(.c) void {
                     gobject.Object.virtual_methods.dispose.implement(class, &dispose);
                     gtk.ext.WidgetClass.setTemplateFromSlice(class.as(gtk.Widget.Class), template);
                     class.bindTemplateChildPrivate("label", .{});
@@ -235,18 +234,18 @@ pub const impl_helpers = struct {
     }
 
     fn ensureWidgetType(comptime Container: type, comptime field_name: []const u8) void {
-        inline for (compat.typeInfo(Container).@"struct".fields) |field| {
+        inline for (@typeInfo(Container).@"struct".fields) |field| {
             if (comptime std.mem.eql(u8, field.name, field_name)) {
-                const WidgetType = switch (compat.typeInfo(field.type)) {
+                const WidgetType = switch (@typeInfo(field.type)) {
                     .pointer => |pointer| widget_type: {
-                        if (pointer.size != .One) {
+                        if (pointer.size != .one) {
                             @compileError("bound child type must be a single pointer");
                         }
                         break :widget_type pointer.child;
                     },
-                    .optional => |optional| switch (compat.typeInfo(optional.child)) {
+                    .optional => |optional| switch (@typeInfo(optional.child)) {
                         .pointer => |pointer| widget_type: {
-                            if (pointer.size != .One) {
+                            if (pointer.size != .one) {
                                 @compileError("bound child type must be a single pointer");
                             }
                             break :widget_type pointer.child;

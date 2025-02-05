@@ -20,7 +20,7 @@ pub fn findRepositories(
     var needed_repos = std.ArrayList(Include).init(allocator);
     defer needed_repos.deinit();
     try needed_repos.appendSlice(roots);
-    while (needed_repos.popOrNull()) |needed_repo| {
+    while (needed_repos.pop()) |needed_repo| {
         if (!repos.contains(needed_repo)) {
             const repo = findRepository(
                 allocator,

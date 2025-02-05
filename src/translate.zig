@@ -41,7 +41,7 @@ const TranslationContext = struct {
         var needed_deps = std.ArrayList(gir.Include).init(allocator);
         defer needed_deps.deinit();
         try needed_deps.append(.{ .name = repository.namespace.name, .version = repository.namespace.version });
-        while (needed_deps.popOrNull()) |needed_dep| {
+        while (needed_deps.pop()) |needed_dep| {
             if (!seen.contains(needed_dep)) {
                 try seen.put(needed_dep, {});
                 if (repository_map.get(needed_dep)) |dep_repo| {
@@ -504,7 +504,7 @@ fn translateIncludes(allocator: Allocator, ns: gir.Namespace, repository_map: Re
     if (repository_map.get(.{ .name = ns.name, .version = ns.version })) |dep_repo| {
         try needed_deps.appendSlice(dep_repo.includes);
     }
-    while (needed_deps.popOrNull()) |needed_dep| {
+    while (needed_deps.pop()) |needed_dep| {
         if (!seen.contains(needed_dep)) {
             const module_name = try moduleNameAlloc(allocator, needed_dep.name, needed_dep.version);
             defer allocator.free(module_name);
@@ -1290,7 +1290,7 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
     try translateDocumentation(allocator, virtual_method.documentation, ctx, out);
     try out.print("pub const $I = struct {\n", .{virtual_method.name});
 
-    const instance_type = "compat.typeInfo(@TypeOf(p_class)).pointer.child.Instance";
+    const instance_type = "@typeInfo(@TypeOf(p_class)).pointer.child.Instance";
 
     try out.print("pub fn call(p_class: anytype, ", .{});
     try translateParameters(allocator, virtual_method.parameters, .{
@@ -1327,7 +1327,7 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
         .self_type = instance_type,
         .throws = virtual_method.throws,
     }, ctx, out);
-    try out.print(") callconv(.C) ", .{});
+    try out.print(") callconv(.c) ", .{});
     try translateReturnValue(allocator, virtual_method.return_value, .{
         .force_nullable = virtual_method.throws,
     }, ctx, out);
@@ -1383,7 +1383,7 @@ fn translateSignal(allocator: Allocator, signal: gir.Signal, type_name: []const 
         .self_type = "@TypeOf(p_instance)",
         .gobject_context = true,
     }, ctx, out);
-    try out.print(", P_Data) callconv(.C) ", .{});
+    try out.print(", P_Data) callconv(.c) ", .{});
     try translateReturnValue(allocator, signal.return_value, .{ .gobject_context = true }, ctx, out);
     try out.print(", p_data: P_Data, p_options: gobject.ext.ConnectSignalOptions(P_Data)) c_ulong {\n", .{});
     try out.print(
@@ -2196,7 +2196,7 @@ fn translateCallback(allocator: Allocator, callback: gir.Callback, options: Tran
     }
     try out.print("*const fn (", .{});
     try translateParameters(allocator, callback.parameters, .{ .throws = callback.throws }, ctx, out);
-    try out.print(") callconv(.C) ", .{});
+    try out.print(") callconv(.c) ", .{});
     switch (callback.return_value.type) {
         .simple => |simple_type| try translateType(allocator, simple_type, .{
             .nullable = callback.return_value.nullable or callback.throws,
@@ -2985,22 +2985,16 @@ fn createBuildZig(
 
         try out.print(
             \\const $I = b.addTest(.{
-            \\    .root_source_file = b.path(b.pathJoin(&.{ "src", $S, $S ++ ".zig" })),
-            \\    .target = target,
-            \\    .optimize = optimize,
+            \\    .root_module = $I,
             \\});
             \\
-        , .{ test_name, module_name, module_name });
-        try out.print("libraries.$I.linkTo(rootModule($I));\n", .{ module_name, test_name });
-        try out.print("rootModule($I).addImport(\"compat\", compat);\n", .{test_name});
+        , .{ test_name, module_name });
         try out.print("test_step.dependOn(&b.addRunArtifact($I).step);\n\n", .{test_name});
     }
 
     for (repositories) |repo| {
         const module_name = try moduleNameAlloc(allocator, repo.namespace.name, repo.namespace.version);
         defer allocator.free(module_name);
-        const test_name = try std.fmt.allocPrint(allocator, "{s}_test", .{module_name});
-        defer allocator.free(test_name);
 
         var seen = RepositorySet.init(allocator);
         defer seen.deinit();
@@ -3009,12 +3003,11 @@ fn createBuildZig(
         if (repository_map.get(.{ .name = repo.namespace.name, .version = repo.namespace.version })) |dep_repo| {
             try needed_deps.appendSlice(dep_repo.includes);
         }
-        while (needed_deps.popOrNull()) |needed_dep| {
+        while (needed_deps.pop()) |needed_dep| {
             if (!seen.contains(needed_dep)) {
                 const dep_module_name = try moduleNameAlloc(allocator, needed_dep.name, needed_dep.version);
                 defer allocator.free(dep_module_name);
                 try out.print("$I.addImport($S, $I);\n", .{ module_name, dep_module_name, dep_module_name });
-                try out.print("rootModule($I).addImport($S, $I);\n", .{ test_name, dep_module_name, dep_module_name });
 
                 try seen.put(needed_dep, {});
                 if (repository_map.get(needed_dep)) |dep_repo| {
@@ -3025,7 +3018,6 @@ fn createBuildZig(
 
         // The self-dependency is useful for extensions files to be able to import their own module by name
         try out.print("$I.addImport($S, $I);\n", .{ module_name, module_name, module_name });
-        try out.print("rootModule($I).addImport($S, rootModule($I));\n\n", .{ test_name, module_name, test_name });
     }
 
     // Docs
@@ -3049,11 +3041,14 @@ fn createBuildZig(
             return diag.add("failed to write docs root module file {s}: {}", .{ docs_root_path, err });
     }
     try out.print(
-        \\const docs_obj = b.addObject(.{
-        \\    .name = "docs",
+        \\const docs_mod = b.createModule(.{
         \\    .root_source_file = b.path("src/root/root.zig"),
         \\    .target = target,
         \\    .optimize = .Debug,
+        \\});
+        \\const docs_obj = b.addObject(.{
+        \\    .name = "docs",
+        \\    .root_module = docs_mod,
         \\});
         \\const install_docs = b.addInstallDirectory(.{
         \\    .source_dir = docs_obj.getEmittedDocs(),
@@ -3066,7 +3061,7 @@ fn createBuildZig(
     for (repositories) |repo| {
         const module_name = try moduleNameAlloc(allocator, repo.namespace.name, repo.namespace.version);
         defer allocator.free(module_name);
-        try out.print("docs_obj.root_module.addImport($S, $I);\n", .{ module_name, module_name });
+        try out.print("docs_mod.addImport($S, $I);\n", .{ module_name, module_name });
     }
 
     try out.print("}\n\n", .{});
@@ -3111,8 +3106,10 @@ fn createBuildZon(
 
     const source =
         \\.{
-        \\    .name = "gobject",
+        \\    .name = .gobject,
         \\    .version = "0.2.0",
+        \\    .fingerprint = 0xca12a75aeca74b4a, // Changing this has security and trust implications.
+        \\    .minimum_zig_version = "0.14.0",
         \\    .paths = .{
         \\        "src",
         \\        "build.zig",
@@ -3195,8 +3192,8 @@ pub fn createAbiTests(
             \\    // translate-c doesn't seem to want to translate va_list to std.builtin.VaList
             \\    if (ActualType == std.builtin.VaList) return;
             \\
-            \\    const expected_type_info = compat.typeInfo(ExpectedType);
-            \\    const actual_type_info = compat.typeInfo(ActualType);
+            \\    const expected_type_info = @typeInfo(ExpectedType);
+            \\    const actual_type_info = @typeInfo(ActualType);
             \\    switch (expected_type_info) {
             \\        .void => switch (actual_type_info) {
             \\            .void => {},
@@ -3271,13 +3268,13 @@ pub fn createAbiTests(
             \\        // differently from how they appear in C (e.g. *GtkWindow rather than *GtkWidget)
             \\        .pointer => switch (actual_type_info) {
             \\            .pointer => {},
-            \\            .@"optional" => |actual_optional| try std.testing.expect(compat.typeInfo(actual_optional.child) == .pointer),
+            \\            .@"optional" => |actual_optional| try std.testing.expect(@typeInfo(actual_optional.child) == .pointer),
             \\            else => {
             \\                std.debug.print("incompatible types: expected {s}, actual {s}\n", .{@typeName(ExpectedType), @typeName(ActualType)}) ;
             \\                return error.TestUnexpectedType;
             \\            }
             \\        },
-            \\        .@"optional" => |expected_optional| switch (compat.typeInfo(expected_optional.child)) {
+            \\        .@"optional" => |expected_optional| switch (@typeInfo(expected_optional.child)) {
             \\            .pointer => try checkCompatibility(expected_optional.child, ActualType),
             \\            else => {
             \\                std.debug.print("unexpected C translated type: {s}\n", .{@typeName(ExpectedType)});
@@ -3342,7 +3339,7 @@ pub fn createAbiTests(
                     try out.print(
                         \\const ExpectedType = c.$I;
                         \\const ActualType = $I.$I;
-                        \\try std.testing.expect(compat.typeInfo(ExpectedType) == .@"struct");
+                        \\try std.testing.expect(@typeInfo(ExpectedType) == .@"struct");
                         \\try checkCompatibility(ExpectedType, ActualType);
                         \\
                     , .{ c_type, pkg, class_name });
@@ -3385,9 +3382,9 @@ pub fn createAbiTests(
                         \\
                     , .{ c_type, pkg, record_name });
                     if (record.isPointer()) {
-                        try out.print("try std.testing.expect(compat.typeInfo(ExpectedType) == .pointer);\n", .{});
+                        try out.print("try std.testing.expect(@typeInfo(ExpectedType) == .pointer);\n", .{});
                     } else {
-                        try out.print("try std.testing.expect(compat.typeInfo(ExpectedType) == .@\"struct\");\n", .{});
+                        try out.print("try std.testing.expect(@typeInfo(ExpectedType) == .@\"struct\");\n", .{});
                     }
                     try out.print("try checkCompatibility(ExpectedType, ActualType);\n", .{});
                     try out.print("}\n\n", .{});
@@ -3427,7 +3424,7 @@ pub fn createAbiTests(
                     try out.print(
                         \\const ExpectedType = c.$I;
                         \\const ActualType = $I.$I;
-                        \\try std.testing.expect(compat.typeInfo(ExpectedType) == .@"union");
+                        \\try std.testing.expect(@typeInfo(ExpectedType) == .@"union");
                         \\try checkCompatibility(ExpectedType, ActualType);
                         \\
                     , .{ c_type, pkg, union_name });
@@ -3465,7 +3462,7 @@ pub fn createAbiTests(
                 try out.print(
                     \\const ExpectedType = c.$I;
                     \\const ActualType = $I.$I;
-                    \\try std.testing.expect(compat.typeInfo(ExpectedType) == .int);
+                    \\try std.testing.expect(@typeInfo(ExpectedType) == .int);
                     \\try checkCompatibility(ExpectedType, ActualType);
                     \\
                 , .{ c_type, pkg, bit_field_name });
@@ -3488,7 +3485,7 @@ pub fn createAbiTests(
                 try out.print(
                     \\const ExpectedType = c.$I;
                     \\const ActualType = $I.$I;
-                    \\try std.testing.expect(compat.typeInfo(ExpectedType) == .int);
+                    \\try std.testing.expect(@typeInfo(ExpectedType) == .int);
                     \\try checkCompatibility(ExpectedType, ActualType);
                     \\
                 , .{ c_type, pkg, enum_name });
@@ -3512,7 +3509,7 @@ pub fn createAbiTests(
             try out.print(
                 \\const ExpectedFnType = @TypeOf(c.$I);
                 \\const ActualFnType = @TypeOf($I.$I);
-                \\try std.testing.expect(compat.typeInfo(ExpectedFnType) == .@"fn");
+                \\try std.testing.expect(@typeInfo(ExpectedFnType) == .@"fn");
                 \\try checkCompatibility(ExpectedFnType, ActualFnType);
                 \\
             , .{ function.c_identifier, pkg, function_name });
@@ -3548,7 +3545,7 @@ fn createFunctionTest(
     try out.print(
         \\const ExpectedFnType = @TypeOf(c.$I);
         \\const ActualFnType = @TypeOf($I.$I.$I);
-        \\try std.testing.expect(compat.typeInfo(ExpectedFnType) == .@"fn");
+        \\try std.testing.expect(@typeInfo(ExpectedFnType) == .@"fn");
         \\try checkCompatibility(ExpectedFnType, ActualFnType);
         \\
     , .{ c_name, pkg_name, container_name, function_name });
@@ -3568,7 +3565,7 @@ fn createMethodTest(
         \\const ExpectedFnType = @TypeOf(c.$I);
         \\const ActualType = $I.$I;
         \\const ActualFnType = @TypeOf(ActualType.$I);
-        \\try std.testing.expect(compat.typeInfo(ExpectedFnType) == .@"fn");
+        \\try std.testing.expect(@typeInfo(ExpectedFnType) == .@"fn");
         \\try checkCompatibility(ExpectedFnType, ActualFnType);
         \\
     , .{ c_name, pkg_name, container_name, function_name });

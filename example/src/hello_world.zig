@@ -14,7 +14,7 @@ pub fn main() void {
     std.process.exit(@intCast(status));
 }
 
-fn activate(app: *gtk.Application, _: ?*anyopaque) callconv(.C) void {
+fn activate(app: *gtk.Application, _: ?*anyopaque) callconv(.c) void {
     var window = gtk.ApplicationWindow.new(app);
     gtk.Window.setTitle(window.as(gtk.Window), "Window");
     gtk.Window.setDefaultSize(window.as(gtk.Window), 200, 200);
@@ -35,10 +35,10 @@ fn activate(app: *gtk.Application, _: ?*anyopaque) callconv(.C) void {
     gtk.Widget.show(window.as(gtk.Widget));
 }
 
-fn printHello(_: *gtk.Button, _: ?*anyopaque) callconv(.C) void {
+fn printHello(_: *gtk.Button, _: ?*anyopaque) callconv(.c) void {
     std.debug.print("Hello World\n", .{});
 }
 
-fn closeWindow(_: *gtk.Button, window: *gtk.ApplicationWindow) callconv(.C) void {
+fn closeWindow(_: *gtk.Button, window: *gtk.ApplicationWindow) callconv(.c) void {
     gtk.Window.destroy(window.as(gtk.Window));
 }
