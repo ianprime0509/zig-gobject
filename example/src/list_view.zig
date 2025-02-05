@@ -10,7 +10,7 @@ pub fn main() void {
     std.process.exit(@intCast(status));
 }
 
-fn activate(app: *gtk.Application, _: ?*anyopaque) callconv(.C) void {
+fn activate(app: *gtk.Application, _: ?*anyopaque) callconv(.c) void {
     const window = gtk.ApplicationWindow.new(app);
     gtk.Window.setTitle(window.as(gtk.Window), "Window");
     gtk.Window.setDefaultSize(window.as(gtk.Window), 600, 600);
@@ -29,13 +29,13 @@ fn activate(app: *gtk.Application, _: ?*anyopaque) callconv(.C) void {
     gtk.Widget.show(window.as(gtk.Widget));
 }
 
-fn setupListItem(_: *gtk.SignalListItemFactory, list_item_obj: *gobject.Object, _: ?*anyopaque) callconv(.C) void {
+fn setupListItem(_: *gtk.SignalListItemFactory, list_item_obj: *gobject.Object, _: ?*anyopaque) callconv(.c) void {
     const list_item = gobject.ext.cast(gtk.ListItem, list_item_obj).?;
     const label = gtk.Label.new(null);
     list_item.setChild(label.as(gtk.Widget));
 }
 
-fn bindListItem(_: *gtk.SignalListItemFactory, list_item_obj: *gobject.Object, _: ?*anyopaque) callconv(.C) void {
+fn bindListItem(_: *gtk.SignalListItemFactory, list_item_obj: *gobject.Object, _: ?*anyopaque) callconv(.c) void {
     const list_item = gobject.ext.cast(gtk.ListItem, list_item_obj).?;
     const number = gobject.ext.cast(Number, list_item.getItem().?).?;
     const label = gobject.ext.cast(gtk.Label, list_item.getChild().?).?;
@@ -85,7 +85,7 @@ const Number = extern struct {
             return gobject.ext.as(T, class);
         }
 
-        fn init(class: *Class) callconv(.C) void {
+        fn init(class: *Class) callconv(.c) void {
             gobject.ext.registerProperties(class, &.{
                 properties.value.impl,
             });
@@ -132,16 +132,16 @@ const NumberList = extern struct {
         return gobject.ext.as(T, list);
     }
 
-    pub fn getItem(list_model: *gio.ListModel, position: c_uint) callconv(.C) ?*gobject.Object {
+    pub fn getItem(list_model: *gio.ListModel, position: c_uint) callconv(.c) ?*gobject.Object {
         const list = gobject.ext.cast(NumberList, list_model).?;
         return if (position < list.len) Number.new(position).as(gobject.Object) else null;
     }
 
-    pub fn getItemType(_: *gio.ListModel) callconv(.C) gobject.Type {
+    pub fn getItemType(_: *gio.ListModel) callconv(.c) gobject.Type {
         return Number.getGObjectType();
     }
 
-    pub fn getNItems(list_model: *gio.ListModel) callconv(.C) c_uint {
+    pub fn getNItems(list_model: *gio.ListModel) callconv(.c) c_uint {
         const list = gobject.ext.cast(NumberList, list_model).?;
         return list.len;
     }
@@ -169,13 +169,13 @@ const NumberList = extern struct {
             return gobject.ext.as(T, class);
         }
 
-        fn init(class: *Class) callconv(.C) void {
+        fn init(class: *Class) callconv(.c) void {
             gobject.ext.registerProperties(class, &.{
                 properties.len.impl,
             });
         }
 
-        fn initListModel(iface: *gio.ListModel.Iface) callconv(.C) void {
+        fn initListModel(iface: *gio.ListModel.Iface) callconv(.c) void {
             gio.ListModel.virtual_methods.get_item.implement(iface, getItem);
             gio.ListModel.virtual_methods.get_item_type.implement(iface, getItemType);
             gio.ListModel.virtual_methods.get_n_items.implement(iface, getNItems);

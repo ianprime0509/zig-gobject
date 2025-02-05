@@ -1,11 +1,9 @@
-const compat = @import("compat");
-
 extern fn cairo_version() c_int;
 pub const version = cairo_version;
 
-pub const DestroyFunc = *const fn (data: ?*anyopaque) callconv(.C) void;
-pub const WriteFunc = *const fn (closure: ?*anyopaque, data: [*]const u8, length: c_uint) callconv(.C) Status;
-pub const ReadFunc = *const fn (closure: ?*anyopaque, data: [*]u8, length: c_uint) callconv(.C) Status;
+pub const DestroyFunc = *const fn (data: ?*anyopaque) callconv(.c) void;
+pub const WriteFunc = *const fn (closure: ?*anyopaque, data: [*]const u8, length: c_uint) callconv(.c) Status;
+pub const ReadFunc = *const fn (closure: ?*anyopaque, data: [*]u8, length: c_uint) callconv(.c) Status;
 
 pub const Status = enum(c_int) {
     success,
@@ -671,7 +669,7 @@ pub const SurfaceObserverMode = enum(c_int) {
     record_operations = 0x1,
 };
 
-pub const SurfaceObserverCallback = *const fn (observer: *Surface, target: *Surface, data: ?*anyopaque) callconv(.C) void;
+pub const SurfaceObserverCallback = *const fn (observer: *Surface, target: *Surface, data: ?*anyopaque) callconv(.c) void;
 
 pub const Device = opaque {
     extern fn cairo_device_reference(device: *Device) *Device;
@@ -919,11 +917,11 @@ pub const Filter = enum(c_int) {
     gaussian,
 };
 
-pub const RasterSourceAcquireFunc = *const fn (pattern: *Pattern, callback_data: ?*anyopaque, target: *Surface, extents: *const RectangleInt) callconv(.C) *Surface;
-pub const RasterSourceReleaseFunc = *const fn (pattern: *Pattern, callback_data: ?*anyopaque, surface: *Surface) callconv(.C) void;
-pub const RasterSourceSnapshotFunc = *const fn (pattern: *Pattern, callback_data: ?*anyopaque) callconv(.C) Status;
-pub const RasterSourceCopyFunc = *const fn (pattern: *Pattern, callback_data: ?*anyopaque, other: *const Pattern) callconv(.C) Status;
-pub const RasterSourceFinishFunc = *const fn (pattern: *Pattern, callback_data: ?*anyopaque) callconv(.C) void;
+pub const RasterSourceAcquireFunc = *const fn (pattern: *Pattern, callback_data: ?*anyopaque, target: *Surface, extents: *const RectangleInt) callconv(.c) *Surface;
+pub const RasterSourceReleaseFunc = *const fn (pattern: *Pattern, callback_data: ?*anyopaque, surface: *Surface) callconv(.c) void;
+pub const RasterSourceSnapshotFunc = *const fn (pattern: *Pattern, callback_data: ?*anyopaque) callconv(.c) Status;
+pub const RasterSourceCopyFunc = *const fn (pattern: *Pattern, callback_data: ?*anyopaque, other: *const Pattern) callconv(.c) Status;
+pub const RasterSourceFinishFunc = *const fn (pattern: *Pattern, callback_data: ?*anyopaque) callconv(.c) void;
 
 pub const Content = enum(c_int) {
     color = 0x1000,
@@ -1151,10 +1149,10 @@ pub const FontFace = opaque {
     pub const userGetUnicodeToGlyphFunc = cairo_user_font_face_get_unicode_to_glyph_func;
 };
 
-pub const UserScaledFontInitFunc = *const fn (scaled_font: *ScaledFont, cr: *Context, extents: *FontExtents) callconv(.C) Status;
-pub const UserScaledFontRenderGlyphFunc = *const fn (scaled_font: *ScaledFont, glyph: c_ulong, cr: *Context, extents: *FontExtents) callconv(.C) Status;
-pub const UserScaledFontTextToGlyphsFunc = *const fn (scaled_font: *ScaledFont, utf8: [*]const u8, utf8_len: c_int, glyphs: *?[*]Glyph, num_glyphs: c_int, clusters: ?*?[*]TextCluster, num_clusters: c_int, cluster_flags: ?*TextClusterFlags) callconv(.C) Status;
-pub const UserScaledFontUnicodeToGlyphFunc = *const fn (scaled_font: *ScaledFont, unicode: c_ulong, glyph_index: *c_ulong) callconv(.C) Status;
+pub const UserScaledFontInitFunc = *const fn (scaled_font: *ScaledFont, cr: *Context, extents: *FontExtents) callconv(.c) Status;
+pub const UserScaledFontRenderGlyphFunc = *const fn (scaled_font: *ScaledFont, glyph: c_ulong, cr: *Context, extents: *FontExtents) callconv(.c) Status;
+pub const UserScaledFontTextToGlyphsFunc = *const fn (scaled_font: *ScaledFont, utf8: [*]const u8, utf8_len: c_int, glyphs: *?[*]Glyph, num_glyphs: c_int, clusters: ?*?[*]TextCluster, num_clusters: c_int, cluster_flags: ?*TextClusterFlags) callconv(.c) Status;
+pub const UserScaledFontUnicodeToGlyphFunc = *const fn (scaled_font: *ScaledFont, unicode: c_ulong, glyph_index: *c_ulong) callconv(.c) Status;
 
 pub const Glyph = extern struct {
     index: c_ulong,
@@ -1181,7 +1179,7 @@ pub const TextCluster = extern struct {
 
 pub const TextClusterFlags = packed struct(c_int) {
     backward: bool,
-    _: compat.Reify(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(c_int) - 1 } }) = 0,
+    _: @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(c_int) - 1 } }) = 0,
 };
 
 pub const TextExtents = extern struct {

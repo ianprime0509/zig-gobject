@@ -152,14 +152,3 @@ pub const CompileResources = struct {
         };
     };
 };
-
-/// Returns the root module of `artifact`.
-///
-/// For Zig 0.13.0 and master compatibility: in master, the type was changed to
-/// `*std.Build.Module`.
-fn rootModule(artifact: *std.Build.Step.Compile) *std.Build.Module {
-    return if (@TypeOf(artifact.root_module) == *std.Build.Module)
-        artifact.root_module
-    else
-        &artifact.root_module;
-}
