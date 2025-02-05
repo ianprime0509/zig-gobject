@@ -1281,7 +1281,7 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
     try translateDocumentation(allocator, virtual_method.documentation, ctx, out);
     try out.print("pub const $I = struct {\n", .{virtual_method.name});
 
-    const instance_type = "compat.typeInfo(@TypeOf(p_class)).pointer.child.Instance";
+    const instance_type = "@typeInfo(@TypeOf(p_class)).pointer.child.Instance";
 
     try out.print("pub fn call(p_class: anytype, ", .{});
     try translateParameters(allocator, virtual_method.parameters, .{
@@ -2939,8 +2939,8 @@ fn createBuildZig(
             \\});
             \\
         , .{ test_name, module_name, module_name });
-        try out.print("libraries.$I.linkTo(rootModule($I));\n", .{ module_name, test_name });
-        try out.print("rootModule($I).addImport(\"compat\", compat);\n", .{test_name});
+        try out.print("libraries.$I.linkTo($I.root_module);\n", .{ module_name, test_name });
+        try out.print("$I.root_module.addImport(\"compat\", compat);\n", .{test_name});
         try out.print("test_step.dependOn(&b.addRunArtifact($I).step);\n\n", .{test_name});
     }
 
@@ -2962,7 +2962,7 @@ fn createBuildZig(
                 const dep_module_name = try moduleNameAlloc(allocator, needed_dep.name, needed_dep.version);
                 defer allocator.free(dep_module_name);
                 try out.print("$I.addImport($S, $I);\n", .{ module_name, dep_module_name, dep_module_name });
-                try out.print("rootModule($I).addImport($S, $I);\n", .{ test_name, dep_module_name, dep_module_name });
+                try out.print("$I.root_module.addImport($S, $I);\n", .{ test_name, dep_module_name, dep_module_name });
 
                 try seen.put(needed_dep, {});
                 if (repository_map.get(needed_dep)) |dep_repo| {
@@ -2973,7 +2973,7 @@ fn createBuildZig(
 
         // The self-dependency is useful for extensions files to be able to import their own module by name
         try out.print("$I.addImport($S, $I);\n", .{ module_name, module_name, module_name });
-        try out.print("rootModule($I).addImport($S, rootModule($I));\n\n", .{ test_name, module_name, test_name });
+        try out.print("$I.root_module.addImport($S, $I.root_module);\n\n", .{ test_name, module_name, test_name });
     }
 
     // Docs
@@ -3143,8 +3143,8 @@ pub fn createAbiTests(
             \\    // translate-c doesn't seem to want to translate va_list to std.builtin.VaList
             \\    if (ActualType == std.builtin.VaList) return;
             \\
-            \\    const expected_type_info = compat.typeInfo(ExpectedType);
-            \\    const actual_type_info = compat.typeInfo(ActualType);
+            \\    const expected_type_info = @typeInfo(ExpectedType);
+            \\    const actual_type_info = @typeInfo(ActualType);
             \\    switch (expected_type_info) {
             \\        .void => switch (actual_type_info) {
             \\            .void => {},
@@ -3219,13 +3219,13 @@ pub fn createAbiTests(
             \\        // differently from how they appear in C (e.g. *GtkWindow rather than *GtkWidget)
             \\        .pointer => switch (actual_type_info) {
             \\            .pointer => {},
-            \\            .@"optional" => |actual_optional| try std.testing.expect(compat.typeInfo(actual_optional.child) == .pointer),
+            \\            .@"optional" => |actual_optional| try std.testing.expect(@typeInfo(actual_optional.child) == .pointer),
             \\            else => {
             \\                std.debug.print("incompatible types: expected {s}, actual {s}\n", .{@typeName(ExpectedType), @typeName(ActualType)}) ;
             \\                return error.TestUnexpectedType;
             \\            }
             \\        },
-            \\        .@"optional" => |expected_optional| switch (compat.typeInfo(expected_optional.child)) {
+            \\        .@"optional" => |expected_optional| switch (@typeInfo(expected_optional.child)) {
             \\            .pointer => try checkCompatibility(expected_optional.child, ActualType),
             \\            else => {
             \\                std.debug.print("unexpected C translated type: {s}\n", .{@typeName(ExpectedType)});
@@ -3290,7 +3290,7 @@ pub fn createAbiTests(
                     try out.print(
                         \\const ExpectedType = c.$I;
                         \\const ActualType = $I.$I;
-                        \\try std.testing.expect(compat.typeInfo(ExpectedType) == .@"struct");
+                        \\try std.testing.expect(@typeInfo(ExpectedType) == .@"struct");
                         \\try checkCompatibility(ExpectedType, ActualType);
                         \\
                     , .{ c_type, pkg, class_name });
@@ -3333,9 +3333,9 @@ pub fn createAbiTests(
                         \\
                     , .{ c_type, pkg, record_name });
                     if (record.isPointer()) {
-                        try out.print("try std.testing.expect(compat.typeInfo(ExpectedType) == .pointer);\n", .{});
+                        try out.print("try std.testing.expect(@typeInfo(ExpectedType) == .pointer);\n", .{});
                     } else {
-                        try out.print("try std.testing.expect(compat.typeInfo(ExpectedType) == .@\"struct\");\n", .{});
+                        try out.print("try std.testing.expect(@typeInfo(ExpectedType) == .@\"struct\");\n", .{});
                     }
                     try out.print("try checkCompatibility(ExpectedType, ActualType);\n", .{});
                     try out.print("}\n\n", .{});
@@ -3375,7 +3375,7 @@ pub fn createAbiTests(
                     try out.print(
                         \\const ExpectedType = c.$I;
                         \\const ActualType = $I.$I;
-                        \\try std.testing.expect(compat.typeInfo(ExpectedType) == .@"union");
+                        \\try std.testing.expect(@typeInfo(ExpectedType) == .@"union");
                         \\try checkCompatibility(ExpectedType, ActualType);
                         \\
                     , .{ c_type, pkg, union_name });
@@ -3413,7 +3413,7 @@ pub fn createAbiTests(
                 try out.print(
                     \\const ExpectedType = c.$I;
                     \\const ActualType = $I.$I;
-                    \\try std.testing.expect(compat.typeInfo(ExpectedType) == .int);
+                    \\try std.testing.expect(@typeInfo(ExpectedType) == .int);
                     \\try checkCompatibility(ExpectedType, ActualType);
                     \\
                 , .{ c_type, pkg, bit_field_name });
@@ -3436,7 +3436,7 @@ pub fn createAbiTests(
                 try out.print(
                     \\const ExpectedType = c.$I;
                     \\const ActualType = $I.$I;
-                    \\try std.testing.expect(compat.typeInfo(ExpectedType) == .int);
+                    \\try std.testing.expect(@typeInfo(ExpectedType) == .int);
                     \\try checkCompatibility(ExpectedType, ActualType);
                     \\
                 , .{ c_type, pkg, enum_name });
@@ -3460,7 +3460,7 @@ pub fn createAbiTests(
             try out.print(
                 \\const ExpectedFnType = @TypeOf(c.$I);
                 \\const ActualFnType = @TypeOf($I.$I);
-                \\try std.testing.expect(compat.typeInfo(ExpectedFnType) == .@"fn");
+                \\try std.testing.expect(@typeInfo(ExpectedFnType) == .@"fn");
                 \\try checkCompatibility(ExpectedFnType, ActualFnType);
                 \\
             , .{ function.c_identifier, pkg, function_name });
@@ -3496,7 +3496,7 @@ fn createFunctionTest(
     try out.print(
         \\const ExpectedFnType = @TypeOf(c.$I);
         \\const ActualFnType = @TypeOf($I.$I.$I);
-        \\try std.testing.expect(compat.typeInfo(ExpectedFnType) == .@"fn");
+        \\try std.testing.expect(@typeInfo(ExpectedFnType) == .@"fn");
         \\try checkCompatibility(ExpectedFnType, ActualFnType);
         \\
     , .{ c_name, pkg_name, container_name, function_name });
@@ -3516,7 +3516,7 @@ fn createMethodTest(
         \\const ExpectedFnType = @TypeOf(c.$I);
         \\const ActualType = $I.$I;
         \\const ActualFnType = @TypeOf(ActualType.$I);
-        \\try std.testing.expect(compat.typeInfo(ExpectedFnType) == .@"fn");
+        \\try std.testing.expect(@typeInfo(ExpectedFnType) == .@"fn");
         \\try checkCompatibility(ExpectedFnType, ActualFnType);
         \\
     , .{ c_name, pkg_name, container_name, function_name });
