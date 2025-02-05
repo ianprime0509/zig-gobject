@@ -1,5 +1,3 @@
-const compat = @import("compat");
-
 extern fn cairo_version() c_int;
 pub const version = cairo_version;
 
@@ -1181,7 +1179,7 @@ pub const TextCluster = extern struct {
 
 pub const TextClusterFlags = packed struct(c_int) {
     backward: bool,
-    _: compat.Reify(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(c_int) - 1 } }) = 0,
+    _: @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(c_int) - 1 } }) = 0,
 };
 
 pub const TextExtents = extern struct {

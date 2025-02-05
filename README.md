@@ -16,13 +16,9 @@ exe.root_module.addImport("gtk", gobject.module("gtk-4.0"));
 exe.root_module.addImport("adw", gobject.module("adw-1"));
 ```
 
-The binding generator and generated bindings are tested on Zig 0.13.0 and
+The binding generator and generated bindings are tested on Zig 0.14.0 and
 master, though support for the latest master may temporarily regress when
-breaking changes are made upstream. **Note:** as of the time of writing, there
-have been breaking changes on Zig master which this project has not yet adapted
-to. The release of Zig 0.14.0 is expected on [February
-17th](https://ziglang.org/news/what-to-expect-from-release-month/); shortly
-after that release, this project will update to Zig 0.14.0 as the baseline.
+breaking changes are made upstream.
 
 ## Companion projects
 

@@ -1,6 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const compat = @import("compat.zig");
 const gir = @import("gir.zig");
 const translate = @import("translate.zig");
 const log = std.log;
@@ -33,7 +32,7 @@ pub const std_options: std.Options = .{
 
 pub fn logImpl(
     comptime level: log.Level,
-    comptime scope: compat.Reify(.enum_literal),
+    comptime scope: @Type(.enum_literal),
     comptime format: []const u8,
     args: anytype,
 ) void {
