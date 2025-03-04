@@ -64,7 +64,6 @@ const Number = extern struct {
                 .maximum = std.math.maxInt(c_uint),
                 .default = 0,
                 .accessor = gobject.ext.fieldAccessor(Number, "value"),
-                .flags = .{ .readable = true, .writable = true },
             });
         };
     };
@@ -121,7 +120,6 @@ const NumberList = extern struct {
                     .getter = &getLenInternal,
                     .setter = &setLenInternal,
                 },
-                .flags = .{ .readable = true, .writable = true },
             });
         };
     };

@@ -566,8 +566,8 @@ fn deriveTypeName(comptime T: type) [:0]const u8 {
 
 pub fn Accessor(comptime Owner: type, comptime Data: type) type {
     return struct {
-        getter: *const fn (*Owner) Data,
-        setter: *const fn (*Owner, Data) void,
+        getter: ?*const fn (*Owner) Data = null,
+        setter: ?*const fn (*Owner, Data) void = null,
     };
 }
 
@@ -625,7 +625,11 @@ pub fn DefinePropertyOptions(comptime Owner: type, comptime Data: type) type {
             blurb: ?[:0]const u8 = null,
             default: bool,
             accessor: Accessor(Owner, bool),
-            flags: gobject.ParamFlags = .{},
+            construct: bool = false,
+            construct_only: bool = false,
+            lax_validation: bool = false,
+            explicit_notify: bool = false,
+            deprecated: bool = false,
         };
     } else if (Data == i8 or Data == u8 or
         Data == c_int or Data == c_uint or
@@ -640,7 +644,11 @@ pub fn DefinePropertyOptions(comptime Owner: type, comptime Data: type) type {
             maximum: Data,
             default: Data,
             accessor: Accessor(Owner, Data),
-            flags: gobject.ParamFlags = .{},
+            construct: bool = false,
+            construct_only: bool = false,
+            lax_validation: bool = false,
+            explicit_notify: bool = false,
+            deprecated: bool = false,
         };
     } else if (Data == ?[:0]const u8) {
         return struct {
@@ -648,7 +656,11 @@ pub fn DefinePropertyOptions(comptime Owner: type, comptime Data: type) type {
             blurb: ?[:0]const u8 = null,
             default: ?[:0]const u8,
             accessor: Accessor(Owner, ?[:0]const u8),
-            flags: gobject.ParamFlags = .{},
+            construct: bool = false,
+            construct_only: bool = false,
+            lax_validation: bool = false,
+            explicit_notify: bool = false,
+            deprecated: bool = false,
         };
     } else if (std.meta.hasFn(Data, "getGObjectType")) {
         return struct {
@@ -656,7 +668,11 @@ pub fn DefinePropertyOptions(comptime Owner: type, comptime Data: type) type {
             blurb: ?[:0]const u8 = null,
             default: Data,
             accessor: Accessor(Owner, Data),
-            flags: gobject.ParamFlags = .{},
+            construct: bool = false,
+            construct_only: bool = false,
+            lax_validation: bool = false,
+            explicit_notify: bool = false,
+            deprecated: bool = false,
         };
     } else if (singlePointerChild(Data)) |Child| {
         if (std.meta.hasFn(Child, "getGObjectType")) {
@@ -665,7 +681,11 @@ pub fn DefinePropertyOptions(comptime Owner: type, comptime Data: type) type {
                 blurb: ?[:0]const u8 = null,
                 default: Data,
                 accessor: Accessor(Owner, Data),
-                flags: gobject.ParamFlags = .{},
+                construct: bool = false,
+                construct_only: bool = false,
+                lax_validation: bool = false,
+                explicit_notify: bool = false,
+                deprecated: bool = false,
             };
         } else {
             @compileError("cannot define property of type " ++ @typeName(Data));
@@ -704,21 +724,33 @@ pub fn defineProperty(
         /// Gets the value of the property from `object` and stores it in
         /// `value`.
         pub fn get(object: *Owner, value: *gobject.Value) void {
-            Value.set(value, options.accessor.getter(object));
+            if (options.accessor.getter) |getter| {
+                Value.set(value, getter(object));
+            }
         }
 
         /// Sets the value of the property on `object` from `value`.
         pub fn set(object: *Owner, value: *const gobject.Value) void {
-            options.accessor.setter(object, Value.get(value, Data));
+            if (options.accessor.setter) |setter| {
+                setter(object, Value.get(value, Data));
+            }
         }
 
         fn newParamSpec() *gobject.ParamSpec {
-            var flags = options.flags;
-            // Since the name and options are comptime, we can set these flags
-            // unconditionally.
-            flags.static_name = true;
-            flags.static_nick = true;
-            flags.static_blurb = true;
+            const flags: gobject.ParamFlags = .{
+                .readable = options.accessor.getter != null,
+                .writable = options.accessor.setter != null,
+                .construct = options.construct,
+                .construct_only = options.construct_only,
+                .lax_validation = options.lax_validation,
+                .explicit_notify = options.explicit_notify,
+                .deprecated = options.deprecated,
+                // Since the name and options are comptime, we can set these flags
+                // unconditionally.
+                .static_name = true,
+                .static_nick = true,
+                .static_blurb = true,
+            };
             if (Data == i8) {
                 return gobject.paramSpecChar(
                     name,

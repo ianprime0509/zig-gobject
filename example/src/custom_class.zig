@@ -183,7 +183,6 @@ const ExampleButton = extern struct {
                 .maximum = std.math.maxInt(c_uint),
                 .default = 0,
                 .accessor = gobject.ext.privateFieldAccessor(ExampleButton, Private, &Private.offset, "counter"),
-                .flags = .{ .readable = true, .writable = true },
             });
         };
     };
