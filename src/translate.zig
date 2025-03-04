@@ -1492,6 +1492,8 @@ const builtins = std.StaticStringMap([]const u8).initComptime(.{
 const TranslateTypeOptions = struct {
     /// Whether the type should be translated as nullable.
     nullable: bool = false,
+    /// Whether this is the type of an output parameter of a function.
+    out_parameter: bool = false,
     /// Whether the type is being translated in a GObject-specific context, such
     /// as a signal or property, where types are often specified without any
     /// corresponding C type and in such a case are meant to be assumed to be
@@ -1806,10 +1808,13 @@ test "translateType" {
     try testTranslateType("?*const anyopaque", .{ .c_type = "const _GtkMountOperationHandler*" }, .{ .nullable = true });
     // Name overrides are used for instance parameters
     try testTranslateType("*OverrideName", .{ .name = .{ .ns = "GObject", .local = "Object" }, .c_type = "GObject*" }, .{ .override_name = "OverrideName" });
+    // Out parameters do not currently make any difference for translation of simple types
+    try testTranslateType("*c_int", .{ .name = .{ .ns = null, .local = "gint" }, .c_type = "int*" }, .{ .out_parameter = true });
 }
 
 const TestTranslateTypeOptions = struct {
     nullable: bool = false,
+    out_parameter: bool = false,
     gobject_context: bool = false,
     override_name: ?[]const u8 = null,
     is_pointer: ?bool = null,
@@ -1879,6 +1884,7 @@ const TestTranslateTypeOptions = struct {
     fn toTranslateTypeOptions(options: TestTranslateTypeOptions) TranslateTypeOptions {
         return .{
             .nullable = options.nullable,
+            .out_parameter = options.out_parameter,
             .gobject_context = options.gobject_context,
             .override_name = options.override_name,
         };
@@ -1953,6 +1959,18 @@ fn translateArrayType(allocator: Allocator, @"type": gir.ArrayType, options: Tra
             try out.print("*", .{});
         }
     } else {
+        if (options.out_parameter) {
+            // If this is an out parameter, then the correct interpretation of
+            // the array type is that the real type is a _pointer_ to an array
+            // (i.e. the array is the output). So, we have to force a single
+            // pointer here, and strip away one level of pointer from the rest
+            // of the translation logic.
+            if (pointer_type) |pointer| {
+                try out.print("*", .{});
+                pointer_type = parseCPointerType(pointer.element);
+            }
+        }
+
         try out.print("[*", .{});
         if (@"type".zero_terminated) {
             const element_is_pointer = blk: {
@@ -2094,6 +2112,29 @@ test "translateArrayType" {
             .simple = .{ .name = .{ .ns = "Gio", .local = "File" }, .c_type = null },
         },
     }, .{ .gobject_context = true, .class_names = &.{"Gio.File"} });
+    // Found in gdk_display_map_keycode
+    try testTranslateArrayType("?*[*]gdk.KeymapKey", .{
+        .c_type = "GdkKeymapKey**",
+        .element = &.{
+            .simple = .{ .name = .{ .ns = "Gdk", .local = "KeymapKey" }, .c_type = "GdkKeymapKey*" },
+        },
+    }, .{ .nullable = true, .out_parameter = true });
+    // Found in hb_tag_to_string
+    try testTranslateArrayType("*[4]u8", .{
+        .c_type = "char*",
+        .fixed_size = 4,
+        .element = &.{
+            .simple = .{ .name = .{ .ns = null, .local = "guint8" } },
+        },
+    }, .{ .out_parameter = true });
+    // Found in g_shell_parse_argv
+    try testTranslateArrayType("*[*:null]?[*:0]u8", .{
+        .c_type = "gchar***",
+        .zero_terminated = true,
+        .element = &.{
+            .simple = .{ .name = .{ .ns = null, .local = "filename" }, .c_type = null },
+        },
+    }, .{ .out_parameter = true });
 }
 
 fn testTranslateArrayType(expected: []const u8, @"type": gir.ArrayType, options: TestTranslateTypeOptions) !void {
@@ -2235,12 +2276,14 @@ fn translateParameter(allocator: Allocator, parameter: gir.Parameter, options: T
         .simple => |simple_type| {
             try translateType(allocator, simple_type, .{
                 .nullable = options.force_nullable or parameter.isNullable(),
+                .out_parameter = parameter.isOut(),
                 .gobject_context = options.gobject_context,
                 .override_name = if (parameter.instance) options.self_type else null,
             }, ctx, out);
         },
         .array => |array_type| try translateArrayType(allocator, array_type, .{
             .nullable = options.force_nullable or parameter.isNullable(),
+            .out_parameter = parameter.isOut(),
             .gobject_context = options.gobject_context,
         }, ctx, out),
         .varargs => unreachable, // handled above

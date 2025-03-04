@@ -1574,6 +1574,7 @@ pub const Callback = struct {
 pub const Parameter = struct {
     name: []const u8,
     type: ParameterType,
+    direction: Direction = .in,
     allow_none: bool = false,
     nullable: bool = false,
     optional: bool = false,
@@ -1581,6 +1582,19 @@ pub const Parameter = struct {
     closure: ?usize = null,
     destroy: ?usize = null,
     documentation: ?Documentation = null,
+
+    pub const Direction = enum {
+        in,
+        out,
+        inout,
+    };
+
+    pub fn isOut(parameter: Parameter) bool {
+        return switch (parameter.direction) {
+            .in => false,
+            .out, .inout => true,
+        };
+    }
 
     pub fn isNullable(parameter: Parameter) bool {
         return parameter.allow_none or parameter.nullable or parameter.optional;
@@ -1609,6 +1623,10 @@ pub const Parameter = struct {
             break :name try reader.attributeValueAlloc(allocator, index);
         };
         var @"type": ?ParameterType = null;
+        const direction: Direction = direction: {
+            const index = reader.attributeIndex("direction") orelse break :direction .in;
+            break :direction std.meta.stringToEnum(Direction, try reader.attributeValue(index)) orelse return error.InvalidGir;
+        };
         const allow_none = allow_none: {
             const index = reader.attributeIndex("allow-none") orelse break :allow_none false;
             break :allow_none mem.eql(u8, try reader.attributeValue(index), "1");
@@ -1656,6 +1674,7 @@ pub const Parameter = struct {
         return .{
             .name = name,
             .type = @"type" orelse return error.InvalidGir,
+            .direction = direction,
             .allow_none = allow_none,
             .nullable = nullable,
             .optional = optional,
