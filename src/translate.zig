@@ -1042,12 +1042,16 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: Transla
     }
 
     var backing_int_buf: [16]u8 = undefined;
-    const backing_int, const backing_int_bits = if (bit_field.bits) |bits|
-        .{ std.fmt.bufPrint(&backing_int_buf, "u{}", .{bits}) catch unreachable, bits }
+    const backing_int, const backing_int_signed, const backing_int_bits = if (bit_field.bits) |bits|
+        .{
+            std.fmt.bufPrint(&backing_int_buf, "u{}", .{bits}) catch unreachable,
+            std.fmt.bufPrint(&backing_int_buf, "i{}", .{bits}) catch unreachable,
+            bits,
+        }
     else if (needs_u64)
-        .{ "u64", 64 }
+        .{ "u64", "i64", 64 }
     else
-        .{ "c_uint", 32 };
+        .{ "c_uint", "c_int", 32 };
 
     try translateDocumentation(allocator, bit_field.documentation, ctx, out);
     const name = escapeTypeName(bit_field.name.local);
@@ -1070,7 +1074,12 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: Transla
     defer seen.deinit();
     for (bit_field.members) |member| {
         if (!seen.contains(member.name)) {
-            try out.print("pub const flags_$L: $I = @bitCast(@as($L, $L));\n", .{ member.name, name, backing_int, member.value });
+            try out.print("pub const flags_$L: $I = @bitCast(@as($L, $L));\n", .{
+                member.name,
+                name,
+                if (member.value >= 0) backing_int else backing_int_signed,
+                member.value,
+            });
         }
         try seen.put(member.name, {});
     }
