@@ -376,3 +376,7 @@ const ArgIterator = struct {
         }
     }
 };
+
+test {
+    _ = translate;
+}
