@@ -358,14 +358,14 @@ pub fn defineBoxed(
 ) fn () callconv(.C) gobject.Type {
     const funcs = options.funcs orelse .{
         .copy = &struct {
-            fn copy(value: *T) *T {
+            fn copy(value: *T) callconv(.C) *T {
                 const new_value = glib.ext.create(T);
                 new_value.* = value.*;
                 return new_value;
             }
         }.copy,
         .free = &struct {
-            fn free(value: *T) void {
+            fn free(value: *T) callconv(.C) void {
                 glib.ext.destroy(value);
             }
         }.free,
