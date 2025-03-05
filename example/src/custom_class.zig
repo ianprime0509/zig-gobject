@@ -24,7 +24,7 @@ const ExampleApplication = extern struct {
         return gobject.ext.as(T, app);
     }
 
-    fn activateImpl(app: *ExampleApplication) callconv(.C) void {
+    fn activateImpl(app: *ExampleApplication) callconv(.c) void {
         const win = ExampleApplicationWindow.new(app);
         gtk.Window.present(win.as(gtk.Window));
     }
@@ -38,7 +38,7 @@ const ExampleApplication = extern struct {
             return gobject.ext.as(T, class);
         }
 
-        fn init(class: *Class) callconv(.C) void {
+        fn init(class: *Class) callconv(.c) void {
             gio.Application.virtual_methods.activate.implement(class, &activateImpl);
         }
     };
@@ -106,18 +106,18 @@ const ExampleApplicationWindow = extern struct {
         return gobject.ext.as(T, win);
     }
 
-    fn init(win: *ExampleApplicationWindow, _: *Class) callconv(.C) void {
+    fn init(win: *ExampleApplicationWindow, _: *Class) callconv(.c) void {
         gtk.Widget.initTemplate(win.as(gtk.Widget));
 
         _ = ExampleButton.signals.counter_incremented.connect(win.private().button, ?*anyopaque, &handleIncremented, null, .{});
     }
 
-    fn dispose(win: *ExampleApplicationWindow) callconv(.C) void {
+    fn dispose(win: *ExampleApplicationWindow) callconv(.c) void {
         gtk.Widget.disposeTemplate(win.as(gtk.Widget), getGObjectType());
         gobject.Object.virtual_methods.dispose.call(Class.parent, win.as(Parent));
     }
 
-    fn handleIncremented(_: *ExampleButton, new_value: c_uint, _: ?*anyopaque) callconv(.C) void {
+    fn handleIncremented(_: *ExampleButton, new_value: c_uint, _: ?*anyopaque) callconv(.c) void {
         std.debug.print("New button value: {}\n", .{new_value});
     }
 
@@ -136,7 +136,7 @@ const ExampleApplicationWindow = extern struct {
             return gobject.ext.as(T, class);
         }
 
-        fn init(class: *Class) callconv(.C) void {
+        fn init(class: *Class) callconv(.c) void {
             gobject.Object.virtual_methods.dispose.implement(class, &dispose);
             gtk.ext.WidgetClass.setTemplateFromSlice(class.as(gtk.WidgetClass), template);
             class.bindTemplateChildPrivate("button", .{});
@@ -191,17 +191,17 @@ const ExampleButton = extern struct {
         return gobject.ext.as(T, button);
     }
 
-    fn init(button: *ExampleButton, _: *Class) callconv(.C) void {
+    fn init(button: *ExampleButton, _: *Class) callconv(.c) void {
         // TODO: actually, the label should just be implemented using GtkExpression or something
         _ = gobject.Object.signals.notify.connect(button, ?*anyopaque, &handleNotifyCounter, null, .{ .detail = "counter" });
         _ = gtk.Button.signals.clicked.connect(button, ?*anyopaque, &handleClicked, null, .{});
     }
 
-    fn handleNotifyCounter(button: *ExampleButton, _: *gobject.ParamSpec, _: ?*anyopaque) callconv(.C) void {
+    fn handleNotifyCounter(button: *ExampleButton, _: *gobject.ParamSpec, _: ?*anyopaque) callconv(.c) void {
         button.updateLabel();
     }
 
-    fn handleClicked(button: *ExampleButton, _: ?*anyopaque) callconv(.C) void {
+    fn handleClicked(button: *ExampleButton, _: ?*anyopaque) callconv(.c) void {
         var counter = gobject.ext.Value.new(c_uint);
         defer counter.unset();
         gobject.Object.getProperty(button.as(gobject.Object), "counter", &counter);
@@ -228,7 +228,7 @@ const ExampleButton = extern struct {
             return gobject.ext.as(T, class);
         }
 
-        fn init(class: *Class) callconv(.C) void {
+        fn init(class: *Class) callconv(.c) void {
             signals.counter_incremented.impl.register(.{});
             gobject.ext.registerProperties(class, &.{
                 properties.counter.impl,

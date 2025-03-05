@@ -30,7 +30,7 @@ pub fn ZigWriter(comptime Writer: type) type {
         /// made into its own project.
         pub fn print(w: Self, comptime fmt: []const u8, args: anytype) Error!void {
             @setEvalBranchQuota(100_000);
-            const arg_fields = compat.typeInfo(@TypeOf(args)).@"struct".fields;
+            const arg_fields = @typeInfo(@TypeOf(args)).@"struct".fields;
 
             comptime var current_arg = 0;
             comptime var i = 0;
@@ -101,11 +101,11 @@ pub fn ZigWriter(comptime Writer: type) type {
 }
 
 inline fn isString(comptime T: type) bool {
-    return switch (compat.typeInfo(T)) {
-        .pointer => |pointer| if (pointer.size == .Slice)
+    return switch (@typeInfo(T)) {
+        .pointer => |pointer| if (pointer.size == .slice)
             pointer.child == u8
-        else if (pointer.size == .One)
-            switch (compat.typeInfo(pointer.child)) {
+        else if (pointer.size == .one)
+            switch (@typeInfo(pointer.child)) {
                 .array => |array| array.child == u8,
                 else => false,
             }
