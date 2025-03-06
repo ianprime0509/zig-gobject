@@ -11,7 +11,7 @@ const pangocairo = @import("pangocairo");
 const n_words = 10;
 const font = "Sans Bold 27";
 
-fn draw(_: *gtk.DrawingArea, cr: *cairo.Context, draw_width: c_int, draw_height: c_int, _: ?*anyopaque) callconv(.C) void {
+fn draw(_: *gtk.DrawingArea, cr: *cairo.Context, draw_width: c_int, draw_height: c_int, _: ?*anyopaque) callconv(.c) void {
     cr.translate(@as(f64, @floatFromInt(draw_width)) / 2, @as(f64, @floatFromInt(draw_height)) / 2);
     const radius = @as(f64, @floatFromInt(@min(draw_width, draw_height))) / 2;
 
@@ -39,7 +39,7 @@ fn draw(_: *gtk.DrawingArea, cr: *cairo.Context, draw_width: c_int, draw_height:
     }
 }
 
-fn activate(app: *gtk.Application, _: ?*anyopaque) callconv(.C) void {
+fn activate(app: *gtk.Application, _: ?*anyopaque) callconv(.c) void {
     const window = gtk.ApplicationWindow.new(app);
     gtk.Window.setTitle(window.as(gtk.Window), "PangoCairo text example");
     gtk.Window.setDefaultSize(window.as(gtk.Window), 300, 300);

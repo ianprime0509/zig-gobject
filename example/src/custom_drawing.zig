@@ -14,7 +14,7 @@ pub fn main() void {
     std.process.exit(@intCast(status));
 }
 
-fn activate(app: *gtk.Application, _: ?*anyopaque) callconv(.C) void {
+fn activate(app: *gtk.Application, _: ?*anyopaque) callconv(.c) void {
     const window = gtk.ApplicationWindow.new(app);
     gtk.Window.setTitle(window.as(gtk.Window), "Drawing Area");
 
@@ -49,7 +49,7 @@ fn activate(app: *gtk.Application, _: ?*anyopaque) callconv(.C) void {
 
 var surface: ?*cairo.Surface = null;
 
-fn clearSurface() callconv(.C) void {
+fn clearSurface() callconv(.c) void {
     const cr = cairo.Context.create(surface orelse return);
     defer cr.destroy();
 
@@ -57,7 +57,7 @@ fn clearSurface() callconv(.C) void {
     cr.paint();
 }
 
-fn resizeCb(widget: *gtk.DrawingArea, _: c_int, _: c_int, _: ?*anyopaque) callconv(.C) void {
+fn resizeCb(widget: *gtk.DrawingArea, _: c_int, _: c_int, _: ?*anyopaque) callconv(.c) void {
     if (surface) |s| {
         s.destroy();
         surface = null;
@@ -73,12 +73,12 @@ fn resizeCb(widget: *gtk.DrawingArea, _: c_int, _: c_int, _: ?*anyopaque) callco
     clearSurface();
 }
 
-fn drawCb(_: *gtk.DrawingArea, cr: *cairo.Context, _: c_int, _: c_int, _: ?*anyopaque) callconv(.C) void {
+fn drawCb(_: *gtk.DrawingArea, cr: *cairo.Context, _: c_int, _: c_int, _: ?*anyopaque) callconv(.c) void {
     cr.setSourceSurface(surface orelse return, 0, 0);
     cr.paint();
 }
 
-fn drawBrush(widget: *gtk.DrawingArea, x: f64, y: f64) callconv(.C) void {
+fn drawBrush(widget: *gtk.DrawingArea, x: f64, y: f64) callconv(.c) void {
     const cr = cairo.Context.create(surface orelse return);
     defer cr.destroy();
 
@@ -91,27 +91,27 @@ fn drawBrush(widget: *gtk.DrawingArea, x: f64, y: f64) callconv(.C) void {
 var start_x: f64 = 0;
 var start_y: f64 = 0;
 
-fn dragBegin(_: *gtk.GestureDrag, x: f64, y: f64, area: *gtk.DrawingArea) callconv(.C) void {
+fn dragBegin(_: *gtk.GestureDrag, x: f64, y: f64, area: *gtk.DrawingArea) callconv(.c) void {
     start_x = x;
     start_y = y;
 
     drawBrush(area, x, y);
 }
 
-fn dragUpdate(_: *gtk.GestureDrag, x: f64, y: f64, area: *gtk.DrawingArea) callconv(.C) void {
+fn dragUpdate(_: *gtk.GestureDrag, x: f64, y: f64, area: *gtk.DrawingArea) callconv(.c) void {
     drawBrush(area, start_x + x, start_y + y);
 }
 
-fn dragEnd(_: *gtk.GestureDrag, x: f64, y: f64, area: *gtk.DrawingArea) callconv(.C) void {
+fn dragEnd(_: *gtk.GestureDrag, x: f64, y: f64, area: *gtk.DrawingArea) callconv(.c) void {
     drawBrush(area, start_x + x, start_y + y);
 }
 
-fn pressed(_: *gtk.GestureClick, _: c_int, _: f64, _: f64, area: *gtk.DrawingArea) callconv(.C) void {
+fn pressed(_: *gtk.GestureClick, _: c_int, _: f64, _: f64, area: *gtk.DrawingArea) callconv(.c) void {
     clearSurface();
     gtk.Widget.queueDraw(area.as(gtk.Widget));
 }
 
-fn closeWindow(_: *gtk.ApplicationWindow, _: ?*anyopaque) callconv(.C) void {
+fn closeWindow(_: *gtk.ApplicationWindow, _: ?*anyopaque) callconv(.c) void {
     if (surface) |s| {
         s.destroy();
     }
