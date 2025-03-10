@@ -2,6 +2,9 @@
     .name = "gobject_codegen",
     .version = "0.2.2",
     .paths = .{
+        "binding-overrides",
+        "extensions",
+        "gir-fixes",
         "src",
         "LICENSE",
         "README.md",
