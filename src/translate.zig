@@ -3111,6 +3111,7 @@ fn createBuildZon(
         \\    .fingerprint = 0xca12a75aeca74b4a, // Changing this has security and trust implications.
         \\    .minimum_zig_version = "0.14.0",
         \\    .paths = .{
+        \\        "build",
         \\        "src",
         \\        "build.zig",
         \\        "build.zig.zon",
