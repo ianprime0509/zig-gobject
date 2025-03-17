@@ -12,8 +12,8 @@ bindings can be used as modules. For example:
 
 ```zig
 const gobject = b.dependency("gobject", .{});
-exe.root_module.addImport("gtk", gobject.module("gtk-4.0"));
-exe.root_module.addImport("adw", gobject.module("adw-1"));
+exe.root_module.addImport("gtk", gobject.module("gtk4"));
+exe.root_module.addImport("adw", gobject.module("adw1"));
 ```
 
 The binding generator and generated bindings are tested on Zig 0.14.0 and
