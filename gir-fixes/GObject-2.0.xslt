@@ -28,4 +28,18 @@
       <xsl:copy-of select="@* | node()" />
     </xsl:copy>
   </xsl:template>
+
+  <xsl:template match="core:function[@c:identifier='g_enum_register_static']/core:parameters/core:parameter[@name='const_static_values']/core:type">
+    <!-- https://github.com/ianprime0509/zig-gobject/issues/104 -->
+    <core:array c:type="const GEnumValue*">
+      <core:type name="EnumValue" c:type="GEnumValue"/>
+    </core:array>
+  </xsl:template>
+
+  <xsl:template match="core:function[@c:identifier='g_flags_register_static']/core:parameters/core:parameter[@name='const_static_values']/core:type">
+    <!-- https://github.com/ianprime0509/zig-gobject/issues/104 -->
+    <core:array c:type="const GFlagsValue*">
+      <core:type name="FlagsValue" c:type="GFlagsValue"/>
+    </core:array>
+  </xsl:template>
 </xsl:stylesheet>

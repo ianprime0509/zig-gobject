@@ -447,7 +447,7 @@ pub fn defineEnum(
             if (glib.Once.initEnter(&registered_type) != 0) {
                 const type_id = gobject.enumRegisterStatic(
                     options.name orelse deriveTypeName(Enum),
-                    &const_enum_values[0],
+                    &const_enum_values,
                 );
                 glib.Once.initLeave(&registered_type, type_id);
             }
@@ -527,7 +527,7 @@ pub fn defineFlags(
             if (glib.Once.initEnter(&registered_type) != 0) {
                 const type_id = gobject.flagsRegisterStatic(
                     options.name orelse deriveTypeName(Flags),
-                    &const_flags_values[0],
+                    &const_flags_values,
                 );
                 glib.Once.initLeave(&registered_type, type_id);
             }
