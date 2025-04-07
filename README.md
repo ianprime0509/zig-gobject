@@ -42,12 +42,12 @@ testing purposes. The best way to get a consistent environment for testing is to
 use [Flatpak](https://flatpak.org/):
 
 1. Install `flatpak`.
-2. Install the GNOME SDK: `flatpak install org.gnome.Sdk//47`
+2. Install the GNOME SDK: `flatpak install org.gnome.Sdk//48`
 
 The steps above only need to be done once per GNOME SDK version. To enter a
 development environment:
 
-1. Run `flatpak run --filesystem=home --share=network --share=ipc --socket=fallback-x11 --socket=wayland --device=dri --socket=session-bus org.gnome.Sdk//47`
+1. Run `flatpak run --filesystem=home --share=network --share=ipc --socket=fallback-x11 --socket=wayland --device=dri --socket=session-bus org.gnome.Sdk//48`
    - `--filesystem=home` - makes the user's home directory available within the
      container
    - `--share=network` - allows network access (needed to fetch `build.zig.zon`
