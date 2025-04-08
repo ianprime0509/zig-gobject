@@ -256,14 +256,13 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run binding tests");
 
-    const GirProfile = enum { gnome46, gnome47 };
+    const GirProfile = enum { gnome47, gnome48 };
     const gir_profile = b.option(GirProfile, "gir-profile", "Predefined GIR profile for tests");
     const test_modules: []const []const u8 = b.option([]const []const u8, "modules", "Modules to test") orelse if (gir_profile) |profile| switch (profile) {
-        .gnome46 => &.{
+        .gnome47 => &.{
             "Adw-1",
             "AppStream-1.0",
             "AppStreamCompose-1.0",
-            "AppStreamGlib-1.0",
             "Atk-1.0",
             "Atspi-2.0",
             "cairo-1.0",
@@ -301,6 +300,7 @@ pub fn build(b: *std.Build) void {
             "Gsk-4.0",
             "Gst-1.0",
             "GstAllocators-1.0",
+            "GstAnalytics-1.0",
             "GstApp-1.0",
             "GstAudio-1.0",
             "GstBadAudio-1.0",
@@ -308,12 +308,14 @@ pub fn build(b: *std.Build) void {
             "GstCheck-1.0",
             "GstController-1.0",
             "GstCuda-1.0",
+            // "GstDxva-1.0", // Not usable on Linux
             "GstGL-1.0",
             "GstGLEGL-1.0",
             "GstGLWayland-1.0",
             "GstGLX11-1.0",
             "GstInsertBin-1.0",
             "GstMpegts-1.0",
+            "GstMse-1.0",
             "GstNet-1.0",
             "GstPbutils-1.0",
             "GstPlay-1.0",
@@ -325,9 +327,9 @@ pub fn build(b: *std.Build) void {
             "GstTranscoder-1.0",
             "GstVa-1.0",
             "GstVideo-1.0",
-            // "GstVulkan-1.0", // Vulkan GIR is incorrect; all records should have pointer="1"
-            // "GstVulkanWayland-1.0", // Vulkan GIR is incorrect; all records should have pointer="1"
-            // "GstVulkanXCB-1.0", // Vulkan GIR is incorrect; all records should have pointer="1"
+            // "GstVulkan-1.0", // https://github.com/ianprime0509/zig-gobject/issues/89
+            // "GstVulkanWayland-1.0", // https://github.com/ianprime0509/zig-gobject/issues/89
+            // "GstVulkanXCB-1.0", // https://github.com/ianprime0509/zig-gobject/issues/89
             "GstWebRTC-1.0",
             "Gtk-3.0",
             "Gtk-4.0",
@@ -354,6 +356,7 @@ pub fn build(b: *std.Build) void {
             "Secret-1",
             "Soup-3.0",
             "Tracker-3.0",
+            "Tsparql-3.0",
             // "Vulkan-1.0", // https://github.com/ianprime0509/zig-gobject/issues/89
             "WebKit2-4.1",
             "WebKit2WebExtension-4.1",
@@ -366,7 +369,7 @@ pub fn build(b: *std.Build) void {
             "Xmlb-2.0",
             "xrandr-1.3",
         },
-        .gnome47 => &.{
+        .gnome48 => &.{
             "Adw-1",
             "AppStream-1.0",
             "AppStreamCompose-1.0",

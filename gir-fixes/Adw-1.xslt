@@ -11,12 +11,8 @@
     </xsl:copy>
   </xsl:template>
 
-  <xsl:template match="core:bitfield[@name='SearchTokenMatch']">
-    <!-- https://github.com/ianprime0509/zig-gobject/issues/47 -->
-    <xsl:copy>
-      <xsl:attribute name="bits">16</xsl:attribute>
-
-      <xsl:copy-of select="@* | node()" />
-    </xsl:copy>
+  <xsl:template match="core:function[@c:identifier='adw_easing_ease']/@name">
+    <!-- https://github.com/ianprime0509/zig-gobject/issues/105 -->
+    <xsl:attribute name="name">compute</xsl:attribute>
   </xsl:template>
 </xsl:stylesheet>
