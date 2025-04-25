@@ -26,4 +26,12 @@
       <xsl:attribute name="c:type">gpointer</xsl:attribute>
     </xsl:copy>
   </xsl:template>
+
+  <xsl:template match="core:array[@c:type='gchar**' and not(@zero-terminated)]">
+    <xsl:copy>
+      <xsl:attribute name="zero-terminated">1</xsl:attribute>
+
+      <xsl:copy-of select="@* | node()" />
+    </xsl:copy>
+  </xsl:template>
 </xsl:stylesheet>
