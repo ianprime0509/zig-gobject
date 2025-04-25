@@ -27,6 +27,22 @@
     </xsl:copy>
   </xsl:template>
 
+  <xsl:template match="core:parameter/core:array/core:type">
+    <xsl:variable name="paramName" select="../../@name"/>
+    <xsl:variable name="doc" select="../../../../core:doc"/>
+
+    <xsl:copy>
+      <xsl:apply-templates select="@* | node()"/>
+      <xsl:if test="
+        $doc and (
+          contains($doc, concat('@', $paramName, ' is %NULL-terminated'))
+        )
+      ">
+        <xsl:attribute name="nullable">1</xsl:attribute>
+      </xsl:if>
+    </xsl:copy>
+  </xsl:template>
+
   <xsl:template match="core:array[@c:type='gchar**' and not(@zero-terminated)]">
     <xsl:copy>
       <xsl:attribute name="zero-terminated">1</xsl:attribute>
