@@ -1439,6 +1439,7 @@ pub const AnyType = union(enum) {
 pub const Type = struct {
     name: ?Name = null,
     c_type: ?[]const u8 = null,
+    nullable: bool = false,
 
     fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !Type {
         const name = name: {
@@ -1449,12 +1450,17 @@ pub const Type = struct {
             const index = reader.attributeIndexNs(ns.c, "type") orelse break :c_type null;
             break :c_type try reader.attributeValueAlloc(allocator, index);
         };
+        const nullable = nullable: {
+            const index = reader.attributeIndex("nullable") orelse break :nullable false;
+            break :nullable mem.eql(u8, try reader.attributeValue(index), "1");
+        };
 
         try reader.skipElement();
 
         return .{
             .name = name,
             .c_type = c_type,
+            .nullable = nullable,
         };
     }
 };

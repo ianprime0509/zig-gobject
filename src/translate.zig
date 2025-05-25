@@ -1531,7 +1531,7 @@ fn typeIsPointer(@"type": gir.Type, gobject_context: bool, ctx: TranslationConte
 }
 
 fn translateType(allocator: Allocator, @"type": gir.Type, options: TranslateTypeOptions, ctx: TranslationContext, out: anytype) Allocator.Error!void {
-    if (options.nullable and typeIsPointer(@"type", options.gobject_context, ctx)) {
+    if (@"type".nullable or (options.nullable and typeIsPointer(@"type", options.gobject_context, ctx))) {
         try out.print("?", .{});
     }
     const name = @"type".name orelse {
