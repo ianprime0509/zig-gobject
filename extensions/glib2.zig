@@ -90,6 +90,31 @@ test free {
     try std.testing.expectEqual(3, slice[2]);
 }
 
+/// Heap allocates a copy of `slice` using `glib.mallocN`. `T` must not be
+/// zero-sized or aligned more than `std.c.max_align_t`.
+pub fn dupe(comptime T: type, slice: []const T) []T {
+    const duped = alloc(T, slice.len);
+    @memcpy(duped, slice);
+    return duped;
+}
+
+test dupe {
+    const slice = glib.ext.dupe(u32, &.{ 1, 2, 3 });
+    defer glib.ext.free(slice);
+    try std.testing.expectEqual(1, slice[0]);
+    try std.testing.expectEqual(2, slice[1]);
+    try std.testing.expectEqual(3, slice[2]);
+}
+
+/// Heap allocates a zero-terminated copy of `slice` using `glib.mallocN`. `T`
+/// must not be zero-sized or aligned more than `std.c.max_align_t`.
+pub fn dupeZ(comptime T: type, slice: []const T) [:0]T {
+    const duped = alloc(T, slice.len + 1);
+    @memcpy(duped[0..slice.len], slice);
+    duped[slice.len] = 0;
+    return duped[0..slice.len :0];
+}
+
 pub const Bytes = struct {
     /// Returns a new `Bytes` copying the given slice.
     pub fn newFromSlice(bytes: []const u8) *glib.Bytes {

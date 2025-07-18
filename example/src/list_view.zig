@@ -116,10 +116,10 @@ const NumberList = extern struct {
                 .minimum = 0,
                 .maximum = std.math.maxInt(c_uint),
                 .default = 0,
-                .accessor = .{
+                .accessor = gobject.ext.typedAccessor(NumberList, c_uint, .{
                     .getter = &getLenInternal,
                     .setter = &setLenInternal,
-                },
+                }),
             });
         };
     };
