@@ -563,30 +563,93 @@ fn deriveTypeName(comptime T: type) [:0]const u8 {
         name;
 }
 
+/// Defines functions for getting and setting a property of `Owner` of type
+/// `Data`.
+///
+/// At this level, the `Data` type is purely advisory, and it is up to the
+/// implementer to ensure that the correct data type is stored in and retrieved
+/// from the `gobject.Value` passed to the functions. Most users should use
+/// `typedAccessor` instead, unless they need control over the low-level
+/// `gobject.Value` mechanics of the property.
 pub fn Accessor(comptime Owner: type, comptime Data: type) type {
+    _ = Data;
+
     return struct {
-        getter: ?*const fn (*Owner) Data = null,
-        setter: ?*const fn (*Owner, Data) void = null,
+        getter: ?*const fn (*Owner, *gobject.Value) void = null,
+        setter: ?*const fn (*Owner, *const gobject.Value) void = null,
     };
 }
 
-fn FieldType(comptime T: type, comptime name: []const u8) type {
-    return for (@typeInfo(T).@"struct".fields) |field| {
-        if (std.mem.eql(u8, field.name, name)) break field.type;
-    } else @compileError("no field named " ++ name ++ " in " ++ @typeName(T));
+/// Options for defining a typed accessor.
+pub fn TypedAccessorOptions(comptime Owner: type, comptime Data: type) type {
+    return struct {
+        getter: ?*const fn (*Owner) Data = null,
+        /// Whether ownership of the returned `Data` is transferred to the
+        /// caller (`full`) or remains with the callee (`none`).
+        ///
+        /// Please note that new objects of type `gobject.InitiallyUnowned`,
+        /// such as all `gtk.Widget`s, are initially created with only a
+        /// [floating reference](https://docs.gtk.org/gobject/floating-refs.html).
+        /// When returning such new objects from `getter`, if `getter_transfer`
+        /// is set to `full`, the caller will receive the object with only a
+        /// floating reference. This is error-prone, as it means that calling
+        /// `gobject.Value.unset` on the `gobject.Value` storing the returned
+        /// object will probably end up destroying the object, even if it's been
+        /// referenced elsewhere (since the first reference taken on the object
+        /// will just convert the floating reference to a full one).
+        ///
+        /// Given this, it is highly recommended that `getter_transfer` be set
+        /// to `none` for `gobject.InitiallyUnowned` return values (so that the
+        /// caller's `gobject.Value` where the return value is stored will
+        /// actually own the object and not just a floating reference), or that
+        /// `getter` arrange to call `gobject.Object.takeRef` to convert the
+        /// initial floating reference to a full reference to avoid this
+        /// confusion altogether.
+        getter_transfer: enum { full, none } = .none,
+        setter: ?*const fn (*Owner, Data) void = null,
+        /// Whether ownership of the `Data` parameter is transferred to the
+        /// callee (`full`) or remains with the caller (`none`).
+        setter_transfer: enum { full, none } = .full,
+    };
+}
+
+/// Returns an `Accessor` using type-safe getter and setter functions.
+pub fn typedAccessor(
+    comptime Owner: type,
+    comptime Data: type,
+    comptime options: TypedAccessorOptions(Owner, Data),
+) Accessor(Owner, Data) {
+    return .{
+        .getter = if (options.getter) |getter| &struct {
+            fn get(owner: *Owner, value: *gobject.Value) void {
+                switch (options.getter_transfer) {
+                    .full => Value.take(value, getter(owner)),
+                    .none => Value.set(value, getter(owner)),
+                }
+            }
+        }.get else null,
+        .setter = if (options.setter) |setter| &struct {
+            fn set(owner: *Owner, value: *const gobject.Value) void {
+                switch (options.setter_transfer) {
+                    .full => setter(owner, Value.dup(value, Data)),
+                    .none => setter(owner, Value.get(value, Data)),
+                }
+            }
+        }.set else null,
+    };
 }
 
 /// Returns an `Accessor` which gets and sets a field `name` of `Owner`.
-pub fn fieldAccessor(comptime Owner: type, comptime name: []const u8) Accessor(Owner, FieldType(Owner, name)) {
+pub fn fieldAccessor(comptime Owner: type, comptime name: []const u8) Accessor(Owner, @FieldType(Owner, name)) {
     return .{
         .getter = &struct {
-            fn get(object: *Owner) FieldType(Owner, name) {
-                return @field(object, name);
+            fn get(object: *Owner, value: *gobject.Value) void {
+                Value.set(value, @field(object, name));
             }
         }.get,
         .setter = &struct {
-            fn set(object: *Owner, value: FieldType(Owner, name)) void {
-                @field(object, name) = value;
+            fn set(object: *Owner, value: *const gobject.Value) void {
+                @field(object, name) = Value.dup(value, @FieldType(Owner, name));
             }
         }.set,
     };
@@ -602,16 +665,16 @@ pub fn privateFieldAccessor(
     comptime Private: type,
     comptime private_offset: *const c_int,
     comptime name: []const u8,
-) Accessor(Owner, FieldType(Private, name)) {
+) Accessor(Owner, @FieldType(Private, name)) {
     return .{
         .getter = &struct {
-            fn get(object: *Owner) FieldType(Private, name) {
-                return @field(impl_helpers.getPrivate(object, Private, private_offset.*), name);
+            fn get(object: *Owner, value: *gobject.Value) void {
+                Value.set(value, @field(impl_helpers.getPrivate(object, Private, private_offset.*), name));
             }
         }.get,
         .setter = &struct {
-            fn set(object: *Owner, value: FieldType(Private, name)) void {
-                @field(impl_helpers.getPrivate(object, Private, private_offset.*), name) = value;
+            fn set(object: *Owner, value: *const gobject.Value) void {
+                @field(impl_helpers.getPrivate(object, Private, private_offset.*), name) = Value.dup(value, @FieldType(Private, name));
             }
         }.set,
     };
@@ -678,7 +741,6 @@ pub fn DefinePropertyOptions(comptime Owner: type, comptime Data: type) type {
             return struct {
                 nick: ?[:0]const u8 = null,
                 blurb: ?[:0]const u8 = null,
-                default: Data,
                 accessor: Accessor(Owner, Data),
                 construct: bool = false,
                 construct_only: bool = false,
@@ -723,16 +785,12 @@ pub fn defineProperty(
         /// Gets the value of the property from `object` and stores it in
         /// `value`.
         pub fn get(object: *Owner, value: *gobject.Value) void {
-            if (options.accessor.getter) |getter| {
-                Value.set(value, getter(object));
-            }
+            if (options.accessor.getter) |getter| getter(object, value);
         }
 
         /// Sets the value of the property on `object` from `value`.
         pub fn set(object: *Owner, value: *const gobject.Value) void {
-            if (options.accessor.setter) |setter| {
-                setter(object, Value.get(value, Data));
-            }
+            if (options.accessor.setter) |setter| setter(object, value);
         }
 
         fn newParamSpec() *gobject.ParamSpec {
@@ -1247,7 +1305,8 @@ pub const Value = struct {
         }
     }
 
-    /// Extracts a value of the given type.
+    /// Extracts a value of the given type. The type of `value` must already be
+    /// compatible with `T`.
     ///
     /// This does not return an owned value (if applicable): the caller must
     /// copy/ref/etc. the value if needed beyond the lifetime of the container.
@@ -1315,6 +1374,69 @@ pub const Value = struct {
         }
     }
 
+    /// Extracts a value of the given type, transferring ownership to the
+    /// caller. The type of `value` must already be compatible with `T`.
+    pub fn dup(value: *const gobject.Value, comptime T: type) T {
+        if (T == i8) {
+            return value.getSchar();
+        } else if (T == u8) {
+            return value.getUchar();
+        } else if (T == bool) {
+            return value.getBoolean() != 0;
+        } else if (T == c_int) {
+            return value.getInt();
+        } else if (T == c_uint) {
+            return value.getUint();
+        } else if (T == c_long) {
+            return value.getLong();
+        } else if (T == c_ulong) {
+            return value.getUlong();
+        } else if (T == i64) {
+            return value.getInt64();
+        } else if (T == u64) {
+            return value.getUint64();
+        } else if (T == f32) {
+            return value.getFloat();
+        } else if (T == f64) {
+            return value.getDouble();
+        } else if (isCString(T)) {
+            if (@typeInfo(T) != .optional) {
+                @compileError("cannot guarantee value is non-null");
+            }
+            const Pointer = @typeInfo(@typeInfo(T).optional.child).pointer;
+            return switch (Pointer.size) {
+                .one => @compileError("cannot guarantee length of string matches " ++ @typeName(T)),
+                .many, .c => value.dupString(),
+                .slice => std.mem.span(value.dupString() orelse return null),
+            };
+        } else if (std.meta.hasFn(T, "getGObjectType")) {
+            return switch (@typeInfo(T)) {
+                .@"enum" => @enumFromInt(value.getEnum()),
+                .@"struct" => @bitCast(value.getFlags()),
+                else => @compileError("cannot extract " ++ @typeName(T) ++ " from Value"),
+            };
+        } else if (singlePointerChild(T)) |Child| {
+            if (@typeInfo(T) != .optional) {
+                @compileError("cannot guarantee value is non-null");
+            }
+            if (Child == gobject.ParamSpec) {
+                return value.dupParam();
+            } else if (Child == glib.Variant) {
+                return value.dupVariant();
+            } else if (std.meta.hasFn(Child, "getGObjectType")) {
+                if (isObject(Child)) {
+                    return cast(Child, value.dupObject() orelse return null);
+                } else {
+                    return @ptrCast(@alignCast(value.dupBoxed() orelse return null));
+                }
+            } else {
+                @compileError("cannot extract " ++ @typeName(T) ++ " from Value");
+            }
+        } else {
+            @compileError("cannot extract " ++ @typeName(T) ++ " from Value");
+        }
+    }
+
     /// Sets the contents of `value` to `contents`. The type of `value` must
     /// already be compatible with the type of `contents`.
     ///
@@ -1343,12 +1465,12 @@ pub const Value = struct {
             value.setFloat(contents);
         } else if (T == f64) {
             value.setDouble(contents);
-        } else if (comptime isCString(T)) {
+        } else if (isCString(T)) {
             // orelse null as temporary workaround for https://github.com/ziglang/zig/issues/12523
             switch (@typeInfo(T)) {
                 .pointer => value.setString(contents),
                 .optional => value.setString(contents orelse null),
-                else => unreachable,
+                else => comptime unreachable,
             }
         } else if (std.meta.hasFn(T, "getGObjectType")) {
             switch (@typeInfo(T)) {
@@ -1374,6 +1496,73 @@ pub const Value = struct {
             @compileError("cannot construct Value from " ++ @typeName(T));
         }
     }
+
+    /// Sets the contents of `value` to `contents`, taking ownership of
+    /// `contents`. The type of `value` must already be compatible with the type
+    /// of `contents`.
+    pub fn take(value: *gobject.Value, contents: anytype) void {
+        const T = @TypeOf(contents);
+        if (T == i8) {
+            value.setSchar(contents);
+        } else if (T == u8) {
+            value.setUchar(contents);
+        } else if (T == bool) {
+            value.setBoolean(@intFromBool(contents));
+        } else if (T == c_int) {
+            value.setInt(contents);
+        } else if (T == c_uint) {
+            value.setUint(contents);
+        } else if (T == c_long) {
+            value.setLong(contents);
+        } else if (T == c_ulong) {
+            value.setUlong(contents);
+        } else if (T == i64) {
+            value.setInt64(contents);
+        } else if (T == u64) {
+            value.setUint64(contents);
+        } else if (T == f32) {
+            value.setFloat(contents);
+        } else if (T == f64) {
+            value.setDouble(contents);
+        } else if (isCString(T)) {
+            const is_const = switch (@typeInfo(T)) {
+                .pointer => |pointer| pointer.is_const,
+                .optional => |optional| @typeInfo(optional.child).pointer.is_const,
+                else => comptime unreachable,
+            };
+            if (is_const) {
+                @compileError("cannot take ownership of const string");
+            }
+            // orelse null as temporary workaround for https://github.com/ziglang/zig/issues/12523
+            switch (@typeInfo(T)) {
+                .pointer => value.takeString(contents),
+                .optional => value.takeString(contents orelse null),
+                else => comptime unreachable,
+            }
+        } else if (std.meta.hasFn(T, "getGObjectType")) {
+            switch (@typeInfo(T)) {
+                .@"enum" => value.setEnum(@intFromEnum(contents)),
+                .@"struct" => value.setFlags(@bitCast(contents)),
+                else => @compileError("cannot construct Value from " ++ @typeName(T)),
+            }
+        } else if (singlePointerChild(T)) |Child| {
+            if (Child == gobject.ParamSpec) {
+                value.takeParam(contents);
+            } else if (Child == glib.Variant) {
+                value.takeVariant(contents);
+            } else if (std.meta.hasFn(Child, "getGObjectType")) {
+                if (isObject(Child)) {
+                    value.takeObject(@ptrCast(@alignCast(contents)));
+                } else {
+                    value.takeBoxed(contents);
+                }
+            } else {
+                @compileError("cannot construct Value from " ++ @typeName(T));
+            }
+        } else {
+            @compileError("cannot construct Value from " ++ @typeName(T));
+        }
+    }
 };
 
 test "Value" {
@@ -1391,30 +1580,38 @@ test "Value" {
     {
         var value = gobject.ext.Value.new([*:0]const u8);
         defer value.unset();
+
         gobject.ext.Value.set(&value, "Hello, world!");
         try std.testing.expectEqualStrings("Hello, world!", std.mem.span(gobject.ext.Value.get(&value, ?[*:0]const u8).?));
-    }
-    {
-        var value = gobject.ext.Value.new(?[*:0]const u8);
-        defer value.unset();
-        gobject.ext.Value.set(&value, "Hello, world!");
-        try std.testing.expectEqualStrings("Hello, world!", std.mem.span(gobject.ext.Value.get(&value, ?[*:0]const u8).?));
+
         gobject.ext.Value.set(&value, @as(?[*:0]const u8, null));
         try std.testing.expectEqual(null, gobject.ext.Value.get(&value, ?[*:0]const u8));
+
+        gobject.ext.Value.take(&value, glib.ext.dupeZ(u8, "Owned string"));
+        const duped = gobject.ext.Value.dup(&value, ?[*:0]u8).?;
+        defer glib.free(duped);
+        try std.testing.expectEqualStrings("Owned string", std.mem.span(duped));
+
+        gobject.ext.Value.take(&value, @as(?[*:0]u8, null));
+        try std.testing.expectEqual(null, gobject.ext.Value.dup(&value, ?[*:0]u8));
     }
     {
         var value = gobject.ext.Value.new([:0]const u8);
         defer value.unset();
+
         gobject.ext.Value.set(&value, "Hello, world!");
         try std.testing.expectEqualStrings("Hello, world!", gobject.ext.Value.get(&value, ?[:0]const u8).?);
-    }
-    {
-        var value = gobject.ext.Value.new(?[:0]const u8);
-        defer value.unset();
-        gobject.ext.Value.set(&value, "Hello, world!");
-        try std.testing.expectEqualStrings("Hello, world!", gobject.ext.Value.get(&value, ?[:0]const u8).?);
+
         gobject.ext.Value.set(&value, @as(?[*:0]const u8, null));
         try std.testing.expectEqual(null, gobject.ext.Value.get(&value, ?[:0]const u8));
+
+        gobject.ext.Value.take(&value, glib.ext.dupeZ(u8, "Owned string"));
+        const duped = gobject.ext.Value.dup(&value, ?[:0]u8).?;
+        defer glib.free(duped.ptr);
+        try std.testing.expectEqualStrings("Owned string", duped);
+
+        gobject.ext.Value.take(&value, @as(?[:0]u8, null));
+        try std.testing.expectEqual(null, gobject.ext.Value.dup(&value, ?[:0]u8));
     }
     {
         const ValueTestObject = extern struct {
@@ -1437,15 +1634,22 @@ test "Value" {
             };
         };
 
+        var value = gobject.ext.Value.new(*ValueTestObject);
+        defer value.unset();
+
         const obj = ValueTestObject.new();
         defer gobject.Object.unref(gobject.ext.as(gobject.Object, obj));
         obj.value = 123;
-
-        var value = gobject.ext.Value.new(*ValueTestObject);
-        defer value.unset();
         gobject.ext.Value.set(&value, obj);
         const stored_obj = gobject.ext.Value.get(&value, ?*ValueTestObject).?;
         try std.testing.expectEqual(123, stored_obj.value);
+
+        const obj2 = ValueTestObject.new();
+        obj2.value = 456;
+        gobject.ext.Value.take(&value, obj2);
+        const duped_obj2 = gobject.ext.Value.dup(&value, ?*ValueTestObject).?;
+        defer gobject.Object.unref(gobject.ext.as(gobject.Object, duped_obj2));
+        try std.testing.expectEqual(456, duped_obj2.value);
     }
     {
         const ValueTestBoxed = struct {
@@ -1455,14 +1659,21 @@ test "Value" {
             pub const getGObjectType = gobject.ext.defineBoxed(@This(), .{});
         };
 
-        const boxed: *const ValueTestBoxed = &.{ .a = 123, .b = 456 };
-
         var value = gobject.ext.Value.new(*ValueTestBoxed);
         defer value.unset();
+
+        const boxed: *const ValueTestBoxed = &.{ .a = 123, .b = 456 };
         gobject.ext.Value.set(&value, boxed);
         const stored_boxed = gobject.ext.Value.get(&value, ?*ValueTestBoxed).?;
         try std.testing.expectEqual(123, stored_boxed.a);
         try std.testing.expectEqual(456, stored_boxed.b);
+
+        const boxed2 = glib.ext.new(ValueTestBoxed, .{ .a = 321, .b = 654 });
+        gobject.ext.Value.take(&value, boxed2);
+        const duped_boxed2 = gobject.ext.Value.dup(&value, ?*ValueTestBoxed).?;
+        defer glib.free(duped_boxed2);
+        try std.testing.expectEqual(321, duped_boxed2.a);
+        try std.testing.expectEqual(654, duped_boxed2.b);
     }
     {
         const ValueTestEnum = enum(c_int) {
