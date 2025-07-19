@@ -492,18 +492,21 @@ pub fn build(b: *std.Build) void {
         const options: ModuleOptions = module_options.get(test_module) orelse .{};
 
         if (options.test_abi) {
-            const abi_tests = b.addTest(.{
+            const abi_mod = b.createModule(.{
                 .root_source_file = b.path(b.pathJoin(&.{ "abi", b.fmt("{s}.abi.zig", .{module}) })),
                 .target = target,
                 .optimize = optimize,
+                .imports = &.{
+                    .{ .name = module, .module = gobject.module(module) },
+                },
             });
-            abi_tests.root_module.addImport(module, gobject.module(module));
+            const abi_test = b.addTest(.{ .root_module = abi_mod });
             inline for (comptime std.meta.declarations(gobject_build.libraries)) |lib_decl| {
                 if (std.mem.eql(u8, lib_decl.name, module)) {
-                    @field(gobject_build.libraries, lib_decl.name).linkTo(abi_tests.root_module);
+                    @field(gobject_build.libraries, lib_decl.name).linkTo(abi_test.root_module);
                 }
             }
-            test_step.dependOn(&b.addRunArtifact(abi_tests).step);
+            test_step.dependOn(&b.addRunArtifact(abi_test).step);
         }
     }
 }

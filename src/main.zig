@@ -57,7 +57,7 @@ pub fn logImpl(
 pub fn main() Allocator.Error!void {
     log_tty_config = std.io.tty.detectConfig(std.io.getStdErr());
 
-    const allocator = std.heap.c_allocator;
+    const allocator = std.heap.smp_allocator;
 
     var cli_arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer cli_arena_state.deinit();

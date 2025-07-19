@@ -7,38 +7,28 @@ pub fn build(b: *std.Build) void {
 
     const xml = b.dependency("xml", .{}).module("xml");
 
-    const exe = b.addExecutable(.{
-        .name = "translate-gir",
+    const codegen_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
+        .imports = &.{
+            .{ .name = "xml", .module = xml },
+        },
     });
-    exe.linkLibC();
-    exe.root_module.addImport("xml", xml);
-    b.installArtifact(exe);
 
-    const run_cmd = b.addRunArtifact(exe);
-    run_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
-
-    const run_step = b.step("run", "Run the binding generator");
-    run_step.dependOn(&run_cmd.step);
+    const codegen_exe = b.addExecutable(.{
+        .name = "translate-gir",
+        .root_module = codegen_mod,
+    });
+    b.installArtifact(codegen_exe);
 
     // Tests
     const test_step = b.step("test", "Run all tests");
 
-    const exe_tests = b.addTest(.{
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    exe_tests.linkLibC();
-    exe_tests.root_module.addImport("xml", xml);
+    const codegen_test = b.addTest(.{ .root_module = codegen_mod });
 
     const test_exe_step = b.step("test-exe", "Run tests for the binding generator");
-    test_exe_step.dependOn(&b.addRunArtifact(exe_tests).step);
+    test_exe_step.dependOn(&b.addRunArtifact(codegen_test).step);
     test_step.dependOn(test_exe_step);
 
     const GirProfile = enum { gnome47, gnome48 };
@@ -268,19 +258,19 @@ pub fn build(b: *std.Build) void {
 
     const gir_files_path = b.option([]const u8, "gir-files-path", "Path to GIR files") orelse "/usr/share/gir-1.0";
 
-    const codegen_cmd = b.addRunArtifact(exe);
+    const codegen_exe_run = b.addRunArtifact(codegen_exe);
 
-    codegen_cmd.addPrefixedDirectoryArg("--gir-dir=", .{ .cwd_relative = gir_files_path });
-    codegen_cmd.addPrefixedDirectoryArg("--gir-fixes-dir=", b.path("gir-fixes"));
-    codegen_cmd.addPrefixedDirectoryArg("--bindings-dir=", b.path("binding-overrides"));
-    codegen_cmd.addPrefixedDirectoryArg("--extensions-dir=", b.path("extensions"));
-    const bindings_dir = codegen_cmd.addPrefixedOutputDirectoryArg("--output-dir=", "bindings");
-    codegen_cmd.addPrefixedDirectoryArg("--abi-test-output-dir=", b.path("test/abi"));
-    _ = codegen_cmd.addPrefixedDepFileOutputArg("--dependency-file=", "codegen-deps");
-    codegen_cmd.addArgs(codegen_modules);
+    codegen_exe_run.addPrefixedDirectoryArg("--gir-dir=", .{ .cwd_relative = gir_files_path });
+    codegen_exe_run.addPrefixedDirectoryArg("--gir-fixes-dir=", b.path("gir-fixes"));
+    codegen_exe_run.addPrefixedDirectoryArg("--bindings-dir=", b.path("binding-overrides"));
+    codegen_exe_run.addPrefixedDirectoryArg("--extensions-dir=", b.path("extensions"));
+    const bindings_dir = codegen_exe_run.addPrefixedOutputDirectoryArg("--output-dir=", "bindings");
+    codegen_exe_run.addPrefixedDirectoryArg("--abi-test-output-dir=", b.path("test/abi"));
+    _ = codegen_exe_run.addPrefixedDepFileOutputArg("--dependency-file=", "codegen-deps");
+    codegen_exe_run.addArgs(codegen_modules);
     // This is needed to tell Zig that the command run can be cached despite
     // having output files.
-    codegen_cmd.expectExitCode(0);
+    codegen_exe_run.expectExitCode(0);
 
     const install_bindings = b.addInstallDirectory(.{
         .source_dir = bindings_dir,
