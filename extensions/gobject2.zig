@@ -722,7 +722,6 @@ pub fn DefinePropertyOptions(comptime Owner: type, comptime Data: type) type {
             return struct {
                 nick: ?[:0]const u8 = null,
                 blurb: ?[:0]const u8 = null,
-                default: Data,
                 accessor: Accessor(Owner, Data),
                 construct: bool = false,
                 construct_only: bool = false,
