@@ -586,6 +586,25 @@ pub fn TypedAccessorOptions(comptime Owner: type, comptime Data: type) type {
         getter: ?*const fn (*Owner) Data = null,
         /// Whether ownership of the returned `Data` is transferred to the
         /// caller (`full`) or remains with the callee (`none`).
+        ///
+        /// Please note that new objects of type `gobject.InitiallyUnowned`,
+        /// such as all `gtk.Widget`s, are initially created with only a
+        /// [floating reference](https://docs.gtk.org/gobject/floating-refs.html).
+        /// When returning such new objects from `getter`, if `getter_transfer`
+        /// is set to `full`, the caller will receive the object with only a
+        /// floating reference. This is error-prone, as it means that calling
+        /// `gobject.Value.unset` on the `gobject.Value` storing the returned
+        /// object will probably end up destroying the object, even if it's been
+        /// referenced elsewhere (since the first reference taken on the object
+        /// will just convert the floating reference to a full one).
+        ///
+        /// Given this, it is highly recommended that `getter_transfer` be set
+        /// to `none` for `gobject.InitiallyUnowned` return values (so that the
+        /// caller's `gobject.Value` where the return value is stored will
+        /// actually own the object and not just a floating reference), or that
+        /// `getter` arrange to call `gobject.Object.takeRef` to convert the
+        /// initial floating reference to a full reference to avoid this
+        /// confusion altogether.
         getter_transfer: enum { full, none } = .none,
         setter: ?*const fn (*Owner, Data) void = null,
         /// Whether ownership of the `Data` parameter is transferred to the

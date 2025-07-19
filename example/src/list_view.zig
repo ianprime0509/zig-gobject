@@ -23,6 +23,7 @@ fn activate(app: *gtk.Application, _: ?*anyopaque) callconv(.c) void {
     const item_factory = gtk.SignalListItemFactory.new();
     _ = gtk.SignalListItemFactory.signals.setup.connect(item_factory, ?*anyopaque, &setupListItem, null, .{});
     _ = gtk.SignalListItemFactory.signals.bind.connect(item_factory, ?*anyopaque, &bindListItem, null, .{});
+    _ = gtk.SignalListItemFactory.signals.unbind.connect(item_factory, ?*anyopaque, &unbindListItem, null, .{});
     const list_view = gtk.ListView.new(selection_model.as(gtk.SelectionModel), item_factory.as(gtk.ListItemFactory));
     gtk.ScrolledWindow.setChild(scrolled_window, list_view.as(gtk.Widget));
 
@@ -31,17 +32,29 @@ fn activate(app: *gtk.Application, _: ?*anyopaque) callconv(.c) void {
 
 fn setupListItem(_: *gtk.SignalListItemFactory, list_item_obj: *gobject.Object, _: ?*anyopaque) callconv(.c) void {
     const list_item = gobject.ext.cast(gtk.ListItem, list_item_obj).?;
-    const label = gtk.Label.new(null);
-    list_item.setChild(label.as(gtk.Widget));
+    const box = gtk.Box.new(.horizontal, 5);
+    list_item.setChild(box.as(gtk.Widget));
 }
 
 fn bindListItem(_: *gtk.SignalListItemFactory, list_item_obj: *gobject.Object, _: ?*anyopaque) callconv(.c) void {
     const list_item = gobject.ext.cast(gtk.ListItem, list_item_obj).?;
     const number = gobject.ext.cast(Number, list_item.getItem().?).?;
-    const label = gobject.ext.cast(gtk.Label, list_item.getChild().?).?;
-    var buf: [64]u8 = undefined;
-    const text = std.fmt.bufPrintZ(&buf, "Value: {}", .{number.value}) catch unreachable;
-    label.setLabel(text);
+    const box = gobject.ext.cast(gtk.Box, list_item.getChild().?).?;
+    var label_value = gobject.ext.Value.new(*gtk.Label);
+    defer label_value.unset();
+    gobject.Object.getProperty(number.as(gobject.Object), "label", &label_value);
+    const label = gobject.ext.Value.get(&label_value, ?*gtk.Widget).?;
+    gtk.Widget.setMarginTop(label, 5);
+    gtk.Widget.setMarginBottom(label, 5);
+    gtk.Widget.setMarginStart(label, 5);
+    gtk.Widget.setMarginEnd(label, 5);
+    box.append(label);
+}
+
+fn unbindListItem(_: *gtk.SignalListItemFactory, list_item_obj: *gobject.Object, _: ?*anyopaque) callconv(.c) void {
+    const list_item = gobject.ext.cast(gtk.ListItem, list_item_obj).?;
+    const box = list_item.getChild().?;
+    while (box.getFirstChild()) |child| child.unparent();
 }
 
 const Number = extern struct {
@@ -66,6 +79,20 @@ const Number = extern struct {
                 .accessor = gobject.ext.fieldAccessor(Number, "value"),
             });
         };
+
+        pub const label = struct {
+            pub const name = "label";
+            const impl = gobject.ext.defineProperty(name, Number, ?*gtk.Label, .{
+                .nick = "Label",
+                .blurb = "A label displaying the number's value",
+                .accessor = gobject.ext.typedAccessor(Number, *gtk.Label, .{
+                    .getter = &getLabel,
+                    // The returned label object is constructed on demand and
+                    // will be owned by the caller.
+                    .getter_transfer = .full,
+                }),
+            });
+        };
     };
 
     pub fn new(value: c_uint) *Number {
@@ -74,6 +101,22 @@ const Number = extern struct {
 
     pub fn as(number: *Number, comptime T: type) *T {
         return gobject.ext.as(T, number);
+    }
+
+    fn getLabel(number: *Number) *gtk.Label {
+        var buf: [64]u8 = undefined;
+        const text = std.fmt.bufPrintZ(&buf, "Number {}", .{number.value}) catch unreachable;
+        const label = gtk.Label.new(text);
+        // For the sake of demonstrating the scenario where getter_transfer is
+        // set to full, we want label to have a full reference at this point so
+        // it can be taken over by the caller. Usually, this would be
+        // unnecessary, and we would simply leave getter_transfer as none and do
+        // nothing here: since gtk.Label inherits from gobject.InitiallyUnowned,
+        // new objects have a "floating" reference, such that the first call to
+        // gobject.refSink will actually not increment the reference count, but
+        // just convert the floating reference to a full reference.
+        _ = gobject.Object.takeRef(label.as(gobject.Object));
+        return label;
     }
 
     pub const Class = extern struct {
@@ -88,6 +131,7 @@ const Number = extern struct {
         fn init(class: *Class) callconv(.c) void {
             gobject.ext.registerProperties(class, &.{
                 properties.value.impl,
+                properties.label.impl,
             });
         }
     };
