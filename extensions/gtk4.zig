@@ -24,7 +24,7 @@ pub const impl_helpers = struct {
     ) void {
         const field = options.field orelse name;
         const Instance = @typeInfo(@TypeOf(class)).pointer.child.Instance;
-        ensureWidgetType(Instance, field);
+        ensureObjectType(Instance, field);
         gtk.Widget.Class.bindTemplateChildFull(
             gobject.ext.as(gtk.Widget.Class, class),
             name,
@@ -129,7 +129,7 @@ pub const impl_helpers = struct {
         comptime options: gtk.ext.BindTemplateChildOptions,
     ) void {
         const field = options.field orelse name;
-        ensureWidgetType(Private, field);
+        ensureObjectType(Private, field);
         gtk.Widget.Class.bindTemplateChildFull(
             gobject.ext.as(gtk.Widget.Class, class),
             name,
@@ -233,37 +233,32 @@ pub const impl_helpers = struct {
         try std.testing.expectEqualStrings("Hello, world!", widget.getLabel());
     }
 
-    fn ensureWidgetType(comptime Container: type, comptime field_name: []const u8) void {
-        inline for (@typeInfo(Container).@"struct".fields) |field| {
-            if (comptime std.mem.eql(u8, field.name, field_name)) {
-                const WidgetType = switch (@typeInfo(field.type)) {
-                    .pointer => |pointer| widget_type: {
-                        if (pointer.size != .one) {
-                            @compileError("bound child type must be a single pointer");
-                        }
-                        break :widget_type pointer.child;
-                    },
-                    .optional => |optional| switch (@typeInfo(optional.child)) {
-                        .pointer => |pointer| widget_type: {
-                            if (pointer.size != .one) {
-                                @compileError("bound child type must be a single pointer");
-                            }
-                            break :widget_type pointer.child;
-                        },
-                        else => @compileError("unrecognized bound child type"),
-                    },
-                    else => @compileError("unrecognized bound child type"),
-                };
-                if (!gobject.ext.isAssignableFrom(gtk.Widget, WidgetType)) {
-                    @compileError("bound child must be a widget");
+    fn ensureObjectType(comptime Container: type, comptime field_name: []const u8) void {
+        const ChildType = switch (@typeInfo(@FieldType(Container, field_name))) {
+            .pointer => |pointer| widget_type: {
+                if (pointer.size != .one) {
+                    @compileError("bound child type must be a single pointer");
                 }
-                // Ensuring the type is registered avoids the user needing to
-                // explicitly call ensureType on the widget type as long as it's
-                // bound as a child in some custom widget class.
-                gobject.ext.ensureType(WidgetType);
-                break;
-            }
+                break :widget_type pointer.child;
+            },
+            .optional => |optional| switch (@typeInfo(optional.child)) {
+                .pointer => |pointer| widget_type: {
+                    if (pointer.size != .one) {
+                        @compileError("bound child type must be a single pointer");
+                    }
+                    break :widget_type pointer.child;
+                },
+                else => @compileError("unrecognized bound child type"),
+            },
+            else => @compileError("unrecognized bound child type"),
+        };
+        if (!gobject.ext.isAssignableFrom(gobject.Object, ChildType)) {
+            @compileError("bound child must be an object");
         }
+        // Ensuring the type is registered avoids the user needing to
+        // explicitly call ensureType on the object type as long as it's
+        // bound as a child in some custom widget class.
+        gobject.ext.ensureType(ChildType);
     }
 };
 
