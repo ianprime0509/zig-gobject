@@ -825,8 +825,8 @@ pub fn defineProperty(
 ) type {
     // Check for a properly formed name now or it might cause runtime panics
     // later.
-    std.debug.assert(gParamSpecIsValidName(name));
-    std.debug.assert(gParamSpecIsCanonical(name));
+    comptime std.debug.assert(gParamSpecIsValidName(name));
+    comptime std.debug.assert(gParamSpecIsCanonical(name));
 
     return struct {
         /// The `gobject.ParamSpec` of the property. Initialized once the
