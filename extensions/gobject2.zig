@@ -343,8 +343,8 @@ pub fn DefineBoxedOptions(comptime T: type) type {
         /// these are not provided, the default is to use `glib.ext.create` and
         /// `glib.ext.destroy` to manage memory.
         funcs: ?struct {
-            copy: *const fn (*T) *T,
-            free: *const fn (*T) void,
+            copy: *const fn (*T) callconv(.c) *T,
+            free: *const fn (*T) callconv(.c) void,
         } = null,
     };
 }
