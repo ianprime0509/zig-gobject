@@ -756,6 +756,65 @@ pub fn DefinePropertyOptions(comptime Owner: type, comptime Data: type) type {
     }
 }
 
+/// Zig reimplementation of g_param_spec_is_valid_name for use at comptime.
+///
+/// See:
+/// https://docs.gtk.org/gobject/class.ParamSpec.html#parameter-names
+/// https://docs.gtk.org/gobject/type_func.ParamSpec.is_valid_name.html
+/// https://gitlab.gnome.org/GNOME/glib/-/blob/main/gobject/gparam.c#L384-420
+fn gParamSpecIsValidName(name: [:0]const u8) bool {
+    // Must be at least 1 character long
+    if (name.len == 0) return false;
+
+    // First character must be an ASCII letter.
+    switch (name[0]) {
+        'a'...'z' => {},
+        'A'...'Z' => {},
+        else => return false,
+    }
+
+    // Check the rest of the characters.
+    for (name[1..]) |c| {
+        switch (c) {
+            '-' => continue,
+            '_' => continue,
+            '0'...'9' => continue,
+            'a'...'z' => continue,
+            'A'...'Z' => continue,
+            else => return false,
+        }
+    }
+
+    // If nothing failed so far then we're good.
+    return true;
+}
+
+test "gParamSpecIsValidName" {
+    std.testing.expect(!gParamSpecIsValidName(""));
+    std.testing.expect(!gParamSpecIsValidName("0"));
+    std.testing.expect(!gParamSpecIsValidName("$"));
+    std.testing.expect(gParamSpecIsValidName("a"));
+    std.testing.expect(gParamSpecIsValidName("a-"));
+    std.testing.expect(gParamSpecIsValidName("a_"));
+    std.testing.expect(gParamSpecIsValidName("a_-"));
+    std.testing.expect(gParamSpecIsValidName("a-abcABC123"));
+}
+
+/// Zig reimplementation of is_canonical for use at comptime. The name must
+/// have already been checked by gParamSpecIsValidName. Adds the additional
+/// restriction that `_` cannot be present in the name.
+///
+/// See:
+/// https://gitlab.gnome.org/GNOME/glib/-/blob/main/gobject/gparam.c#L377-382
+fn gParamSpecIsCanonical(name: [:0]const u8) bool {
+    return std.mem.indexOfScalar(u8, name, '_') == null;
+}
+
+test "gParamSpecIsCanonical" {
+    try std.testing.expect(gParamSpecIsCanonical("abc-123"));
+    try std.testing.expect(!gParamSpecIsCanonical("abc_123"));
+}
+
 /// Sets up a property definition, returning a type with various helpers related
 /// to the property.
 pub fn defineProperty(
@@ -764,6 +823,11 @@ pub fn defineProperty(
     comptime Data: type,
     comptime options: DefinePropertyOptions(Owner, Data),
 ) type {
+    // Check for a properly formed name now or it might cause runtime panics
+    // later.
+    comptime std.debug.assert(gParamSpecIsValidName(name));
+    comptime std.debug.assert(gParamSpecIsCanonical(name));
+
     return struct {
         /// The `gobject.ParamSpec` of the property. Initialized once the
         /// property is registered.
