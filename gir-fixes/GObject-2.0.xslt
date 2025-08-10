@@ -42,4 +42,11 @@
       <core:type name="FlagsValue" c:type="GFlagsValue"/>
     </core:array>
   </xsl:template>
+
+  <xsl:template match="core:record[@name='WeakRef']/core:method[@name='get']/core:return-value">
+    <xsl:copy>
+      <xsl:attribute name="nullable">1</xsl:attribute>
+      <xsl:copy-of select="@* | node()"/>
+    </xsl:copy>
+  </xsl:template>
 </xsl:stylesheet>
