@@ -789,15 +789,15 @@ fn gParamSpecIsValidName(name: [:0]const u8) bool {
     return true;
 }
 
-test "gParamSpecIsValidName" {
-    std.testing.expect(!gParamSpecIsValidName(""));
-    std.testing.expect(!gParamSpecIsValidName("0"));
-    std.testing.expect(!gParamSpecIsValidName("$"));
-    std.testing.expect(gParamSpecIsValidName("a"));
-    std.testing.expect(gParamSpecIsValidName("a-"));
-    std.testing.expect(gParamSpecIsValidName("a_"));
-    std.testing.expect(gParamSpecIsValidName("a_-"));
-    std.testing.expect(gParamSpecIsValidName("a-abcABC123"));
+test gParamSpecIsValidName {
+    try std.testing.expect(!gParamSpecIsValidName(""));
+    try std.testing.expect(!gParamSpecIsValidName("0"));
+    try std.testing.expect(!gParamSpecIsValidName("$"));
+    try std.testing.expect(gParamSpecIsValidName("a"));
+    try std.testing.expect(gParamSpecIsValidName("a-"));
+    try std.testing.expect(gParamSpecIsValidName("a_"));
+    try std.testing.expect(gParamSpecIsValidName("a_-"));
+    try std.testing.expect(gParamSpecIsValidName("a-abcABC123"));
 }
 
 /// Zig reimplementation of is_canonical for use at comptime. The name must
@@ -810,7 +810,7 @@ fn gParamSpecIsCanonical(name: [:0]const u8) bool {
     return std.mem.indexOfScalar(u8, name, '_') == null;
 }
 
-test "gParamSpecIsCanonical" {
+test gParamSpecIsCanonical {
     try std.testing.expect(gParamSpecIsCanonical("abc-123"));
     try std.testing.expect(!gParamSpecIsCanonical("abc_123"));
 }
