@@ -1070,7 +1070,7 @@ pub fn registerProperties(class: anytype, properties: []const type) void {
 
 pub fn SignalHandler(comptime Itype: type, comptime param_types: []const type, comptime DataType: type, comptime ReturnType: type) type {
     return *const @Type(.{ .@"fn" = .{
-        .calling_convention = .C,
+        .calling_convention = .c,
         .is_generic = false,
         .is_var_args = false,
         .return_type = ReturnType,

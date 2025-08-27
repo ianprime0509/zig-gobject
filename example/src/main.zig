@@ -14,8 +14,12 @@ const examples: []const Example = &.{
 };
 
 pub fn main() !void {
-    const stdin = std.io.getStdIn().reader();
-    const stdout = std.io.getStdOut().writer();
+    var stdin_buf: [1024]u8 = undefined;
+    var stdin_reader = std.fs.File.stdin().reader(&stdin_buf);
+    const stdin = &stdin_reader.interface;
+    var stdout_buf: [1024]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&stdout_buf);
+    const stdout = &stdout_writer.interface;
 
     try stdout.writeAll("Available examples:\n");
     var i: usize = 0;
@@ -24,9 +28,9 @@ pub fn main() !void {
         i += 1;
     }
     try stdout.writeAll("Choose an example: ");
+    try stdout.flush();
 
-    var buf: [16]u8 = undefined;
-    const input = try stdin.readUntilDelimiter(&buf, '\n');
+    const input = try stdin.takeDelimiterExclusive('\n');
     const choice = try std.fmt.parseInt(usize, input, 10);
     if (choice >= examples.len) {
         return error.OutOfBounds;

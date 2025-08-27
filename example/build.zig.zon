@@ -2,7 +2,7 @@
     .name = .gobject_example,
     .version = "0.0.0",
     .fingerprint = 0xb1f52be6e638a6a8, // Changing this has security and trust implications.
-    .minimum_zig_version = "0.14.0",
+    .minimum_zig_version = "0.15.1",
     .paths = .{""},
     .dependencies = .{
         .gobject = .{

@@ -40,9 +40,9 @@ pub fn logImpl(
         comptime level.asText() ++ ": "
     else
         comptime level.asText() ++ "(" ++ @tagName(scope) ++ "): ";
-    std.debug.lockStdErr();
-    defer std.debug.unlockStdErr();
-    const stderr = std.io.getStdErr().writer();
+    var buffer: [64]u8 = undefined;
+    const stderr = std.debug.lockStderrWriter(&buffer);
+    defer std.debug.unlockStderrWriter();
     log_tty_config.setColor(stderr, switch (level) {
         .err => .bright_red,
         .warn => .bright_yellow,
@@ -55,7 +55,7 @@ pub fn logImpl(
 }
 
 pub fn main() Allocator.Error!void {
-    log_tty_config = std.io.tty.detectConfig(std.io.getStdErr());
+    log_tty_config = std.io.tty.detectConfig(.stderr());
 
     const allocator = std.heap.smp_allocator;
 
@@ -63,34 +63,34 @@ pub fn main() Allocator.Error!void {
     defer cli_arena_state.deinit();
     const cli_arena = cli_arena_state.allocator();
 
-    var gir_dir_paths = std.ArrayList([]u8).init(cli_arena);
-    var gir_fixes_dir_paths = std.ArrayList([]u8).init(cli_arena);
-    var bindings_dir_paths = std.ArrayList([]u8).init(cli_arena);
-    var extensions_dir_paths = std.ArrayList([]u8).init(cli_arena);
+    var gir_dir_paths: std.ArrayList([]u8) = .empty;
+    var gir_fixes_dir_paths: std.ArrayList([]u8) = .empty;
+    var bindings_dir_paths: std.ArrayList([]u8) = .empty;
+    var extensions_dir_paths: std.ArrayList([]u8) = .empty;
     var maybe_output_dir_path: ?[]u8 = null;
     var maybe_abi_test_output_dir_path: ?[]u8 = null;
     var maybe_dependency_file_path: ?[]u8 = null;
-    var roots = std.ArrayList(gir.Include).init(cli_arena);
+    var roots: std.ArrayList(gir.Include) = .empty;
 
     var args: ArgIterator = .{ .args = try std.process.argsWithAllocator(cli_arena) };
     _ = args.next();
     while (args.next()) |arg| {
         switch (arg) {
             .option => |option| if (option.is('h', "help")) {
-                std.io.getStdOut().writeAll(usage) catch {};
+                std.fs.File.stdout().writeAll(usage) catch {};
                 std.process.exit(0);
             } else if (option.is(null, "bindings-dir")) {
                 const path = args.optionValue() orelse fatal("expected value for --bindings-dir", .{});
-                try bindings_dir_paths.append(try cli_arena.dupe(u8, path));
+                try bindings_dir_paths.append(cli_arena, try cli_arena.dupe(u8, path));
             } else if (option.is(null, "extensions-dir")) {
                 const path = args.optionValue() orelse fatal("expected value for --extensions-dir", .{});
-                try extensions_dir_paths.append(try cli_arena.dupe(u8, path));
+                try extensions_dir_paths.append(cli_arena, try cli_arena.dupe(u8, path));
             } else if (option.is(null, "gir-dir")) {
                 const path = args.optionValue() orelse fatal("expected value for --gir-dir", .{});
-                try gir_dir_paths.append(try cli_arena.dupe(u8, path));
+                try gir_dir_paths.append(cli_arena, try cli_arena.dupe(u8, path));
             } else if (option.is(null, "gir-fixes-dir")) {
                 const path = args.optionValue() orelse fatal("expected value for --gir-fixes-dir", .{});
-                try gir_fixes_dir_paths.append(try cli_arena.dupe(u8, path));
+                try gir_fixes_dir_paths.append(cli_arena, try cli_arena.dupe(u8, path));
             } else if (option.is(null, "output-dir")) {
                 const path = args.optionValue() orelse fatal("expected value for --output-dir", .{});
                 maybe_output_dir_path = try cli_arena.dupe(u8, path);
@@ -101,11 +101,11 @@ pub fn main() Allocator.Error!void {
                 const path = args.optionValue() orelse fatal("expected value for --dependency-file", .{});
                 maybe_dependency_file_path = try cli_arena.dupe(u8, path);
             } else {
-                fatal("unrecognized option: {}", .{option});
+                fatal("unrecognized option: {f}", .{option});
             },
             .param => |param| {
                 const sep_pos = mem.indexOfScalar(u8, param, '-') orelse fatal("invalid GIR repository name: {s}", .{param});
-                try roots.append(.{
+                try roots.append(cli_arena, .{
                     .name = try cli_arena.dupe(u8, param[0..sep_pos]),
                     .version = try cli_arena.dupe(u8, param[sep_pos + 1 ..]),
                 });
@@ -199,10 +199,11 @@ fn writeDependencies(path: []const u8, deps: Dependencies, diag: *Diagnostics) !
         return diag.add("failed to create dependency file {s}: {}", .{ path, err });
     defer file.close();
 
-    var buffered_writer = std.io.bufferedWriter(file.writer());
-    deps.write(buffered_writer.writer()) catch |err|
+    var buf: [4096]u8 = undefined;
+    var file_writer = file.writer(&buf);
+    deps.write(&file_writer.interface) catch |err|
         return diag.add("failed to write dependency file {s}: {}", .{ path, err });
-    buffered_writer.flush() catch |err|
+    file_writer.interface.flush() catch |err|
         return diag.add("failed to write dependency file {s}: {}", .{ path, err });
 }
 
@@ -237,7 +238,7 @@ pub const Dependencies = struct {
         if (repository.fix_path) |fix_path| try deps.add(target, &.{fix_path});
     }
 
-    pub fn write(deps: Dependencies, writer: anytype) @TypeOf(writer).Error!void {
+    pub fn write(deps: Dependencies, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         for (deps.paths.keys(), deps.paths.values()) |target, prereqs| {
             try writer.print("{s}:", .{target});
             for (prereqs.items) |prereq| {
@@ -300,7 +301,7 @@ const ArgIterator = struct {
                 };
             }
 
-            pub fn format(option: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+            pub fn format(option: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
                 switch (option) {
                     .short => |c| try writer.print("-{c}", .{c}),
                     .long => |s| try writer.print("--{s}", .{s}),
