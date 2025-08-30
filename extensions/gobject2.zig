@@ -649,10 +649,188 @@ pub fn fieldAccessor(comptime Owner: type, comptime name: []const u8) Accessor(O
         }.get,
         .setter = &struct {
             fn set(object: *Owner, value: *const gobject.Value) void {
+                // For object and boxed types, we want to unref/free the
+                // original value to avoid leaking it after setting the new
+                // value.
+                const T = @FieldType(Owner, name);
+                if (singlePointerChild(T)) |Child| {
+                    // Keep this in sync with the logic for supported types in
+                    // Value.
+                    if (@typeInfo(T) != .optional) {
+                        @compileError("cannot guarantee value is non-null");
+                    }
+                    if (Child == gobject.ParamSpec) {
+                        if (@field(object, name)) |v| v.unref();
+                    } else if (Child == glib.Variant) {
+                        if (@field(object, name)) |v| v.unref();
+                    } else if (std.meta.hasFn(Child, "getGObjectType")) {
+                        if (isObject(Child)) {
+                            if (@field(object, name)) |v| as(gobject.Object, v).unref();
+                        } else {
+                            if (@field(object, name)) |v| gobject.boxedFree(Child.getGObjectType(), v);
+                        }
+                    } else {
+                        @compileError("unsupported property type " ++ @typeName(T));
+                    }
+                }
                 @field(object, name) = Value.dup(value, @FieldType(Owner, name));
             }
         }.set,
     };
+}
+
+test "fieldAccessor" {
+    const FieldAccessorTest = extern struct {
+        parent_instance: Parent,
+        uint: c_uint,
+        uint_wrapper: ?*test_types.UintWrapper,
+        boxed_u32s: ?*test_types.BoxedU32Pair,
+
+        pub const Parent = gobject.Object;
+        const Self = @This();
+
+        pub const getGObjectType = gobject.ext.defineClass(Self, .{
+            .classInit = &Class.init,
+            .parent_class = &Class.parent,
+        });
+
+        pub fn new() *Self {
+            return gobject.ext.newInstance(Self, .{});
+        }
+
+        pub fn as(self: *Self, comptime T: type) *T {
+            return gobject.ext.as(T, self);
+        }
+
+        pub fn ref(self: *Self) void {
+            self.as(gobject.Object).ref();
+        }
+
+        pub fn unref(self: *Self) void {
+            self.as(gobject.Object).unref();
+        }
+
+        fn finalize(self: *Self) callconv(.c) void {
+            if (self.uint_wrapper) |v| v.unref();
+            if (self.boxed_u32s) |v| gobject.boxedFree(test_types.BoxedU32Pair.getGObjectType(), v);
+            gobject.Object.virtual_methods.finalize.call(Class.parent, self.as(Parent));
+        }
+
+        pub const properties = struct {
+            pub const uint = struct {
+                pub const name = "uint";
+                const impl = gobject.ext.defineProperty(name, Self, c_uint, .{
+                    .nick = "Uint",
+                    .blurb = "A uint value.",
+                    .minimum = 0,
+                    .maximum = std.math.maxInt(c_uint),
+                    .default = 0,
+                    .accessor = gobject.ext.fieldAccessor(Self, "uint"),
+                });
+            };
+
+            pub const uint_wrapper = struct {
+                pub const name = "uint-wrapper";
+                const impl = gobject.ext.defineProperty(name, Self, ?*test_types.UintWrapper, .{
+                    .nick = "UintWrapper",
+                    .blurb = "A uint wrapper object.",
+                    .accessor = gobject.ext.fieldAccessor(Self, "uint_wrapper"),
+                });
+            };
+
+            pub const boxed_u32s = struct {
+                pub const name = "boxed-u32s";
+                const impl = gobject.ext.defineProperty(name, Self, ?*test_types.BoxedU32Pair, .{
+                    .nick = "BoxedU32s",
+                    .blurb = "A boxed pair of u32s.",
+                    .accessor = gobject.ext.fieldAccessor(Self, "boxed_u32s"),
+                });
+            };
+        };
+
+        pub const Class = extern struct {
+            parent_class: Parent.Class,
+
+            var parent: *Parent.Class = undefined;
+
+            pub const Instance = Self;
+
+            fn init(class: *Class) callconv(.c) void {
+                gobject.ext.registerProperties(class, &.{
+                    properties.uint.impl,
+                    properties.uint_wrapper.impl,
+                    properties.boxed_u32s.impl,
+                });
+                gobject.Object.virtual_methods.finalize.implement(class, &finalize);
+            }
+        };
+    };
+
+    const obj: *FieldAccessorTest = .new();
+    defer obj.unref();
+
+    {
+        var set_value = gobject.ext.Value.new(c_uint);
+        defer set_value.unset();
+        var get_value = gobject.ext.Value.new(c_uint);
+        defer get_value.unset();
+
+        gobject.ext.Value.set(&set_value, @as(c_uint, 1));
+        obj.as(gobject.Object).setProperty("uint", &set_value);
+        obj.as(gobject.Object).getProperty("uint", &get_value);
+        try std.testing.expectEqual(1, gobject.ext.Value.get(&get_value, c_uint));
+
+        gobject.ext.Value.set(&set_value, @as(c_uint, 2));
+        obj.as(gobject.Object).setProperty("uint", &set_value);
+        obj.as(gobject.Object).getProperty("uint", &get_value);
+        try std.testing.expectEqual(2, gobject.ext.Value.get(&get_value, c_uint));
+    }
+
+    {
+        var set_value = gobject.ext.Value.new(?*test_types.UintWrapper);
+        defer set_value.unset();
+        var get_value = gobject.ext.Value.new(?*test_types.UintWrapper);
+        defer get_value.unset();
+
+        const wrapper1: *test_types.UintWrapper = .new();
+        defer wrapper1.unref();
+        wrapper1.value = 1;
+        gobject.ext.Value.set(&set_value, wrapper1);
+        obj.as(gobject.Object).setProperty("uint-wrapper", &set_value);
+        obj.as(gobject.Object).getProperty("uint-wrapper", &get_value);
+        try std.testing.expectEqual(1, gobject.ext.Value.get(&get_value, ?*test_types.UintWrapper).?.value);
+
+        const wrapper2: *test_types.UintWrapper = .new();
+        defer wrapper2.unref();
+        wrapper2.value = 2;
+        gobject.ext.Value.set(&set_value, wrapper2);
+        obj.as(gobject.Object).setProperty("uint-wrapper", &set_value);
+        obj.as(gobject.Object).getProperty("uint-wrapper", &get_value);
+        try std.testing.expectEqual(2, gobject.ext.Value.get(&get_value, ?*test_types.UintWrapper).?.value);
+    }
+
+    {
+        var set_value = gobject.ext.Value.new(?*test_types.BoxedU32Pair);
+        defer set_value.unset();
+        var get_value = gobject.ext.Value.new(?*test_types.BoxedU32Pair);
+        defer get_value.unset();
+
+        const pair1: test_types.BoxedU32Pair = .{ .a = 1, .b = 2 };
+        gobject.ext.Value.set(&set_value, &pair1);
+        obj.as(gobject.Object).setProperty("boxed-u32s", &set_value);
+        obj.as(gobject.Object).getProperty("boxed-u32s", &get_value);
+        const get_pair1 = gobject.ext.Value.get(&get_value, ?*test_types.BoxedU32Pair).?;
+        try std.testing.expectEqual(1, get_pair1.a);
+        try std.testing.expectEqual(2, get_pair1.b);
+
+        const pair2: test_types.BoxedU32Pair = .{ .a = 3, .b = 4 };
+        gobject.ext.Value.set(&set_value, &pair2);
+        obj.as(gobject.Object).setProperty("boxed-u32s", &set_value);
+        obj.as(gobject.Object).getProperty("boxed-u32s", &get_value);
+        const get_pair2 = gobject.ext.Value.get(&get_value, ?*test_types.BoxedU32Pair).?;
+        try std.testing.expectEqual(3, get_pair2.a);
+        try std.testing.expectEqual(4, get_pair2.b);
+    }
 }
 
 /// Returns an `Accessor` which gets and sets a private field `name` of `Owner`.
@@ -674,10 +852,200 @@ pub fn privateFieldAccessor(
         }.get,
         .setter = &struct {
             fn set(object: *Owner, value: *const gobject.Value) void {
-                @field(impl_helpers.getPrivate(object, Private, private_offset.*), name) = Value.dup(value, @FieldType(Private, name));
+                const private = impl_helpers.getPrivate(object, Private, private_offset.*);
+                // For object and boxed types, we want to unref/free the
+                // original value to avoid leaking it after setting the new
+                // value.
+                const T = @FieldType(Private, name);
+                if (singlePointerChild(T)) |Child| {
+                    // Keep this in sync with the logic for supported types in
+                    // Value.
+                    if (@typeInfo(T) != .optional) {
+                        @compileError("cannot guarantee value is non-null");
+                    }
+                    if (Child == gobject.ParamSpec) {
+                        if (@field(private, name)) |v| v.unref();
+                    } else if (Child == glib.Variant) {
+                        if (@field(private, name)) |v| v.unref();
+                    } else if (std.meta.hasFn(Child, "getGObjectType")) {
+                        if (isObject(Child)) {
+                            if (@field(private, name)) |v| as(gobject.Object, v).unref();
+                        } else {
+                            if (@field(private, name)) |v| gobject.boxedFree(Child.getGObjectType(), v);
+                        }
+                    } else {
+                        @compileError("unsupported property type " ++ @typeName(T));
+                    }
+                }
+                @field(private, name) = Value.dup(value, @FieldType(Private, name));
             }
         }.set,
     };
+}
+
+test "privateFieldAccessor" {
+    const PrivateFieldAccessorTest = extern struct {
+        parent_instance: Parent,
+
+        pub const Parent = gobject.Object;
+        const Self = @This();
+
+        const Private = struct {
+            uint: c_uint,
+            uint_wrapper: ?*test_types.UintWrapper,
+            boxed_u32s: ?*test_types.BoxedU32Pair,
+
+            var offset: c_int = 0;
+        };
+
+        pub const getGObjectType = gobject.ext.defineClass(Self, .{
+            .classInit = &Class.init,
+            .parent_class = &Class.parent,
+            .private = .{ .Type = Private, .offset = &Private.offset },
+        });
+
+        pub fn new() *Self {
+            return gobject.ext.newInstance(Self, .{});
+        }
+
+        pub fn as(self: *Self, comptime T: type) *T {
+            return gobject.ext.as(T, self);
+        }
+
+        pub fn ref(self: *Self) void {
+            self.as(gobject.Object).ref();
+        }
+
+        pub fn unref(self: *Self) void {
+            self.as(gobject.Object).unref();
+        }
+
+        fn finalize(self: *Self) callconv(.c) void {
+            const priv = self.private();
+            if (priv.uint_wrapper) |v| v.unref();
+            if (priv.boxed_u32s) |v| gobject.boxedFree(test_types.BoxedU32Pair.getGObjectType(), v);
+            gobject.Object.virtual_methods.finalize.call(Class.parent, self.as(Parent));
+        }
+
+        fn private(self: *Self) *Private {
+            return gobject.ext.impl_helpers.getPrivate(self, Private, Private.offset);
+        }
+
+        pub const properties = struct {
+            pub const uint = struct {
+                pub const name = "uint";
+                const impl = gobject.ext.defineProperty(name, Self, c_uint, .{
+                    .nick = "Uint",
+                    .blurb = "A uint value.",
+                    .minimum = 0,
+                    .maximum = std.math.maxInt(c_uint),
+                    .default = 0,
+                    .accessor = gobject.ext.privateFieldAccessor(Self, Private, &Private.offset, "uint"),
+                });
+            };
+
+            pub const uint_wrapper = struct {
+                pub const name = "uint-wrapper";
+                const impl = gobject.ext.defineProperty(name, Self, ?*test_types.UintWrapper, .{
+                    .nick = "UintWrapper",
+                    .blurb = "A uint wrapper object.",
+                    .accessor = gobject.ext.privateFieldAccessor(Self, Private, &Private.offset, "uint_wrapper"),
+                });
+            };
+
+            pub const boxed_u32s = struct {
+                pub const name = "boxed-u32s";
+                const impl = gobject.ext.defineProperty(name, Self, ?*test_types.BoxedU32Pair, .{
+                    .nick = "BoxedU32s",
+                    .blurb = "A boxed pair of u32s.",
+                    .accessor = gobject.ext.privateFieldAccessor(Self, Private, &Private.offset, "boxed_u32s"),
+                });
+            };
+        };
+
+        pub const Class = extern struct {
+            parent_class: Parent.Class,
+
+            var parent: *Parent.Class = undefined;
+
+            pub const Instance = Self;
+
+            fn init(class: *Class) callconv(.c) void {
+                gobject.ext.registerProperties(class, &.{
+                    properties.uint.impl,
+                    properties.uint_wrapper.impl,
+                    properties.boxed_u32s.impl,
+                });
+                gobject.Object.virtual_methods.finalize.implement(class, &finalize);
+            }
+        };
+    };
+
+    const obj: *PrivateFieldAccessorTest = .new();
+    defer obj.unref();
+
+    {
+        var set_value = gobject.ext.Value.new(c_uint);
+        defer set_value.unset();
+        var get_value = gobject.ext.Value.new(c_uint);
+        defer get_value.unset();
+
+        gobject.ext.Value.set(&set_value, @as(c_uint, 1));
+        obj.as(gobject.Object).setProperty("uint", &set_value);
+        obj.as(gobject.Object).getProperty("uint", &get_value);
+        try std.testing.expectEqual(1, gobject.ext.Value.get(&get_value, c_uint));
+
+        gobject.ext.Value.set(&set_value, @as(c_uint, 2));
+        obj.as(gobject.Object).setProperty("uint", &set_value);
+        obj.as(gobject.Object).getProperty("uint", &get_value);
+        try std.testing.expectEqual(2, gobject.ext.Value.get(&get_value, c_uint));
+    }
+
+    {
+        var set_value = gobject.ext.Value.new(?*test_types.UintWrapper);
+        defer set_value.unset();
+        var get_value = gobject.ext.Value.new(?*test_types.UintWrapper);
+        defer get_value.unset();
+
+        const wrapper1: *test_types.UintWrapper = .new();
+        defer wrapper1.unref();
+        wrapper1.value = 1;
+        gobject.ext.Value.set(&set_value, wrapper1);
+        obj.as(gobject.Object).setProperty("uint-wrapper", &set_value);
+        obj.as(gobject.Object).getProperty("uint-wrapper", &get_value);
+        try std.testing.expectEqual(1, gobject.ext.Value.get(&get_value, ?*test_types.UintWrapper).?.value);
+
+        const wrapper2: *test_types.UintWrapper = .new();
+        defer wrapper2.unref();
+        wrapper2.value = 2;
+        gobject.ext.Value.set(&set_value, wrapper2);
+        obj.as(gobject.Object).setProperty("uint-wrapper", &set_value);
+        obj.as(gobject.Object).getProperty("uint-wrapper", &get_value);
+        try std.testing.expectEqual(2, gobject.ext.Value.get(&get_value, ?*test_types.UintWrapper).?.value);
+    }
+
+    {
+        var set_value = gobject.ext.Value.new(?*test_types.BoxedU32Pair);
+        defer set_value.unset();
+        var get_value = gobject.ext.Value.new(?*test_types.BoxedU32Pair);
+        defer get_value.unset();
+
+        const pair1: test_types.BoxedU32Pair = .{ .a = 1, .b = 2 };
+        gobject.ext.Value.set(&set_value, &pair1);
+        obj.as(gobject.Object).setProperty("boxed-u32s", &set_value);
+        obj.as(gobject.Object).getProperty("boxed-u32s", &get_value);
+        const get_pair1 = gobject.ext.Value.get(&get_value, ?*test_types.BoxedU32Pair).?;
+        try std.testing.expectEqual(1, get_pair1.a);
+        try std.testing.expectEqual(2, get_pair1.b);
+
+        const pair2: test_types.BoxedU32Pair = .{ .a = 3, .b = 4 };
+        gobject.ext.Value.set(&set_value, &pair2);
+        obj.as(gobject.Object).setProperty("boxed-u32s", &set_value);
+        obj.as(gobject.Object).getProperty("boxed-u32s", &get_value);
+        const get_pair2 = gobject.ext.Value.get(&get_value, ?*test_types.BoxedU32Pair).?;
+        try std.testing.expectEqual(3, get_pair2.a);
+        try std.testing.expectEqual(4, get_pair2.b);
+    }
 }
 
 pub fn DefinePropertyOptions(comptime Owner: type, comptime Data: type) type {
@@ -1678,93 +2046,42 @@ test "Value" {
         try std.testing.expectEqual(null, gobject.ext.Value.dup(&value, ?[:0]u8));
     }
     {
-        const ValueTestObject = extern struct {
-            parent_instance: Parent,
-            value: c_uint,
-
-            pub const Parent = gobject.Object;
-            const Self = @This();
-
-            pub const getGObjectType = gobject.ext.defineClass(Self, .{});
-
-            pub fn new() *Self {
-                return gobject.ext.newInstance(Self, .{});
-            }
-
-            pub const Class = extern struct {
-                parent_class: Parent.Class,
-
-                pub const Instance = Self;
-            };
-        };
-
-        var value = gobject.ext.Value.new(*ValueTestObject);
+        var value = gobject.ext.Value.new(*test_types.UintWrapper);
         defer value.unset();
 
-        const obj = ValueTestObject.new();
+        const obj = test_types.UintWrapper.new();
         defer gobject.Object.unref(gobject.ext.as(gobject.Object, obj));
         obj.value = 123;
         gobject.ext.Value.set(&value, obj);
-        const stored_obj = gobject.ext.Value.get(&value, ?*ValueTestObject).?;
+        const stored_obj = gobject.ext.Value.get(&value, ?*test_types.UintWrapper).?;
         try std.testing.expectEqual(123, stored_obj.value);
 
-        const obj2 = ValueTestObject.new();
+        const obj2 = test_types.UintWrapper.new();
         obj2.value = 456;
         gobject.ext.Value.take(&value, obj2);
-        const duped_obj2 = gobject.ext.Value.dup(&value, ?*ValueTestObject).?;
+        const duped_obj2 = gobject.ext.Value.dup(&value, ?*test_types.UintWrapper).?;
         defer gobject.Object.unref(gobject.ext.as(gobject.Object, duped_obj2));
         try std.testing.expectEqual(456, duped_obj2.value);
     }
     {
-        const ValueTestBoxed = struct {
-            a: u32,
-            b: u32,
-
-            pub const getGObjectType = gobject.ext.defineBoxed(@This(), .{});
-        };
-
-        var value = gobject.ext.Value.new(*ValueTestBoxed);
+        var value = gobject.ext.Value.new(*test_types.BoxedU32Pair);
         defer value.unset();
 
-        const boxed: *const ValueTestBoxed = &.{ .a = 123, .b = 456 };
+        const boxed: *const test_types.BoxedU32Pair = &.{ .a = 123, .b = 456 };
         gobject.ext.Value.set(&value, boxed);
-        const stored_boxed = gobject.ext.Value.get(&value, ?*ValueTestBoxed).?;
+        const stored_boxed = gobject.ext.Value.get(&value, ?*test_types.BoxedU32Pair).?;
         try std.testing.expectEqual(123, stored_boxed.a);
         try std.testing.expectEqual(456, stored_boxed.b);
 
-        const boxed2 = glib.ext.new(ValueTestBoxed, .{ .a = 321, .b = 654 });
+        const boxed2 = glib.ext.new(test_types.BoxedU32Pair, .{ .a = 321, .b = 654 });
         gobject.ext.Value.take(&value, boxed2);
-        const duped_boxed2 = gobject.ext.Value.dup(&value, ?*ValueTestBoxed).?;
+        const duped_boxed2 = gobject.ext.Value.dup(&value, ?*test_types.BoxedU32Pair).?;
         defer glib.free(duped_boxed2);
         try std.testing.expectEqual(321, duped_boxed2.a);
         try std.testing.expectEqual(654, duped_boxed2.b);
     }
-    {
-        const ValueTestEnum = enum(c_int) {
-            one = 1,
-            two = 2,
-            three = 3,
-
-            pub const getGObjectType = gobject.ext.defineEnum(@This(), .{});
-        };
-
-        try testValue(ValueTestEnum, .two);
-    }
-    {
-        const ValueTestFlags = packed struct(c_uint) {
-            one: bool = false,
-            two: bool = false,
-            three: bool = false,
-            _padding1: @Type(.{ .int = .{
-                .signedness = .unsigned,
-                .bits = @bitSizeOf(c_uint) - 3,
-            } }) = 0,
-
-            pub const getGObjectType = gobject.ext.defineFlags(@This(), .{});
-        };
-
-        try testValue(ValueTestFlags, .{ .one = true, .three = true });
-    }
+    try testValue(test_types.SimpleEnum, .two);
+    try testValue(test_types.SimpleFlags, .{ .one = true, .three = true });
 }
 
 fn testValue(comptime T: type, data: T) !void {
@@ -1819,3 +2136,65 @@ inline fn singlePointerChild(comptime T: type) ?type {
         else => null,
     };
 }
+
+/// Types defined for use in tests.
+const test_types = struct {
+    const UintWrapper = extern struct {
+        parent_instance: Parent,
+        value: c_uint,
+
+        pub const Parent = gobject.Object;
+        const Self = @This();
+
+        pub const getGObjectType = gobject.ext.defineClass(Self, .{});
+
+        pub fn new() *Self {
+            return gobject.ext.newInstance(Self, .{});
+        }
+
+        pub fn as(self: *Self, comptime T: type) *T {
+            return gobject.ext.as(T, self);
+        }
+
+        pub fn ref(self: *Self) void {
+            self.as(gobject.Object).ref();
+        }
+
+        pub fn unref(self: *Self) void {
+            self.as(gobject.Object).unref();
+        }
+
+        pub const Class = extern struct {
+            parent_class: Parent.Class,
+
+            pub const Instance = Self;
+        };
+    };
+
+    const BoxedU32Pair = struct {
+        a: u32,
+        b: u32,
+
+        pub const getGObjectType = gobject.ext.defineBoxed(@This(), .{});
+    };
+
+    const SimpleEnum = enum(c_int) {
+        one = 1,
+        two = 2,
+        three = 3,
+
+        pub const getGObjectType = gobject.ext.defineEnum(@This(), .{});
+    };
+
+    const SimpleFlags = packed struct(c_uint) {
+        one: bool = false,
+        two: bool = false,
+        three: bool = false,
+        _padding1: @Type(.{ .int = .{
+            .signedness = .unsigned,
+            .bits = @bitSizeOf(c_uint) - 3,
+        } }) = 0,
+
+        pub const getGObjectType = gobject.ext.defineFlags(@This(), .{});
+    };
+};
