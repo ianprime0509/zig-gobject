@@ -460,27 +460,18 @@ fn createRepositoryBindings(
     deps: *Dependencies,
     diag: *Diagnostics,
 ) !void {
-    const raw_source = createRepositoryBindingsSource(
+    const source = try createRepositoryBindingsSource(
         allocator,
         repo,
         repository_map,
         ctx,
-    ) catch |err| switch (err) {
-        error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
-    };
-    defer allocator.free(raw_source);
-    var ast: std.zig.Ast = try .parse(allocator, raw_source, .zig);
-    defer ast.deinit(allocator);
-    var fmt_source: std.Io.Writer.Allocating = .init(allocator);
-    defer fmt_source.deinit();
-    ast.render(allocator, &fmt_source.writer, .{}) catch |err| switch (err) {
-        error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
-    };
+    );
+    defer allocator.free(source);
     const file_name = try fileNameAlloc(allocator, repo.namespace.name, repo.namespace.version);
     defer allocator.free(file_name);
     const output_path = try std.fs.path.join(allocator, &.{ output_dir_path, file_name });
     defer allocator.free(output_path);
-    std.fs.cwd().writeFile(.{ .sub_path = output_path, .data = fmt_source.written() }) catch |err| {
+    std.fs.cwd().writeFile(.{ .sub_path = output_path, .data = source }) catch |err| {
         try diag.add("failed to write output source file {s}: {}", .{ output_path, err });
         return error.TranslateFailed;
     };
@@ -492,20 +483,19 @@ fn createRepositoryBindingsSource(
     repo: gir.Repository,
     repository_map: RepositoryMap,
     ctx: TranslationContext,
-) ![:0]u8 {
-    var raw_source: std.Io.Writer.Allocating = .init(allocator);
-    defer raw_source.deinit();
-    const out: ZigWriter = .{ .out = &raw_source.writer };
+) Allocator.Error![]u8 {
+    var out: ZigWriter = .init(allocator);
+    defer out.deinit();
 
     try out.print("pub const ext = @import(\"ext.zig\");\n", .{});
 
-    try translateIncludes(allocator, repo.namespace, repository_map, out);
-    try translateNamespace(allocator, repo.namespace, ctx, out);
+    try translateIncludes(allocator, repo.namespace, repository_map, &out);
+    try translateNamespace(allocator, repo.namespace, ctx, &out);
 
-    return try raw_source.toOwnedSliceSentinel(0);
+    return try out.toFormatted();
 }
 
-fn translateIncludes(allocator: Allocator, ns: gir.Namespace, repository_map: RepositoryMap, out: ZigWriter) !void {
+fn translateIncludes(allocator: Allocator, ns: gir.Namespace, repository_map: RepositoryMap, out: *ZigWriter) !void {
     // Having the current namespace in scope using the same name makes type
     // translation logic simpler (no need to know what namespace we're in)
     const ns_lower = try std.ascii.allocLowerString(allocator, ns.name);
@@ -560,7 +550,7 @@ fn formatModuleName(mod: gir.Include, writer: *std.Io.Writer) std.Io.Writer.Erro
     try writer.writeAll(mod.version[0..version_major_end]);
 }
 
-fn translateNamespace(allocator: Allocator, ns: gir.Namespace, ctx: TranslationContext, out: ZigWriter) !void {
+fn translateNamespace(allocator: Allocator, ns: gir.Namespace, ctx: TranslationContext, out: *ZigWriter) !void {
     for (ns.aliases) |alias| {
         try translateAlias(allocator, alias, ctx, out);
     }
@@ -603,14 +593,14 @@ fn translateNamespace(allocator: Allocator, ns: gir.Namespace, ctx: TranslationC
     , .{});
 }
 
-fn translateAlias(allocator: Allocator, alias: gir.Alias, ctx: TranslationContext, out: ZigWriter) !void {
+fn translateAlias(allocator: Allocator, alias: gir.Alias, ctx: TranslationContext, out: *ZigWriter) !void {
     try translateDocumentation(allocator, alias.documentation, ctx, out);
     try out.print("pub const $I = ", .{escapeTypeName(alias.name.local)});
     try translateType(allocator, alias.type, .{}, ctx, out);
     try out.print(";\n\n", .{});
 }
 
-fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContext, out: ZigWriter) !void {
+fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContext, out: *ZigWriter) !void {
     try translateDocumentation(allocator, class.documentation, ctx, out);
     const name = escapeTypeName(class.name.local);
     try out.print("pub const $I = ", .{name});
@@ -739,7 +729,7 @@ fn classDerivesFromObject(class: gir.Class, ctx: TranslationContext) bool {
     }
 }
 
-fn translateInterface(allocator: Allocator, interface: gir.Interface, ctx: TranslationContext, out: ZigWriter) !void {
+fn translateInterface(allocator: Allocator, interface: gir.Interface, ctx: TranslationContext, out: *ZigWriter) !void {
     // interface type
     try translateDocumentation(allocator, interface.documentation, ctx, out);
     const name = escapeTypeName(interface.name.local);
@@ -854,7 +844,7 @@ fn interfaceDerivesFromObject(interface: gir.Interface, ctx: TranslationContext)
     return false;
 }
 
-fn translateRecord(allocator: Allocator, record: gir.Record, ctx: TranslationContext, out: ZigWriter) !void {
+fn translateRecord(allocator: Allocator, record: gir.Record, ctx: TranslationContext, out: *ZigWriter) !void {
     // record type
     try translateDocumentation(allocator, record.documentation, ctx, out);
     const name = escapeTypeName(record.name.local);
@@ -915,7 +905,7 @@ fn translateRecord(allocator: Allocator, record: gir.Record, ctx: TranslationCon
     try out.print("};\n\n", .{});
 }
 
-fn translateUnion(allocator: Allocator, @"union": gir.Union, ctx: TranslationContext, out: ZigWriter) !void {
+fn translateUnion(allocator: Allocator, @"union": gir.Union, ctx: TranslationContext, out: *ZigWriter) !void {
     try translateDocumentation(allocator, @"union".documentation, ctx, out);
     const name = escapeTypeName(@"union".name.local);
     try out.print("pub const $I = ", .{name});
@@ -957,7 +947,7 @@ fn translateUnion(allocator: Allocator, @"union": gir.Union, ctx: TranslationCon
     try out.print("};\n\n", .{});
 }
 
-fn translateLayoutElements(allocator: Allocator, layout_elements: []const gir.LayoutElement, ctx: TranslationContext, out: ZigWriter) !void {
+fn translateLayoutElements(allocator: Allocator, layout_elements: []const gir.LayoutElement, ctx: TranslationContext, out: *ZigWriter) !void {
     // This handling of bit fields makes no attempt to be general, so it can
     // avoid a lot of complexity present for bit fields in general. It only
     // handles bit fields backed by guint, and it assumes guint is 32 bits.
@@ -1025,7 +1015,7 @@ fn translateLayoutElements(allocator: Allocator, layout_elements: []const gir.La
     }
 }
 
-fn translateFieldType(allocator: Allocator, @"type": gir.FieldType, ctx: TranslationContext, out: ZigWriter) !void {
+fn translateFieldType(allocator: Allocator, @"type": gir.FieldType, ctx: TranslationContext, out: *ZigWriter) !void {
     switch (@"type") {
         .simple => |simple_type| try translateType(allocator, simple_type, .{
             .nullable = true,
@@ -1039,7 +1029,7 @@ fn translateFieldType(allocator: Allocator, @"type": gir.FieldType, ctx: Transla
     }
 }
 
-fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: TranslationContext, out: ZigWriter) !void {
+fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: TranslationContext, out: *ZigWriter) !void {
     var members = [1]?gir.Member{null} ** 64;
     var needs_u64 = false;
     for (bit_field.members) |member| {
@@ -1124,7 +1114,7 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: Transla
     try out.print("};\n\n", .{});
 }
 
-fn translateEnum(allocator: Allocator, @"enum": gir.Enum, ctx: TranslationContext, out: ZigWriter) !void {
+fn translateEnum(allocator: Allocator, @"enum": gir.Enum, ctx: TranslationContext, out: *ZigWriter) !void {
     try translateDocumentation(allocator, @"enum".documentation, ctx, out);
     const name = escapeTypeName(@"enum".name.local);
 
@@ -1185,7 +1175,7 @@ fn isFunctionTranslatable(function: gir.Function) bool {
     return function.moved_to == null;
 }
 
-fn translateFunction(allocator: Allocator, function: gir.Function, options: TranslateFunctionOptions, ctx: TranslationContext, out: ZigWriter) !void {
+fn translateFunction(allocator: Allocator, function: gir.Function, options: TranslateFunctionOptions, ctx: TranslationContext, out: *ZigWriter) !void {
     if (!isFunctionTranslatable(function)) {
         return;
     }
@@ -1220,7 +1210,7 @@ fn translateFunction(allocator: Allocator, function: gir.Function, options: Tran
     }
 }
 
-fn translateGetTypeFunction(allocator: Allocator, name: []const u8, c_identifier: []const u8, ctx: TranslationContext, out: ZigWriter) !void {
+fn translateGetTypeFunction(allocator: Allocator, name: []const u8, c_identifier: []const u8, ctx: TranslationContext, out: *ZigWriter) !void {
     try translateFunction(allocator, .{
         .name = name,
         .c_identifier = c_identifier,
@@ -1234,7 +1224,7 @@ fn translateGetTypeFunction(allocator: Allocator, name: []const u8, c_identifier
     }, .{}, ctx, out);
 }
 
-fn translateRefFunction(allocator: Allocator, name: []const u8, c_identifier: []const u8, container_name: gir.Name, ctx: TranslationContext, out: ZigWriter) !void {
+fn translateRefFunction(allocator: Allocator, name: []const u8, c_identifier: []const u8, container_name: gir.Name, ctx: TranslationContext, out: *ZigWriter) !void {
     try translateFunction(allocator, .{
         .name = name,
         .c_identifier = c_identifier,
@@ -1260,7 +1250,7 @@ fn isConstructorTranslatable(constructor: gir.Constructor) bool {
     return constructor.moved_to == null;
 }
 
-fn translateConstructor(allocator: Allocator, constructor: gir.Constructor, container_name: gir.Name, ctx: TranslationContext, out: ZigWriter) !void {
+fn translateConstructor(allocator: Allocator, constructor: gir.Constructor, container_name: gir.Name, ctx: TranslationContext, out: *ZigWriter) !void {
     var effective_return_value = constructor.return_value;
     effective_return_value.type = switch (constructor.return_value.type) {
         // Some constructors are actually specified to return supertypes of the
@@ -1294,7 +1284,7 @@ fn isMethodTranslatable(method: gir.Method) bool {
     return method.moved_to == null;
 }
 
-fn translateMethod(allocator: Allocator, method: gir.Method, options: TranslateFunctionOptions, ctx: TranslationContext, out: ZigWriter) !void {
+fn translateMethod(allocator: Allocator, method: gir.Method, options: TranslateFunctionOptions, ctx: TranslationContext, out: *ZigWriter) !void {
     try translateFunction(allocator, .{
         .name = method.name,
         .c_identifier = method.c_identifier,
@@ -1306,7 +1296,7 @@ fn translateMethod(allocator: Allocator, method: gir.Method, options: TranslateF
     }, options, ctx, out);
 }
 
-fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMethod, type_name: []const u8, type_struct_name: []const u8, ctx: TranslationContext, out: ZigWriter) !void {
+fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMethod, type_name: []const u8, type_struct_name: []const u8, ctx: TranslationContext, out: *ZigWriter) !void {
     try translateDocumentation(allocator, virtual_method.documentation, ctx, out);
     try out.print("pub const $I = struct {\n", .{virtual_method.name});
 
@@ -1358,7 +1348,7 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
     try out.print("};\n\n", .{});
 }
 
-fn translateProperty(allocator: Allocator, property: gir.Property, ctx: TranslationContext, out: ZigWriter) !void {
+fn translateProperty(allocator: Allocator, property: gir.Property, ctx: TranslationContext, out: *ZigWriter) !void {
     const name = try allocator.dupe(u8, property.name);
     defer allocator.free(name);
     mem.replaceScalar(u8, name, '-', '_');
@@ -1384,7 +1374,7 @@ fn translateProperty(allocator: Allocator, property: gir.Property, ctx: Translat
     try out.print("};\n\n", .{});
 }
 
-fn translateSignal(allocator: Allocator, signal: gir.Signal, type_name: []const u8, ctx: TranslationContext, out: ZigWriter) !void {
+fn translateSignal(allocator: Allocator, signal: gir.Signal, type_name: []const u8, ctx: TranslationContext, out: *ZigWriter) !void {
     const name = try allocator.dupe(u8, signal.name);
     defer allocator.free(name);
     mem.replaceScalar(u8, name, '-', '_');
@@ -1421,7 +1411,7 @@ fn translateSignal(allocator: Allocator, signal: gir.Signal, type_name: []const 
     try out.print("};\n\n", .{});
 }
 
-fn translateConstant(allocator: Allocator, constant: gir.Constant, ctx: TranslationContext, out: ZigWriter) !void {
+fn translateConstant(allocator: Allocator, constant: gir.Constant, ctx: TranslationContext, out: *ZigWriter) !void {
     try translateDocumentation(allocator, constant.documentation, ctx, out);
     if (constant.type == .simple and constant.type.simple.name != null and mem.eql(u8, constant.type.simple.name.?.local, "utf8")) {
         try out.print("pub const $I = $S;\n", .{ constant.name, constant.value });
@@ -1555,8 +1545,8 @@ fn translateType(
     @"type": gir.Type,
     options: TranslateTypeOptions,
     ctx: TranslationContext,
-    out: ZigWriter,
-) (Allocator.Error || std.Io.Writer.Error)!void {
+    out: *ZigWriter,
+) Allocator.Error!void {
     if (@"type".nullable or (options.nullable and typeIsPointer(@"type", options.gobject_context, ctx))) {
         try out.print("?", .{});
     }
@@ -1921,11 +1911,10 @@ fn testTranslateType(expected: []const u8, @"type": gir.Type, options: TestTrans
     var ctx = try options.initTranslationContext(std.testing.allocator);
     defer ctx.deinit();
 
-    var translated: std.Io.Writer.Allocating = .init(std.testing.allocator);
-    defer translated.deinit();
-    const out: ZigWriter = .{ .out = &translated.writer };
-    try translateType(std.testing.allocator, @"type", options.toTranslateTypeOptions(), ctx, out);
-    try expectEqualStrings(expected, translated.written());
+    var out: ZigWriter = .init(std.testing.allocator);
+    defer out.deinit();
+    try translateType(std.testing.allocator, @"type", options.toTranslateTypeOptions(), ctx, &out);
+    try expectEqualStrings(expected, out.raw.items);
 }
 
 fn arrayTypeIsPointer(@"type": gir.ArrayType, gobject_context: bool, ctx: TranslationContext) bool {
@@ -1944,7 +1933,7 @@ fn arrayTypeIsPointer(@"type": gir.ArrayType, gobject_context: bool, ctx: Transl
     return false;
 }
 
-fn translateArrayType(allocator: Allocator, @"type": gir.ArrayType, options: TranslateTypeOptions, ctx: TranslationContext, out: ZigWriter) !void {
+fn translateArrayType(allocator: Allocator, @"type": gir.ArrayType, options: TranslateTypeOptions, ctx: TranslationContext, out: *ZigWriter) !void {
     // This special case is useful for types like glib.Array which are
     // translated as array types even though they're not really arrays
     if (@"type".name != null and @"type".c_type != null) {
@@ -2167,11 +2156,10 @@ fn testTranslateArrayType(expected: []const u8, @"type": gir.ArrayType, options:
     var ctx = try options.initTranslationContext(std.testing.allocator);
     defer ctx.deinit();
 
-    var translated: std.Io.Writer.Allocating = .init(std.testing.allocator);
-    defer translated.deinit();
-    const out: ZigWriter = .{ .out = &translated.writer };
-    try translateArrayType(std.testing.allocator, @"type", options.toTranslateTypeOptions(), ctx, out);
-    try expectEqualStrings(expected, translated.written());
+    var out: ZigWriter = .init(std.testing.allocator);
+    defer out.deinit();
+    try translateArrayType(std.testing.allocator, @"type", options.toTranslateTypeOptions(), ctx, &out);
+    try expectEqualStrings(expected, out.raw.items);
 }
 
 fn zigTypeIsPointer(expected: []const u8) bool {
@@ -2211,7 +2199,7 @@ const TranslateCallbackOptions = struct {
     nullable: bool = false,
 };
 
-fn translateCallback(allocator: Allocator, callback: gir.Callback, options: TranslateCallbackOptions, ctx: TranslationContext, out: ZigWriter) !void {
+fn translateCallback(allocator: Allocator, callback: gir.Callback, options: TranslateCallbackOptions, ctx: TranslationContext, out: *ZigWriter) !void {
     if (options.named) {
         try translateDocumentation(allocator, callback.documentation, ctx, out);
         try out.print("pub const $I = ", .{escapeTypeName(callback.name)});
@@ -2243,7 +2231,7 @@ const TranslateParametersOptions = struct {
     throws: bool = false,
 };
 
-fn translateParameters(allocator: Allocator, parameters: []const gir.Parameter, options: TranslateParametersOptions, ctx: TranslationContext, out: ZigWriter) !void {
+fn translateParameters(allocator: Allocator, parameters: []const gir.Parameter, options: TranslateParametersOptions, ctx: TranslationContext, out: *ZigWriter) !void {
     // GIR does not appear to consider the instance-parameter when numbering
     // parameters for closure metadata
     const param_offset: usize = if (parameters.len > 0 and parameters[0].instance) 1 else 0;
@@ -2290,7 +2278,7 @@ const TranslateParameterOptions = struct {
     gobject_context: bool = false,
 };
 
-fn translateParameter(allocator: Allocator, parameter: gir.Parameter, options: TranslateParameterOptions, ctx: TranslationContext, out: ZigWriter) !void {
+fn translateParameter(allocator: Allocator, parameter: gir.Parameter, options: TranslateParameterOptions, ctx: TranslationContext, out: *ZigWriter) !void {
     if (parameter.type == .varargs) {
         try out.print("...", .{});
         return;
@@ -2316,7 +2304,7 @@ fn translateParameter(allocator: Allocator, parameter: gir.Parameter, options: T
     }
 }
 
-fn translateParameterName(allocator: Allocator, parameter_name: []const u8, out: ZigWriter) !void {
+fn translateParameterName(allocator: Allocator, parameter_name: []const u8, out: *ZigWriter) !void {
     const translated_name = try std.fmt.allocPrint(allocator, "p_{s}", .{parameter_name});
     defer allocator.free(translated_name);
     try out.print("$I", .{translated_name});
@@ -2331,7 +2319,7 @@ const TranslateReturnValueOptions = struct {
     gobject_context: bool = false,
 };
 
-fn translateReturnValue(allocator: Allocator, return_value: gir.ReturnValue, options: TranslateReturnValueOptions, ctx: TranslationContext, out: ZigWriter) !void {
+fn translateReturnValue(allocator: Allocator, return_value: gir.ReturnValue, options: TranslateReturnValueOptions, ctx: TranslationContext, out: *ZigWriter) !void {
     switch (return_value.type) {
         .simple => |simple_type| try translateType(allocator, simple_type, .{
             .nullable = options.force_nullable or return_value.isNullable(),
@@ -2564,7 +2552,7 @@ comptime {
     _ = Symbol; // Ensure nested tests are run
 }
 
-fn translateDocumentation(allocator: Allocator, documentation: ?gir.Documentation, ctx: TranslationContext, out: ZigWriter) !void {
+fn translateDocumentation(allocator: Allocator, documentation: ?gir.Documentation, ctx: TranslationContext, out: *ZigWriter) !void {
     if (documentation) |doc| {
         var lines = mem.splitScalar(u8, doc.text, '\n');
         while (lines.next()) |line| {
@@ -2767,7 +2755,7 @@ fn translateDocumentation(allocator: Allocator, documentation: ?gir.Documentatio
     }
 }
 
-fn translateSymbolLink(allocator: Allocator, symbol: Symbol, ctx: TranslationContext, out: ZigWriter) !void {
+fn translateSymbolLink(allocator: Allocator, symbol: Symbol, ctx: TranslationContext, out: *ZigWriter) !void {
     switch (symbol) {
         .alias,
         .callback,
@@ -2879,7 +2867,7 @@ fn escapeTypeName(name: []const u8) []const u8 {
     return type_name_escapes.get(name) orelse name;
 }
 
-fn translateName(allocator: Allocator, name: gir.Name, out: ZigWriter) !void {
+fn translateName(allocator: Allocator, name: gir.Name, out: *ZigWriter) !void {
     try translateNameNs(allocator, name.ns, out);
     var local_parts = mem.splitScalar(u8, name.local, '.');
     try out.print("$I", .{escapeTypeName(local_parts.first())});
@@ -2888,7 +2876,7 @@ fn translateName(allocator: Allocator, name: gir.Name, out: ZigWriter) !void {
     }
 }
 
-fn translateNameNs(allocator: Allocator, nameNs: ?[]const u8, out: ZigWriter) !void {
+fn translateNameNs(allocator: Allocator, nameNs: ?[]const u8, out: *ZigWriter) !void {
     if (nameNs != null) {
         const type_ns = try std.ascii.allocLowerString(allocator, nameNs.?);
         defer allocator.free(type_ns);
@@ -2972,48 +2960,36 @@ fn createBuildZig(
             return diag.add("failed to create docs root module directory {s}: {}", .{ docs_root_dir, err });
         const docs_root_path = try std.fs.path.join(allocator, &.{ docs_root_dir, "root.zig" });
         defer allocator.free(docs_root_path);
-        const docs_root_source = createDocsRootSource(allocator, repositories) catch |err| switch (err) {
-            error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
-        };
+        const docs_root_source = try createDocsRootSource(allocator, repositories);
         defer allocator.free(docs_root_source);
         std.fs.cwd().writeFile(.{ .sub_path = docs_root_path, .data = docs_root_source }) catch |err|
             return diag.add("failed to write docs root module file {s}: {}", .{ docs_root_path, err });
     }
 
-    const raw_source = createBuildZigSource(
+    const source = try createBuildZigSource(
         allocator,
         repositories,
         repository_map,
         output_path,
         deps,
-    ) catch |err| switch (err) {
-        error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
-    };
-    defer allocator.free(raw_source);
-    var ast: std.zig.Ast = try .parse(allocator, raw_source, .zig);
-    defer ast.deinit(allocator);
-    var fmt_source: std.Io.Writer.Allocating = .init(allocator);
-    defer fmt_source.deinit();
-    ast.render(allocator, &fmt_source.writer, .{}) catch |err| switch (err) {
-        error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
-    };
-    std.fs.cwd().writeFile(.{ .sub_path = output_path, .data = fmt_source.written() }) catch |err|
+    );
+    defer allocator.free(source);
+    std.fs.cwd().writeFile(.{ .sub_path = output_path, .data = source }) catch |err|
         return diag.add("failed to write {s}: {}", .{ output_path, err });
 }
 
 fn createDocsRootSource(
     allocator: Allocator,
     repositories: []const gir.Repository,
-) ![:0]u8 {
-    var raw_source: std.Io.Writer.Allocating = .init(allocator);
-    defer raw_source.deinit();
-    const docs_root_out: ZigWriter = .{ .out = &raw_source.writer };
+) Allocator.Error![]u8 {
+    var out: ZigWriter = .init(allocator);
+    defer out.deinit();
     for (repositories) |repo| {
         const module_name = try moduleNameAlloc(allocator, repo.namespace.name, repo.namespace.version);
         defer allocator.free(module_name);
-        try docs_root_out.print("pub const $I = @import($S);\n", .{ module_name, module_name });
+        try out.print("pub const $I = @import($S);\n", .{ module_name, module_name });
     }
-    return try raw_source.toOwnedSliceSentinel(0);
+    return try out.toFormatted();
 }
 
 fn createBuildZigSource(
@@ -3022,10 +2998,9 @@ fn createBuildZigSource(
     repository_map: RepositoryMap,
     output_path: []const u8,
     deps: *Dependencies,
-) ![:0]u8 {
-    var raw_source: std.Io.Writer.Allocating = .init(allocator);
-    defer raw_source.deinit();
-    const out: ZigWriter = .{ .out = &raw_source.writer };
+) Allocator.Error![]u8 {
+    var out: ZigWriter = .init(allocator);
+    defer out.deinit();
 
     try out.print("$L\n", .{@embedFile("build/build_base.zig")});
 
@@ -3149,7 +3124,7 @@ fn createBuildZigSource(
     }
     try out.print("};\n\n", .{});
 
-    return try raw_source.toOwnedSliceSentinel(0);
+    return try out.toFormatted();
 }
 
 fn createBuildZon(
@@ -3231,22 +3206,13 @@ pub fn createAbiTests(
         const import_name = try moduleNameAlloc(allocator, repo.namespace.name, repo.namespace.version);
         defer allocator.free(import_name);
 
-        const raw_source = createAbiTestSource(allocator, repo, import_name) catch |err| switch (err) {
-            error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
-        };
-        defer allocator.free(raw_source);
-        var ast = try std.zig.Ast.parse(allocator, raw_source, .zig);
-        defer ast.deinit(allocator);
-        var fmt_source: std.Io.Writer.Allocating = .init(allocator);
-        defer fmt_source.deinit();
-        ast.render(allocator, &fmt_source.writer, .{}) catch |err| switch (err) {
-            error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
-        };
+        const source = try createAbiTestSource(allocator, repo, import_name);
+        defer allocator.free(source);
         const file_name = try std.fmt.allocPrint(allocator, "{s}.abi.zig", .{import_name});
         defer allocator.free(file_name);
         const file_path = try std.fs.path.join(allocator, &.{ output_dir_path, file_name });
         defer allocator.free(file_path);
-        std.fs.cwd().writeFile(.{ .sub_path = file_path, .data = fmt_source.written() }) catch |err| {
+        std.fs.cwd().writeFile(.{ .sub_path = file_path, .data = source }) catch |err| {
             try diag.add("failed to write output source file {s}: {}", .{ file_path, err });
             try diag.add("failed to create ABI tests for {s}-{s}", .{ repo.namespace.name, repo.namespace.version });
         };
@@ -3258,10 +3224,9 @@ fn createAbiTestSource(
     allocator: Allocator,
     repo: gir.Repository,
     import_name: []const u8,
-) ![:0]u8 {
-    var raw_source: std.Io.Writer.Allocating = .init(allocator);
-    defer raw_source.deinit();
-    const out: ZigWriter = .{ .out = &raw_source.writer };
+) Allocator.Error![]u8 {
+    var out: ZigWriter = .init(allocator);
+    defer out.deinit();
 
     const ns = repo.namespace;
     const pkg = try std.ascii.allocLowerString(allocator, ns.name);
@@ -3439,21 +3404,21 @@ fn createAbiTestSource(
             if (isConstructorTranslatable(constructor)) {
                 const constructor_name = try toCamelCase(allocator, constructor.name, '_');
                 defer allocator.free(constructor_name);
-                try createFunctionTest(constructor.c_identifier, pkg, class_name, constructor_name, out);
+                try createFunctionTest(constructor.c_identifier, pkg, class_name, constructor_name, &out);
             }
         }
         for (class.functions) |function| {
             if (isFunctionTranslatable(function)) {
                 const function_name = try toCamelCase(allocator, function.name, '_');
                 defer allocator.free(function_name);
-                try createFunctionTest(function.c_identifier, pkg, class_name, function_name, out);
+                try createFunctionTest(function.c_identifier, pkg, class_name, function_name, &out);
             }
         }
         for (class.methods) |method| {
             if (isMethodTranslatable(method)) {
                 const method_name = try toCamelCase(allocator, method.name, '_');
                 defer allocator.free(method_name);
-                try createMethodTest(method.c_identifier, pkg, class_name, method_name, out);
+                try createMethodTest(method.c_identifier, pkg, class_name, method_name, &out);
             }
         }
     }
@@ -3484,21 +3449,21 @@ fn createAbiTestSource(
                 if (isConstructorTranslatable(constructor)) {
                     const constructor_name = try toCamelCase(allocator, constructor.name, '_');
                     defer allocator.free(constructor_name);
-                    try createFunctionTest(constructor.c_identifier, pkg, record_name, constructor_name, out);
+                    try createFunctionTest(constructor.c_identifier, pkg, record_name, constructor_name, &out);
                 }
             }
             for (record.functions) |function| {
                 if (isFunctionTranslatable(function)) {
                     const function_name = try toCamelCase(allocator, function.name, '_');
                     defer allocator.free(function_name);
-                    try createFunctionTest(function.c_identifier, pkg, record_name, function_name, out);
+                    try createFunctionTest(function.c_identifier, pkg, record_name, function_name, &out);
                 }
             }
             for (record.methods) |method| {
                 if (isMethodTranslatable(method)) {
                     const method_name = try toCamelCase(allocator, method.name, '_');
                     defer allocator.free(method_name);
-                    try createMethodTest(method.c_identifier, pkg, record_name, method_name, out);
+                    try createMethodTest(method.c_identifier, pkg, record_name, method_name, &out);
                 }
             }
         }
@@ -3524,21 +3489,21 @@ fn createAbiTestSource(
             if (isConstructorTranslatable(constructor)) {
                 const constructor_name = try toCamelCase(allocator, constructor.name, '_');
                 defer allocator.free(constructor_name);
-                try createFunctionTest(constructor.c_identifier, pkg, union_name, constructor_name, out);
+                try createFunctionTest(constructor.c_identifier, pkg, union_name, constructor_name, &out);
             }
         }
         for (@"union".functions) |function| {
             if (isFunctionTranslatable(function)) {
                 const function_name = try toCamelCase(allocator, function.name, '_');
                 defer allocator.free(function_name);
-                try createFunctionTest(function.c_identifier, pkg, union_name, function_name, out);
+                try createFunctionTest(function.c_identifier, pkg, union_name, function_name, &out);
             }
         }
         for (@"union".methods) |method| {
             if (isMethodTranslatable(method)) {
                 const method_name = try toCamelCase(allocator, method.name, '_');
                 defer allocator.free(method_name);
-                try createMethodTest(method.c_identifier, pkg, union_name, method_name, out);
+                try createMethodTest(method.c_identifier, pkg, union_name, method_name, &out);
             }
         }
     }
@@ -3561,7 +3526,7 @@ fn createAbiTestSource(
             if (isFunctionTranslatable(function)) {
                 const function_name = try toCamelCase(allocator, function.name, '_');
                 defer allocator.free(function_name);
-                try createFunctionTest(function.c_identifier, pkg, bit_field_name, function_name, out);
+                try createFunctionTest(function.c_identifier, pkg, bit_field_name, function_name, &out);
             }
         }
     }
@@ -3584,7 +3549,7 @@ fn createAbiTestSource(
             if (isFunctionTranslatable(function)) {
                 const function_name = try toCamelCase(allocator, function.name, '_');
                 defer allocator.free(function_name);
-                try createFunctionTest(function.c_identifier, pkg, enum_name, function_name, out);
+                try createFunctionTest(function.c_identifier, pkg, enum_name, function_name, &out);
             }
         }
     }
@@ -3605,7 +3570,7 @@ fn createAbiTestSource(
         try out.print("}\n\n", .{});
     }
 
-    return try raw_source.toOwnedSliceSentinel(0);
+    return try out.toFormatted();
 }
 
 fn createFunctionTest(
@@ -3613,7 +3578,7 @@ fn createFunctionTest(
     pkg_name: []const u8,
     container_name: []const u8,
     function_name: []const u8,
-    out: ZigWriter,
+    out: *ZigWriter,
 ) !void {
     try out.print("test \"$L.$L\" {\n", .{ container_name, function_name });
     try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_name});
@@ -3632,7 +3597,7 @@ fn createMethodTest(
     pkg_name: []const u8,
     container_name: []const u8,
     function_name: []const u8,
-    out: ZigWriter,
+    out: *ZigWriter,
 ) !void {
     try out.print("test \"$L.$L\" {\n", .{ container_name, function_name });
     try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_name});

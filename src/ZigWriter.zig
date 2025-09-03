@@ -1,9 +1,23 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
 const compat = @import("compat.zig");
 
-out: *std.Io.Writer,
+raw: std.ArrayList(u8),
+gpa: Allocator,
 
 const ZigWriter = @This();
+
+pub fn init(gpa: Allocator) ZigWriter {
+    return .{
+        .raw = .empty,
+        .gpa = gpa,
+    };
+}
+
+pub fn deinit(w: *ZigWriter) void {
+    w.raw.deinit(w.gpa);
+    w.* = undefined;
+}
 
 /// Prints Zig code to the output using the provided format string and
 /// arguments.
@@ -21,7 +35,7 @@ const ZigWriter = @This();
 /// This is a much simpler implementation than Zig's usual format
 /// function and could use better design and error handling if it's ever
 /// made into its own project.
-pub fn print(w: ZigWriter, comptime fmt: []const u8, args: anytype) std.Io.Writer.Error!void {
+pub fn print(w: *ZigWriter, comptime fmt: []const u8, args: anytype) Allocator.Error!void {
     @setEvalBranchQuota(100_000);
     const arg_fields = @typeInfo(@TypeOf(args)).@"struct".fields;
 
@@ -38,7 +52,7 @@ pub fn print(w: ZigWriter, comptime fmt: []const u8, args: anytype) std.Io.Write
             @compileError("unterminated placeholder");
         }
         if (i > start) {
-            try w.out.writeAll(fmt[start..i]);
+            try w.raw.appendSlice(w.gpa, fmt[start..i]);
         }
 
         start = i + 2;
@@ -54,27 +68,27 @@ pub fn print(w: ZigWriter, comptime fmt: []const u8, args: anytype) std.Io.Write
                         switch (char) {
                             // Zig is very tab-hostile, so we have to replace tabs with spaces.
                             // This is most relevant when translating documentation.
-                            '\t' => try w.out.writeAll("    "),
-                            else => try w.out.writeByte(char),
+                            '\t' => try w.raw.appendSlice(w.gpa, "    "),
+                            else => try w.raw.append(w.gpa, char),
                         }
                     }
                 } else {
-                    try w.out.print("{}", .{arg});
+                    try w.raw.print(w.gpa, "{}", .{arg});
                 }
                 current_arg += 1;
             },
             'S' => {
                 const arg = @field(args, arg_fields[current_arg].name);
-                try w.out.print("\"{f}\"", .{std.zig.fmtString(arg)});
+                try w.raw.print(w.gpa, "\"{f}\"", .{std.zig.fmtString(arg)});
                 current_arg += 1;
             },
             'I' => {
                 const arg = @field(args, arg_fields[current_arg].name);
                 // zig.fmtId does not escape primitive type names
                 if (std.zig.isValidId(arg) and !std.zig.primitives.isPrimitive(arg)) {
-                    try w.out.print("{s}", .{arg});
+                    try w.raw.appendSlice(w.gpa, arg);
                 } else {
-                    try w.out.print("@\"{f}\"", .{std.zig.fmtString(arg)});
+                    try w.raw.print(w.gpa, "@\"{f}\"", .{std.zig.fmtString(arg)});
                 }
                 current_arg += 1;
             },
@@ -83,7 +97,7 @@ pub fn print(w: ZigWriter, comptime fmt: []const u8, args: anytype) std.Io.Write
     }
 
     if (i > start) {
-        try w.out.writeAll(fmt[start..i]);
+        try w.raw.appendSlice(w.gpa, fmt[start..i]);
     }
 
     if (current_arg != arg_fields.len) {
@@ -91,22 +105,36 @@ pub fn print(w: ZigWriter, comptime fmt: []const u8, args: anytype) std.Io.Write
     }
 }
 
-test print {
-    var out: std.Io.Writer.Allocating = .init(std.testing.allocator);
-    defer out.deinit();
-    const w: ZigWriter = .{ .out = &out.writer };
+pub fn toFormatted(w: *ZigWriter) Allocator.Error![]u8 {
+    try w.raw.append(w.gpa, 0);
+    defer w.raw.clearAndFree(w.gpa);
+    var ast: std.zig.Ast = try .parse(w.gpa, w.raw.items[0 .. w.raw.items.len - 1 :0], .zig);
+    defer ast.deinit(w.gpa);
+    var fmt_source: std.Io.Writer.Allocating = .init(w.gpa);
+    defer fmt_source.deinit();
+    ast.render(w.gpa, &fmt_source.writer, .{}) catch |err| switch (err) {
+        error.OutOfMemory, error.WriteFailed => return error.OutOfMemory,
+    };
+    return try fmt_source.toOwnedSlice();
+}
+
+test ZigWriter {
+    var w: ZigWriter = .init(std.testing.allocator);
+    defer w.deinit();
     try w.print("const std = @import($S);\n\n", .{"std"});
     try w.print("pub fn $I() void {\n", .{"main"});
     try w.print("std.debug.print($S, .{$S});\n", .{ "Hello, {}!", "world" });
     try w.print("}\n", .{});
+    const fmt_source = try w.toFormatted();
+    defer std.testing.allocator.free(fmt_source);
     try std.testing.expectEqualStrings(
         \\const std = @import("std");
         \\
         \\pub fn main() void {
-        \\std.debug.print("Hello, {}!", .{"world"});
+        \\    std.debug.print("Hello, {}!", .{"world"});
         \\}
         \\
-    , out.written());
+    , fmt_source);
 }
 
 inline fn isString(comptime T: type) bool {
