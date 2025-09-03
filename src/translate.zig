@@ -682,7 +682,9 @@ fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContex
         try translateMethod(allocator, method, .{ .self_type = name }, ctx, out);
     }
 
-    try translateGetTypeFunction(allocator, "get_g_object_type", class.get_type, ctx, out);
+    if (class.get_type) |get_type| {
+        try translateGetTypeFunction(allocator, "get_g_object_type", get_type, ctx, out);
+    }
     if (!function_names.contains("ref")) {
         if (class.ref_func) |ref_func| {
             try translateRefFunction(allocator, "ref", ref_func, class.name, ctx, out);
@@ -803,7 +805,9 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, ctx: Trans
         try translateMethod(allocator, method, .{ .self_type = name }, ctx, out);
     }
 
-    try translateGetTypeFunction(allocator, "get_g_object_type", interface.get_type, ctx, out);
+    if (interface.get_type) |get_type| {
+        try translateGetTypeFunction(allocator, "get_g_object_type", get_type, ctx, out);
+    }
     if (!function_names.contains("ref") and interfaceDerivesFromObject(interface, ctx)) {
         try translateRefFunction(allocator, "ref", "g_object_ref", interface.name, ctx, out);
     }
@@ -3042,12 +3046,41 @@ fn createBuildZigSource(
         const test_name = try std.fmt.allocPrint(allocator, "{s}_test", .{module_name});
         defer allocator.free(test_name);
 
-        try out.print(
-            \\const $I = b.addTest(.{
-            \\    .root_module = $I,
-            \\});
-            \\
-        , .{ test_name, module_name });
+        // Unfortunately, GLib requires some special handling for testing. Some
+        // of the functions in GLib require GObject to be linked, but we don't
+        // really want to enforce GObject as a mandatory dependency of GLib,
+        // since it's still possible to use GLib without GObject as long as
+        // those functions aren't used.
+        // As such, for GLib specifically, we create a hard-coded special test
+        // module.
+        if (mem.eql(u8, module_name, "glib2")) {
+            try out.print(
+                \\const glib2_test_mod = b.createModule(.{
+                \\    .root_source_file = b.path("src/glib2/glib2.zig"),
+                \\    .target = target,
+                \\    .optimize = optimize,
+                \\});
+                \\libraries.glib2.linkTo(glib2_test_mod);
+                \\libraries.gobject2.linkTo(glib2_test_mod);
+                \\// Some deprecated thread functions require linking gthread-2.0
+                \\glib2_test_mod.linkSystemLibrary("gthread-2.0", .{ .use_pkg_config = .force });
+                \\glib2_test_mod.addImport("compat", compat);
+                \\glib2_test_mod.addImport("glib2", glib2_test_mod);
+                \\
+                \\const $I = b.addTest(.{
+                \\    .root_module = glib2_test_mod,
+                \\});
+                \\
+            , .{test_name});
+        } else {
+            try out.print(
+                \\const $I = b.addTest(.{
+                \\    .root_module = $I,
+                \\});
+                \\
+            , .{ test_name, module_name });
+        }
+
         try out.print("test_step.dependOn(&b.addRunArtifact($I).step);\n\n", .{test_name});
     }
 

@@ -451,7 +451,7 @@ pub const Class = struct {
     signals: []const Signal = &.{},
     constants: []const Constant = &.{},
     callbacks: []const Callback = &.{},
-    get_type: []const u8,
+    get_type: ?[]const u8 = null,
     ref_func: ?[]const u8 = null,
     unref_func: ?[]const u8 = null,
     type_struct: ?Name = null,
@@ -487,7 +487,7 @@ pub const Class = struct {
         var constants: std.ArrayList(Constant) = .empty;
         var callbacks: std.ArrayList(Callback) = .empty;
         const get_type = get_type: {
-            const index = reader.attributeIndexNs(ns.glib, "get-type") orelse return error.InvalidGir;
+            const index = reader.attributeIndexNs(ns.glib, "get-type") orelse break :get_type null;
             break :get_type try reader.attributeValueAlloc(allocator, index);
         };
         const ref_func = ref_func: {
@@ -588,7 +588,7 @@ pub const Interface = struct {
     signals: []const Signal = &.{},
     constants: []const Constant = &.{},
     callbacks: []const Callback = &.{},
-    get_type: []const u8,
+    get_type: ?[]const u8 = null,
     type_struct: ?Name = null,
     symbol_prefix: ?[]const u8 = null,
     documentation: ?Documentation = null,
@@ -612,7 +612,7 @@ pub const Interface = struct {
         var constants: std.ArrayList(Constant) = .empty;
         var callbacks: std.ArrayList(Callback) = .empty;
         const get_type = get_type: {
-            const index = reader.attributeIndexNs(ns.glib, "get-type") orelse return error.InvalidGir;
+            const index = reader.attributeIndexNs(ns.glib, "get-type") orelse break :get_type null;
             break :get_type try reader.attributeValueAlloc(allocator, index);
         };
         const type_struct = type_struct: {

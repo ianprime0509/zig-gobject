@@ -27,4 +27,10 @@
       <xsl:copy-of select="@* | node()" />
     </xsl:copy>
   </xsl:template>
+
+  <xsl:template match="core:method[@c:identifier='g_io_module_load'] |
+                       core:method[@c:identifier='g_io_module_unload'] |
+                       core:function[@c:identifier='g_io_module_query']">
+    <!-- https://github.com/ianprime0509/zig-gobject/issues/121 -->
+  </xsl:template>
 </xsl:stylesheet>

@@ -50,4 +50,18 @@
       <xsl:copy-of select="@* | node()" />
     </xsl:copy>
   </xsl:template>
+
+  <xsl:template match="core:function[@c:identifier='g_set_prgname_once'] |
+                       core:function[@c:identifier='g_set_user_dirs']">
+    <!-- https://github.com/ianprime0509/zig-gobject/issues/122 -->
+  </xsl:template>
+
+  <xsl:template match="core:record[@c:type='GVariant']/@glib:get-type">
+    <!-- https://github.com/ianprime0509/zig-gobject/issues/123 -->
+  </xsl:template>
+
+  <xsl:template match="core:method[@c:identifier='g_main_context_pusher_new'] |
+                       core:function[@c:identifier='g_main_context_pusher_free']">
+    <!-- https://github.com/ianprime0509/zig-gobject/issues/125 -->
+  </xsl:template>
 </xsl:stylesheet>
