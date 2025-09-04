@@ -15,8 +15,8 @@ pub fn main() !void {
     const args = try std.process.argsAlloc(arena);
 
     var output_path: ?[]const u8 = null;
-    var output = std.ArrayList(u8).init(arena);
-    try output.appendSlice("<?xml version=\"1.0\" encoding=\"UTF-8\"?><gresources>");
+    var output: std.ArrayList(u8) = .empty;
+    try output.appendSlice(arena, "<?xml version=\"1.0\" encoding=\"UTF-8\"?><gresources>");
 
     var i: usize = 1;
     var seen_prefix = false;
@@ -25,26 +25,26 @@ pub fn main() !void {
         const arg = args[i];
         if (std.mem.startsWith(u8, arg, "--prefix=")) {
             if (seen_prefix) {
-                try output.appendSlice("</gresource>");
+                try output.appendSlice(arena, "</gresource>");
             }
-            try output.writer().print("<gresource prefix=\"{}\">", .{fmtXml(arg["--prefix=".len..])});
+            try output.print(arena, "<gresource prefix=\"{f}\">", .{fmtXml(arg["--prefix=".len..])});
             seen_prefix = true;
         } else if (std.mem.startsWith(u8, arg, "--alias=")) {
-            try output.writer().print("<file alias=\"{}\"", .{fmtXml(arg["--alias=".len..])});
+            try output.print(arena, "<file alias=\"{f}\"", .{fmtXml(arg["--alias=".len..])});
         } else if (std.mem.eql(u8, arg, "--compressed")) {
-            try output.appendSlice(" compressed=\"true\"");
+            try output.appendSlice(arena, " compressed=\"true\"");
         } else if (std.mem.startsWith(u8, arg, "--preprocess=")) {
             if (seen_preprocessor) {
-                try output.writer().print(",{}", .{fmtXml(arg["--preprocess=".len..])});
+                try output.print(arena, ",{f}", .{fmtXml(arg["--preprocess=".len..])});
             } else {
-                try output.writer().print(" preprocess=\"{}", .{fmtXml(arg["--preprocess=".len..])});
+                try output.print(arena, " preprocess=\"{f}", .{fmtXml(arg["--preprocess=".len..])});
             }
             seen_preprocessor = true;
         } else if (std.mem.startsWith(u8, arg, "--path=")) {
             if (seen_preprocessor) {
-                try output.append('"');
+                try output.append(arena, '"');
             }
-            try output.writer().print(">{}</file>", .{fmtXml(arg["--path=".len..])});
+            try output.print(arena, ">{f}</file>", .{fmtXml(arg["--path=".len..])});
             seen_preprocessor = false;
         } else if (std.mem.startsWith(u8, arg, "--output=")) {
             output_path = arg["--output=".len..];
@@ -54,9 +54,9 @@ pub fn main() !void {
     }
 
     if (seen_prefix) {
-        try output.appendSlice("</gresource>");
+        try output.appendSlice(arena, "</gresource>");
     }
-    try output.appendSlice("</gresources>");
+    try output.appendSlice(arena, "</gresources>");
 
     try std.fs.cwd().writeFile(.{
         .sub_path = output_path orelse return error.MissingOutput,
@@ -64,14 +64,11 @@ pub fn main() !void {
     });
 }
 
-fn fmtXml(s: []const u8) std.fmt.Formatter(formatXml) {
+fn fmtXml(s: []const u8) std.fmt.Alt([]const u8, formatXml) {
     return .{ .data = s };
 }
 
-fn formatXml(s: []const u8, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-    _ = fmt;
-    _ = options;
-
+fn formatXml(s: []const u8, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     var start: usize = 0;
     while (std.mem.indexOfAnyPos(u8, s, start, "&<\"")) |pos| {
         try writer.writeAll(s[start..pos]);

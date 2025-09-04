@@ -76,9 +76,11 @@ pub const CompileResources = struct {
         const run = cr.b.addRunArtifact(build_gresources_xml_exe orelse exe: {
             const exe = cr.b.addExecutable(.{
                 .name = "build-gresources-xml",
-                .root_source_file = cr.b.path("build/build_gresources_xml.zig"),
-                .target = cr.b.graph.host,
-                .optimize = .Debug,
+                .root_module = cr.b.createModule(.{
+                    .root_source_file = cr.b.path("build/build_gresources_xml.zig"),
+                    .target = cr.b.graph.host,
+                    .optimize = .Debug,
+                }),
             });
             build_gresources_xml_exe = exe;
             break :exe exe;
