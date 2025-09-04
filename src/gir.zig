@@ -17,9 +17,9 @@ pub fn findRepositories(
     defer repos.deinit();
     errdefer for (repos.values()) |*repo| repo.deinit();
 
-    var needed_repos = std.ArrayList(Include).init(allocator);
-    defer needed_repos.deinit();
-    try needed_repos.appendSlice(roots);
+    var needed_repos: std.ArrayList(Include) = .empty;
+    defer needed_repos.deinit(allocator);
+    try needed_repos.appendSlice(allocator, roots);
     while (needed_repos.pop()) |needed_repo| {
         if (!repos.contains(needed_repo)) {
             const repo = findRepository(
@@ -33,7 +33,7 @@ pub fn findRepositories(
                 error.FindFailed => continue,
             };
             try repos.put(needed_repo, repo);
-            try needed_repos.appendSlice(repo.includes);
+            try needed_repos.appendSlice(allocator, repo.includes);
         }
     }
 
@@ -163,12 +163,12 @@ pub const Repository = struct {
         fix_path: ?[]const u8,
         content: []const u8,
     ) (error{InvalidGir} || Allocator.Error)!Repository {
-        var doc = xml.StaticDocument.init(content);
-        var r = doc.reader(allocator, .{});
-        defer r.deinit();
-        return parseXml(allocator, &r, path, fix_path) catch |err| switch (err) {
-            error.MalformedXml => return error.InvalidGir,
-            else => |other| return other,
+        var static_reader: xml.Reader.Static = .init(allocator, content, .{});
+        defer static_reader.deinit();
+        return parseXml(allocator, &static_reader.interface, path, fix_path) catch |err| switch (err) {
+            error.MalformedXml, error.InvalidGir => return error.InvalidGir,
+            error.ReadFailed => unreachable,
+            error.OutOfMemory => return error.OutOfMemory,
         };
     }
 
@@ -176,7 +176,7 @@ pub const Repository = struct {
         repository.arena.deinit();
     }
 
-    fn parseXml(allocator: Allocator, reader: anytype, path: []const u8, fix_path: ?[]const u8) !Repository {
+    fn parseXml(allocator: Allocator, reader: *xml.Reader, path: []const u8, fix_path: ?[]const u8) !Repository {
         try reader.skipProlog();
         if (!reader.elementNameNs().is(ns.core, "repository")) return error.InvalidGir;
         const repository = try parseInternal(allocator, reader, path, fix_path);
@@ -184,13 +184,13 @@ pub const Repository = struct {
         return repository;
     }
 
-    fn parseInternal(a: Allocator, reader: anytype, path: []const u8, fix_path: ?[]const u8) !Repository {
+    fn parseInternal(a: Allocator, reader: *xml.Reader, path: []const u8, fix_path: ?[]const u8) !Repository {
         var arena = std.heap.ArenaAllocator.init(a);
         const allocator = arena.allocator();
 
-        var includes = std.ArrayList(Include).init(allocator);
-        var packages = std.ArrayList(Package).init(allocator);
-        var c_includes = std.ArrayList(CInclude).init(allocator);
+        var includes: std.ArrayList(Include) = .empty;
+        var packages: std.ArrayList(Package) = .empty;
+        var c_includes: std.ArrayList(CInclude) = .empty;
         var namespace: ?Namespace = null;
 
         while (true) {
@@ -198,11 +198,11 @@ pub const Repository = struct {
                 .element_start => {
                     const child = reader.elementNameNs();
                     if (child.is(ns.core, "include")) {
-                        try includes.append(try Include.parse(allocator, reader));
+                        try includes.append(allocator, try Include.parse(allocator, reader));
                     } else if (child.is(ns.core, "package")) {
-                        try packages.append(try Package.parse(allocator, reader));
+                        try packages.append(allocator, try Package.parse(allocator, reader));
                     } else if (child.is(ns.c, "include")) {
-                        try c_includes.append(try CInclude.parse(allocator, reader));
+                        try c_includes.append(allocator, try CInclude.parse(allocator, reader));
                     } else if (child.is(ns.core, "namespace")) {
                         namespace = try Namespace.parse(allocator, reader);
                     } else {
@@ -217,9 +217,9 @@ pub const Repository = struct {
         return .{
             .path = try allocator.dupe(u8, path),
             .fix_path = if (fix_path) |p| try allocator.dupe(u8, p) else null,
-            .includes = try includes.toOwnedSlice(),
-            .packages = try packages.toOwnedSlice(),
-            .c_includes = try c_includes.toOwnedSlice(),
+            .includes = try includes.toOwnedSlice(allocator),
+            .packages = try packages.toOwnedSlice(allocator),
+            .c_includes = try c_includes.toOwnedSlice(allocator),
             .namespace = namespace orelse return error.InvalidGir,
             .arena = arena,
         };
@@ -230,7 +230,7 @@ pub const Include = struct {
     name: []const u8,
     version: []const u8,
 
-    fn parse(allocator: Allocator, reader: anytype) !Include {
+    fn parse(allocator: Allocator, reader: *xml.Reader) !Include {
         const name = name: {
             const index = reader.attributeIndex("name") orelse return error.InvalidGir;
             break :name try reader.attributeValueAlloc(allocator, index);
@@ -278,7 +278,7 @@ pub const Include = struct {
 pub const Package = struct {
     name: []const u8,
 
-    fn parse(allocator: Allocator, reader: anytype) !Package {
+    fn parse(allocator: Allocator, reader: *xml.Reader) !Package {
         const name = name: {
             const index = reader.attributeIndex("name") orelse return error.InvalidGir;
             break :name try reader.attributeValueAlloc(allocator, index);
@@ -295,7 +295,7 @@ pub const Package = struct {
 pub const CInclude = struct {
     name: []const u8,
 
-    fn parse(allocator: Allocator, reader: anytype) !CInclude {
+    fn parse(allocator: Allocator, reader: *xml.Reader) !CInclude {
         const name = name: {
             const index = reader.attributeIndex("name") orelse return error.InvalidGir;
             break :name try reader.attributeValueAlloc(allocator, index);
@@ -323,7 +323,7 @@ pub const Namespace = struct {
     callbacks: []const Callback = &.{},
     constants: []const Constant = &.{},
 
-    fn parse(allocator: Allocator, reader: anytype) !Namespace {
+    fn parse(allocator: Allocator, reader: *xml.Reader) !Namespace {
         const name = name: {
             const index = reader.attributeIndex("name") orelse return error.InvalidGir;
             break :name try reader.attributeValueAlloc(allocator, index);
@@ -332,41 +332,41 @@ pub const Namespace = struct {
             const index = reader.attributeIndex("version") orelse return error.InvalidGir;
             break :version try reader.attributeValueAlloc(allocator, index);
         };
-        var aliases = std.ArrayList(Alias).init(allocator);
-        var classes = std.ArrayList(Class).init(allocator);
-        var interfaces = std.ArrayList(Interface).init(allocator);
-        var records = std.ArrayList(Record).init(allocator);
-        var unions = std.ArrayList(Union).init(allocator);
-        var bit_fields = std.ArrayList(BitField).init(allocator);
-        var enums = std.ArrayList(Enum).init(allocator);
-        var functions = std.ArrayList(Function).init(allocator);
-        var callbacks = std.ArrayList(Callback).init(allocator);
-        var constants = std.ArrayList(Constant).init(allocator);
+        var aliases: std.ArrayList(Alias) = .empty;
+        var classes: std.ArrayList(Class) = .empty;
+        var interfaces: std.ArrayList(Interface) = .empty;
+        var records: std.ArrayList(Record) = .empty;
+        var unions: std.ArrayList(Union) = .empty;
+        var bit_fields: std.ArrayList(BitField) = .empty;
+        var enums: std.ArrayList(Enum) = .empty;
+        var functions: std.ArrayList(Function) = .empty;
+        var callbacks: std.ArrayList(Callback) = .empty;
+        var constants: std.ArrayList(Constant) = .empty;
 
         while (true) {
             switch (try reader.read()) {
                 .element_start => {
                     const child = reader.elementNameNs();
                     if (child.is(ns.core, "alias")) {
-                        try aliases.append(try Alias.parse(allocator, reader, name));
+                        try aliases.append(allocator, try Alias.parse(allocator, reader, name));
                     } else if (child.is(ns.core, "class")) {
-                        try classes.append(try Class.parse(allocator, reader, name));
+                        try classes.append(allocator, try Class.parse(allocator, reader, name));
                     } else if (child.is(ns.core, "interface")) {
-                        try interfaces.append(try Interface.parse(allocator, reader, name));
+                        try interfaces.append(allocator, try Interface.parse(allocator, reader, name));
                     } else if (child.is(ns.core, "record")) {
-                        try records.append(try Record.parse(allocator, reader, name));
+                        try records.append(allocator, try Record.parse(allocator, reader, name));
                     } else if (child.is(ns.core, "union")) {
-                        try unions.append(try Union.parse(allocator, reader, name));
+                        try unions.append(allocator, try Union.parse(allocator, reader, name));
                     } else if (child.is(ns.core, "bitfield")) {
-                        try bit_fields.append(try BitField.parse(allocator, reader, name));
+                        try bit_fields.append(allocator, try BitField.parse(allocator, reader, name));
                     } else if (child.is(ns.core, "enumeration")) {
-                        try enums.append(try Enum.parse(allocator, reader, name));
+                        try enums.append(allocator, try Enum.parse(allocator, reader, name));
                     } else if (child.is(ns.core, "function")) {
-                        try functions.append(try Function.parse(allocator, reader, name));
+                        try functions.append(allocator, try Function.parse(allocator, reader, name));
                     } else if (child.is(ns.core, "callback")) {
-                        try callbacks.append(try Callback.parse(allocator, reader, name));
+                        try callbacks.append(allocator, try Callback.parse(allocator, reader, name));
                     } else if (child.is(ns.core, "constant")) {
-                        try constants.append(try Constant.parse(allocator, reader, name));
+                        try constants.append(allocator, try Constant.parse(allocator, reader, name));
                     } else {
                         try reader.skipElement();
                     }
@@ -379,16 +379,16 @@ pub const Namespace = struct {
         return .{
             .name = name,
             .version = version,
-            .aliases = try aliases.toOwnedSlice(),
-            .classes = try classes.toOwnedSlice(),
-            .interfaces = try interfaces.toOwnedSlice(),
-            .records = try records.toOwnedSlice(),
-            .unions = try unions.toOwnedSlice(),
-            .bit_fields = try bit_fields.toOwnedSlice(),
-            .enums = try enums.toOwnedSlice(),
-            .functions = try functions.toOwnedSlice(),
-            .callbacks = try callbacks.toOwnedSlice(),
-            .constants = try constants.toOwnedSlice(),
+            .aliases = try aliases.toOwnedSlice(allocator),
+            .classes = try classes.toOwnedSlice(allocator),
+            .interfaces = try interfaces.toOwnedSlice(allocator),
+            .records = try records.toOwnedSlice(allocator),
+            .unions = try unions.toOwnedSlice(allocator),
+            .bit_fields = try bit_fields.toOwnedSlice(allocator),
+            .enums = try enums.toOwnedSlice(allocator),
+            .functions = try functions.toOwnedSlice(allocator),
+            .callbacks = try callbacks.toOwnedSlice(allocator),
+            .constants = try constants.toOwnedSlice(allocator),
         };
     }
 };
@@ -399,7 +399,7 @@ pub const Alias = struct {
     type: Type,
     documentation: ?Documentation = null,
 
-    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !Alias {
+    fn parse(allocator: Allocator, reader: *xml.Reader, current_ns: []const u8) !Alias {
         const name = name: {
             const index = reader.attributeIndex("name") orelse return error.InvalidGir;
             break :name try Name.parse(allocator, try reader.attributeValue(index), current_ns);
@@ -451,7 +451,7 @@ pub const Class = struct {
     signals: []const Signal = &.{},
     constants: []const Constant = &.{},
     callbacks: []const Callback = &.{},
-    get_type: []const u8,
+    get_type: ?[]const u8 = null,
     ref_func: ?[]const u8 = null,
     unref_func: ?[]const u8 = null,
     type_struct: ?Name = null,
@@ -463,7 +463,7 @@ pub const Class = struct {
         return class.final or class.layout_elements.len == 0;
     }
 
-    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !Class {
+    fn parse(allocator: Allocator, reader: *xml.Reader, current_ns: []const u8) !Class {
         const name = name: {
             const index = reader.attributeIndex("name") orelse return error.InvalidGir;
             break :name try Name.parse(allocator, try reader.attributeValue(index), current_ns);
@@ -476,18 +476,18 @@ pub const Class = struct {
             const index = reader.attributeIndex("parent") orelse break :parent null;
             break :parent try Name.parse(allocator, try reader.attributeValue(index), current_ns);
         };
-        var implements = std.ArrayList(Implements).init(allocator);
-        var layout_elements = std.ArrayList(LayoutElement).init(allocator);
-        var functions = std.ArrayList(Function).init(allocator);
-        var constructors = std.ArrayList(Constructor).init(allocator);
-        var methods = std.ArrayList(Method).init(allocator);
-        var virtual_methods = std.ArrayList(VirtualMethod).init(allocator);
-        var properties = std.ArrayList(Property).init(allocator);
-        var signals = std.ArrayList(Signal).init(allocator);
-        var constants = std.ArrayList(Constant).init(allocator);
-        var callbacks = std.ArrayList(Callback).init(allocator);
+        var implements: std.ArrayList(Implements) = .empty;
+        var layout_elements: std.ArrayList(LayoutElement) = .empty;
+        var functions: std.ArrayList(Function) = .empty;
+        var constructors: std.ArrayList(Constructor) = .empty;
+        var methods: std.ArrayList(Method) = .empty;
+        var virtual_methods: std.ArrayList(VirtualMethod) = .empty;
+        var properties: std.ArrayList(Property) = .empty;
+        var signals: std.ArrayList(Signal) = .empty;
+        var constants: std.ArrayList(Constant) = .empty;
+        var callbacks: std.ArrayList(Callback) = .empty;
         const get_type = get_type: {
-            const index = reader.attributeIndexNs(ns.glib, "get-type") orelse return error.InvalidGir;
+            const index = reader.attributeIndexNs(ns.glib, "get-type") orelse break :get_type null;
             break :get_type try reader.attributeValueAlloc(allocator, index);
         };
         const ref_func = ref_func: {
@@ -517,29 +517,29 @@ pub const Class = struct {
                 .element_start => {
                     const child = reader.elementNameNs();
                     if (child.is(ns.core, "implements")) {
-                        try implements.append(try Implements.parse(allocator, reader, current_ns));
+                        try implements.append(allocator, try Implements.parse(allocator, reader, current_ns));
                     } else if (child.is(ns.core, "field")) {
-                        try layout_elements.append(.{ .field = try Field.parse(allocator, reader, current_ns) });
+                        try layout_elements.append(allocator, .{ .field = try Field.parse(allocator, reader, current_ns) });
                     } else if (child.is(ns.core, "record")) {
-                        try layout_elements.append(.{ .record = try AnonymousRecord.parse(allocator, reader, current_ns) });
+                        try layout_elements.append(allocator, .{ .record = try AnonymousRecord.parse(allocator, reader, current_ns) });
                     } else if (child.is(ns.core, "union")) {
-                        try layout_elements.append(.{ .@"union" = try AnonymousUnion.parse(allocator, reader, current_ns) });
+                        try layout_elements.append(allocator, .{ .@"union" = try AnonymousUnion.parse(allocator, reader, current_ns) });
                     } else if (child.is(ns.core, "function")) {
-                        try functions.append(try Function.parse(allocator, reader, current_ns));
+                        try functions.append(allocator, try Function.parse(allocator, reader, current_ns));
                     } else if (child.is(ns.core, "constructor")) {
-                        try constructors.append(try Constructor.parse(allocator, reader, current_ns));
+                        try constructors.append(allocator, try Constructor.parse(allocator, reader, current_ns));
                     } else if (child.is(ns.core, "method")) {
-                        try methods.append(try Method.parse(allocator, reader, current_ns));
+                        try methods.append(allocator, try Method.parse(allocator, reader, current_ns));
                     } else if (child.is(ns.core, "virtual-method")) {
-                        try virtual_methods.append(try VirtualMethod.parse(allocator, reader, current_ns));
+                        try virtual_methods.append(allocator, try VirtualMethod.parse(allocator, reader, current_ns));
                     } else if (child.is(ns.core, "property")) {
-                        try properties.append(try Property.parse(allocator, reader, current_ns));
+                        try properties.append(allocator, try Property.parse(allocator, reader, current_ns));
                     } else if (child.is(ns.glib, "signal")) {
-                        try signals.append(try Signal.parse(allocator, reader, current_ns));
+                        try signals.append(allocator, try Signal.parse(allocator, reader, current_ns));
                     } else if (child.is(ns.core, "constant")) {
-                        try constants.append(try Constant.parse(allocator, reader, current_ns));
+                        try constants.append(allocator, try Constant.parse(allocator, reader, current_ns));
                     } else if (child.is(ns.core, "callback")) {
-                        try callbacks.append(try Callback.parse(allocator, reader, current_ns));
+                        try callbacks.append(allocator, try Callback.parse(allocator, reader, current_ns));
                     } else if (child.is(ns.core, "doc")) {
                         documentation = try Documentation.parse(allocator, reader);
                     } else {
@@ -555,16 +555,16 @@ pub const Class = struct {
             .name = name,
             .c_type = c_type,
             .parent = parent,
-            .implements = try implements.toOwnedSlice(),
-            .layout_elements = try layout_elements.toOwnedSlice(),
-            .functions = try functions.toOwnedSlice(),
-            .constructors = try constructors.toOwnedSlice(),
-            .methods = try methods.toOwnedSlice(),
-            .virtual_methods = try virtual_methods.toOwnedSlice(),
-            .properties = try properties.toOwnedSlice(),
-            .signals = try signals.toOwnedSlice(),
-            .constants = try constants.toOwnedSlice(),
-            .callbacks = try callbacks.toOwnedSlice(),
+            .implements = try implements.toOwnedSlice(allocator),
+            .layout_elements = try layout_elements.toOwnedSlice(allocator),
+            .functions = try functions.toOwnedSlice(allocator),
+            .constructors = try constructors.toOwnedSlice(allocator),
+            .methods = try methods.toOwnedSlice(allocator),
+            .virtual_methods = try virtual_methods.toOwnedSlice(allocator),
+            .properties = try properties.toOwnedSlice(allocator),
+            .signals = try signals.toOwnedSlice(allocator),
+            .constants = try constants.toOwnedSlice(allocator),
+            .callbacks = try callbacks.toOwnedSlice(allocator),
             .get_type = get_type,
             .ref_func = ref_func,
             .unref_func = unref_func,
@@ -588,12 +588,12 @@ pub const Interface = struct {
     signals: []const Signal = &.{},
     constants: []const Constant = &.{},
     callbacks: []const Callback = &.{},
-    get_type: []const u8,
+    get_type: ?[]const u8 = null,
     type_struct: ?Name = null,
     symbol_prefix: ?[]const u8 = null,
     documentation: ?Documentation = null,
 
-    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !Interface {
+    fn parse(allocator: Allocator, reader: *xml.Reader, current_ns: []const u8) !Interface {
         const name = name: {
             const index = reader.attributeIndex("name") orelse return error.InvalidGir;
             break :name try Name.parse(allocator, try reader.attributeValue(index), current_ns);
@@ -602,17 +602,17 @@ pub const Interface = struct {
             const index = reader.attributeIndexNs(ns.c, "type") orelse break :c_type null;
             break :c_type try reader.attributeValueAlloc(allocator, index);
         };
-        var prerequisites = std.ArrayList(Prerequisite).init(allocator);
-        var functions = std.ArrayList(Function).init(allocator);
-        var constructors = std.ArrayList(Constructor).init(allocator);
-        var methods = std.ArrayList(Method).init(allocator);
-        var virtual_methods = std.ArrayList(VirtualMethod).init(allocator);
-        var properties = std.ArrayList(Property).init(allocator);
-        var signals = std.ArrayList(Signal).init(allocator);
-        var constants = std.ArrayList(Constant).init(allocator);
-        var callbacks = std.ArrayList(Callback).init(allocator);
+        var prerequisites: std.ArrayList(Prerequisite) = .empty;
+        var functions: std.ArrayList(Function) = .empty;
+        var constructors: std.ArrayList(Constructor) = .empty;
+        var methods: std.ArrayList(Method) = .empty;
+        var virtual_methods: std.ArrayList(VirtualMethod) = .empty;
+        var properties: std.ArrayList(Property) = .empty;
+        var signals: std.ArrayList(Signal) = .empty;
+        var constants: std.ArrayList(Constant) = .empty;
+        var callbacks: std.ArrayList(Callback) = .empty;
         const get_type = get_type: {
-            const index = reader.attributeIndexNs(ns.glib, "get-type") orelse return error.InvalidGir;
+            const index = reader.attributeIndexNs(ns.glib, "get-type") orelse break :get_type null;
             break :get_type try reader.attributeValueAlloc(allocator, index);
         };
         const type_struct = type_struct: {
@@ -630,23 +630,23 @@ pub const Interface = struct {
                 .element_start => {
                     const child = reader.elementNameNs();
                     if (child.is(ns.core, "prerequisite")) {
-                        try prerequisites.append(try Prerequisite.parse(allocator, reader, current_ns));
+                        try prerequisites.append(allocator, try Prerequisite.parse(allocator, reader, current_ns));
                     } else if (child.is(ns.core, "function")) {
-                        try functions.append(try Function.parse(allocator, reader, current_ns));
+                        try functions.append(allocator, try Function.parse(allocator, reader, current_ns));
                     } else if (child.is(ns.core, "constructor")) {
-                        try constructors.append(try Constructor.parse(allocator, reader, current_ns));
+                        try constructors.append(allocator, try Constructor.parse(allocator, reader, current_ns));
                     } else if (child.is(ns.core, "method")) {
-                        try methods.append(try Method.parse(allocator, reader, current_ns));
+                        try methods.append(allocator, try Method.parse(allocator, reader, current_ns));
                     } else if (child.is(ns.core, "virtual-method")) {
-                        try virtual_methods.append(try VirtualMethod.parse(allocator, reader, current_ns));
+                        try virtual_methods.append(allocator, try VirtualMethod.parse(allocator, reader, current_ns));
                     } else if (child.is(ns.core, "property")) {
-                        try properties.append(try Property.parse(allocator, reader, current_ns));
+                        try properties.append(allocator, try Property.parse(allocator, reader, current_ns));
                     } else if (child.is(ns.glib, "signal")) {
-                        try signals.append(try Signal.parse(allocator, reader, current_ns));
+                        try signals.append(allocator, try Signal.parse(allocator, reader, current_ns));
                     } else if (child.is(ns.core, "constant")) {
-                        try constants.append(try Constant.parse(allocator, reader, current_ns));
+                        try constants.append(allocator, try Constant.parse(allocator, reader, current_ns));
                     } else if (child.is(ns.core, "callback")) {
-                        try callbacks.append(try Callback.parse(allocator, reader, current_ns));
+                        try callbacks.append(allocator, try Callback.parse(allocator, reader, current_ns));
                     } else if (child.is(ns.core, "doc")) {
                         documentation = try Documentation.parse(allocator, reader);
                     } else {
@@ -661,15 +661,15 @@ pub const Interface = struct {
         return .{
             .name = name,
             .c_type = c_type,
-            .prerequisites = try prerequisites.toOwnedSlice(),
-            .functions = try functions.toOwnedSlice(),
-            .constructors = try constructors.toOwnedSlice(),
-            .methods = try methods.toOwnedSlice(),
-            .virtual_methods = try virtual_methods.toOwnedSlice(),
-            .properties = try properties.toOwnedSlice(),
-            .signals = try signals.toOwnedSlice(),
-            .constants = try constants.toOwnedSlice(),
-            .callbacks = try callbacks.toOwnedSlice(),
+            .prerequisites = try prerequisites.toOwnedSlice(allocator),
+            .functions = try functions.toOwnedSlice(allocator),
+            .constructors = try constructors.toOwnedSlice(allocator),
+            .methods = try methods.toOwnedSlice(allocator),
+            .virtual_methods = try virtual_methods.toOwnedSlice(allocator),
+            .properties = try properties.toOwnedSlice(allocator),
+            .signals = try signals.toOwnedSlice(allocator),
+            .constants = try constants.toOwnedSlice(allocator),
+            .callbacks = try callbacks.toOwnedSlice(allocator),
             .get_type = get_type,
             .type_struct = type_struct,
             .symbol_prefix = symbol_prefix,
@@ -703,7 +703,7 @@ pub const Record = struct {
         return record.@"opaque" or (record.disguised and !record.pointer) or record.layout_elements.len == 0;
     }
 
-    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !Record {
+    fn parse(allocator: Allocator, reader: *xml.Reader, current_ns: []const u8) !Record {
         const name = name: {
             const index = reader.attributeIndex("name") orelse return error.InvalidGir;
             break :name try Name.parse(allocator, try reader.attributeValue(index), current_ns);
@@ -712,10 +712,10 @@ pub const Record = struct {
             const index = reader.attributeIndexNs(ns.c, "type") orelse break :c_type null;
             break :c_type try reader.attributeValueAlloc(allocator, index);
         };
-        var layout_elements = std.ArrayList(LayoutElement).init(allocator);
-        var functions = std.ArrayList(Function).init(allocator);
-        var constructors = std.ArrayList(Constructor).init(allocator);
-        var methods = std.ArrayList(Method).init(allocator);
+        var layout_elements: std.ArrayList(LayoutElement) = .empty;
+        var functions: std.ArrayList(Function) = .empty;
+        var constructors: std.ArrayList(Constructor) = .empty;
+        var methods: std.ArrayList(Method) = .empty;
         const get_type = get_type: {
             const index = reader.attributeIndexNs(ns.glib, "get-type") orelse break :get_type null;
             break :get_type try reader.attributeValueAlloc(allocator, index);
@@ -747,17 +747,17 @@ pub const Record = struct {
                 .element_start => {
                     const child = reader.elementNameNs();
                     if (child.is(ns.core, "field")) {
-                        try layout_elements.append(.{ .field = try Field.parse(allocator, reader, current_ns) });
+                        try layout_elements.append(allocator, .{ .field = try Field.parse(allocator, reader, current_ns) });
                     } else if (child.is(ns.core, "record")) {
-                        try layout_elements.append(.{ .record = try AnonymousRecord.parse(allocator, reader, current_ns) });
+                        try layout_elements.append(allocator, .{ .record = try AnonymousRecord.parse(allocator, reader, current_ns) });
                     } else if (child.is(ns.core, "union")) {
-                        try layout_elements.append(.{ .@"union" = try AnonymousUnion.parse(allocator, reader, current_ns) });
+                        try layout_elements.append(allocator, .{ .@"union" = try AnonymousUnion.parse(allocator, reader, current_ns) });
                     } else if (child.is(ns.core, "function")) {
-                        try functions.append(try Function.parse(allocator, reader, current_ns));
+                        try functions.append(allocator, try Function.parse(allocator, reader, current_ns));
                     } else if (child.is(ns.core, "constructor")) {
-                        try constructors.append(try Constructor.parse(allocator, reader, current_ns));
+                        try constructors.append(allocator, try Constructor.parse(allocator, reader, current_ns));
                     } else if (child.is(ns.core, "method")) {
-                        try methods.append(try Method.parse(allocator, reader, current_ns));
+                        try methods.append(allocator, try Method.parse(allocator, reader, current_ns));
                     } else if (child.is(ns.core, "doc")) {
                         documentation = try Documentation.parse(allocator, reader);
                     } else {
@@ -772,10 +772,10 @@ pub const Record = struct {
         return .{
             .name = name,
             .c_type = c_type,
-            .layout_elements = try layout_elements.toOwnedSlice(),
-            .functions = try functions.toOwnedSlice(),
-            .constructors = try constructors.toOwnedSlice(),
-            .methods = try methods.toOwnedSlice(),
+            .layout_elements = try layout_elements.toOwnedSlice(allocator),
+            .functions = try functions.toOwnedSlice(allocator),
+            .constructors = try constructors.toOwnedSlice(allocator),
+            .methods = try methods.toOwnedSlice(allocator),
             .get_type = get_type,
             .disguised = disguised,
             .@"opaque" = @"opaque",
@@ -802,7 +802,7 @@ pub const Union = struct {
         return @"union".layout_elements.len == 0;
     }
 
-    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !Union {
+    fn parse(allocator: Allocator, reader: *xml.Reader, current_ns: []const u8) !Union {
         const name = name: {
             const index = reader.attributeIndex("name") orelse return error.InvalidGir;
             break :name try Name.parse(allocator, try reader.attributeValue(index), current_ns);
@@ -811,10 +811,10 @@ pub const Union = struct {
             const index = reader.attributeIndexNs(ns.c, "type") orelse break :c_type null;
             break :c_type try reader.attributeValueAlloc(allocator, index);
         };
-        var layout_elements = std.ArrayList(LayoutElement).init(allocator);
-        var functions = std.ArrayList(Function).init(allocator);
-        var constructors = std.ArrayList(Constructor).init(allocator);
-        var methods = std.ArrayList(Method).init(allocator);
+        var layout_elements: std.ArrayList(LayoutElement) = .empty;
+        var functions: std.ArrayList(Function) = .empty;
+        var constructors: std.ArrayList(Constructor) = .empty;
+        var methods: std.ArrayList(Method) = .empty;
         const get_type = get_type: {
             const index = reader.attributeIndexNs(ns.glib, "get-type") orelse break :get_type null;
             break :get_type try reader.attributeValueAlloc(allocator, index);
@@ -830,17 +830,17 @@ pub const Union = struct {
                 .element_start => {
                     const child = reader.elementNameNs();
                     if (child.is(ns.core, "field")) {
-                        try layout_elements.append(.{ .field = try Field.parse(allocator, reader, current_ns) });
+                        try layout_elements.append(allocator, .{ .field = try Field.parse(allocator, reader, current_ns) });
                     } else if (child.is(ns.core, "record")) {
-                        try layout_elements.append(.{ .record = try AnonymousRecord.parse(allocator, reader, current_ns) });
+                        try layout_elements.append(allocator, .{ .record = try AnonymousRecord.parse(allocator, reader, current_ns) });
                     } else if (child.is(ns.core, "union")) {
-                        try layout_elements.append(.{ .@"union" = try AnonymousUnion.parse(allocator, reader, current_ns) });
+                        try layout_elements.append(allocator, .{ .@"union" = try AnonymousUnion.parse(allocator, reader, current_ns) });
                     } else if (child.is(ns.core, "function")) {
-                        try functions.append(try Function.parse(allocator, reader, current_ns));
+                        try functions.append(allocator, try Function.parse(allocator, reader, current_ns));
                     } else if (child.is(ns.core, "constructor")) {
-                        try constructors.append(try Constructor.parse(allocator, reader, current_ns));
+                        try constructors.append(allocator, try Constructor.parse(allocator, reader, current_ns));
                     } else if (child.is(ns.core, "method")) {
-                        try methods.append(try Method.parse(allocator, reader, current_ns));
+                        try methods.append(allocator, try Method.parse(allocator, reader, current_ns));
                     } else if (child.is(ns.core, "doc")) {
                         documentation = try Documentation.parse(allocator, reader);
                     } else {
@@ -855,10 +855,10 @@ pub const Union = struct {
         return .{
             .name = name,
             .c_type = c_type,
-            .layout_elements = try layout_elements.toOwnedSlice(),
-            .functions = try functions.toOwnedSlice(),
-            .constructors = try constructors.toOwnedSlice(),
-            .methods = try methods.toOwnedSlice(),
+            .layout_elements = try layout_elements.toOwnedSlice(allocator),
+            .functions = try functions.toOwnedSlice(allocator),
+            .constructors = try constructors.toOwnedSlice(allocator),
+            .methods = try methods.toOwnedSlice(allocator),
             .get_type = get_type,
             .symbol_prefix = symbol_prefix,
             .documentation = documentation,
@@ -882,7 +882,7 @@ pub const Field = struct {
     bits: ?u16 = null,
     documentation: ?Documentation = null,
 
-    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !Field {
+    fn parse(allocator: Allocator, reader: *xml.Reader, current_ns: []const u8) !Field {
         const name = name: {
             const index = reader.attributeIndex("name") orelse return error.InvalidGir;
             break :name try reader.attributeValueAlloc(allocator, index);
@@ -934,19 +934,19 @@ pub const AnonymousRecord = struct {
     layout_elements: []const LayoutElement,
 
     // Explicit error type needed due to https://github.com/ziglang/zig/issues/2971
-    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) (@TypeOf(reader.*).ReadError || Allocator.Error || error{InvalidGir})!AnonymousRecord {
-        var layout_elements = std.ArrayList(LayoutElement).init(allocator);
+    fn parse(allocator: Allocator, reader: *xml.Reader, current_ns: []const u8) (@TypeOf(reader.*).ReadError || Allocator.Error || error{InvalidGir})!AnonymousRecord {
+        var layout_elements: std.ArrayList(LayoutElement) = .empty;
 
         while (true) {
             switch (try reader.read()) {
                 .element_start => {
                     const child = reader.elementNameNs();
                     if (child.is(ns.core, "field")) {
-                        try layout_elements.append(.{ .field = try Field.parse(allocator, reader, current_ns) });
+                        try layout_elements.append(allocator, .{ .field = try Field.parse(allocator, reader, current_ns) });
                     } else if (child.is(ns.core, "record")) {
-                        try layout_elements.append(.{ .record = try AnonymousRecord.parse(allocator, reader, current_ns) });
+                        try layout_elements.append(allocator, .{ .record = try AnonymousRecord.parse(allocator, reader, current_ns) });
                     } else if (child.is(ns.core, "union")) {
-                        try layout_elements.append(.{ .@"union" = try AnonymousUnion.parse(allocator, reader, current_ns) });
+                        try layout_elements.append(allocator, .{ .@"union" = try AnonymousUnion.parse(allocator, reader, current_ns) });
                     } else {
                         try reader.skipElement();
                     }
@@ -957,7 +957,7 @@ pub const AnonymousRecord = struct {
         }
 
         return .{
-            .layout_elements = try layout_elements.toOwnedSlice(),
+            .layout_elements = try layout_elements.toOwnedSlice(allocator),
         };
     }
 };
@@ -966,7 +966,7 @@ pub const AnonymousUnion = struct {
     layout_elements: []const LayoutElement,
 
     // Explicit error type needed due to https://github.com/ziglang/zig/issues/2971
-    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) (@TypeOf(reader.*).ReadError || Allocator.Error || error{InvalidGir})!AnonymousUnion {
+    fn parse(allocator: Allocator, reader: *xml.Reader, current_ns: []const u8) (@TypeOf(reader.*).ReadError || Allocator.Error || error{InvalidGir})!AnonymousUnion {
         // AnonymousUnion has the same structure as AnonymousRecord
         const record = try AnonymousRecord.parse(allocator, reader, current_ns);
         return .{
@@ -985,7 +985,7 @@ pub const BitField = struct {
     get_type: ?[]const u8 = null,
     documentation: ?Documentation = null,
 
-    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !BitField {
+    fn parse(allocator: Allocator, reader: *xml.Reader, current_ns: []const u8) !BitField {
         const name = name: {
             const index = reader.attributeIndex("name") orelse return error.InvalidGir;
             break :name try Name.parse(allocator, try reader.attributeValue(index), current_ns);
@@ -998,8 +998,8 @@ pub const BitField = struct {
             const index = reader.attributeIndex("bits") orelse break :bits null;
             break :bits std.fmt.parseInt(u16, try reader.attributeValue(index), 10) catch return error.InvalidGir;
         };
-        var members = std.ArrayList(Member).init(allocator);
-        var functions = std.ArrayList(Function).init(allocator);
+        var members: std.ArrayList(Member) = .empty;
+        var functions: std.ArrayList(Function) = .empty;
         const get_type = get_type: {
             const index = reader.attributeIndexNs(ns.glib, "get-type") orelse break :get_type null;
             break :get_type try reader.attributeValueAlloc(allocator, index);
@@ -1011,9 +1011,9 @@ pub const BitField = struct {
                 .element_start => {
                     const child = reader.elementNameNs();
                     if (child.is(ns.core, "member")) {
-                        try members.append(try Member.parse(allocator, reader));
+                        try members.append(allocator, try Member.parse(allocator, reader));
                     } else if (child.is(ns.core, "function")) {
-                        try functions.append(try Function.parse(allocator, reader, current_ns));
+                        try functions.append(allocator, try Function.parse(allocator, reader, current_ns));
                     } else if (child.is(ns.core, "doc")) {
                         documentation = try Documentation.parse(allocator, reader);
                     } else {
@@ -1029,8 +1029,8 @@ pub const BitField = struct {
             .name = name,
             .c_type = c_type,
             .bits = bits,
-            .members = try members.toOwnedSlice(),
-            .functions = try functions.toOwnedSlice(),
+            .members = try members.toOwnedSlice(allocator),
+            .functions = try functions.toOwnedSlice(allocator),
             .get_type = get_type,
             .documentation = documentation,
         };
@@ -1047,7 +1047,7 @@ pub const Enum = struct {
     get_type: ?[]const u8 = null,
     documentation: ?Documentation = null,
 
-    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !Enum {
+    fn parse(allocator: Allocator, reader: *xml.Reader, current_ns: []const u8) !Enum {
         const name = name: {
             const index = reader.attributeIndex("name") orelse return error.InvalidGir;
             break :name try Name.parse(allocator, try reader.attributeValue(index), current_ns);
@@ -1060,8 +1060,8 @@ pub const Enum = struct {
             const index = reader.attributeIndex("bits") orelse break :bits null;
             break :bits std.fmt.parseInt(u16, try reader.attributeValue(index), 10) catch return error.InvalidGir;
         };
-        var members = std.ArrayList(Member).init(allocator);
-        var functions = std.ArrayList(Function).init(allocator);
+        var members: std.ArrayList(Member) = .empty;
+        var functions: std.ArrayList(Function) = .empty;
         const get_type = get_type: {
             const index = reader.attributeIndexNs(ns.glib, "get-type") orelse break :get_type null;
             break :get_type try reader.attributeValueAlloc(allocator, index);
@@ -1073,9 +1073,9 @@ pub const Enum = struct {
                 .element_start => {
                     const child = reader.elementNameNs();
                     if (child.is(ns.core, "member")) {
-                        try members.append(try Member.parse(allocator, reader));
+                        try members.append(allocator, try Member.parse(allocator, reader));
                     } else if (child.is(ns.core, "function")) {
-                        try functions.append(try Function.parse(allocator, reader, current_ns));
+                        try functions.append(allocator, try Function.parse(allocator, reader, current_ns));
                     } else if (child.is(ns.core, "doc")) {
                         documentation = try Documentation.parse(allocator, reader);
                     } else {
@@ -1091,8 +1091,8 @@ pub const Enum = struct {
             .name = name,
             .c_type = c_type,
             .bits = bits,
-            .members = try members.toOwnedSlice(),
-            .functions = try functions.toOwnedSlice(),
+            .members = try members.toOwnedSlice(allocator),
+            .functions = try functions.toOwnedSlice(allocator),
             .get_type = get_type,
             .documentation = documentation,
         };
@@ -1104,7 +1104,7 @@ pub const Member = struct {
     value: i65, // big enough to hold an i32 or u64
     documentation: ?Documentation = null,
 
-    fn parse(allocator: Allocator, reader: anytype) !Member {
+    fn parse(allocator: Allocator, reader: *xml.Reader) !Member {
         const name = name: {
             const index = reader.attributeIndex("name") orelse return error.InvalidGir;
             break :name try reader.attributeValueAlloc(allocator, index);
@@ -1147,7 +1147,7 @@ pub const Function = struct {
     throws: bool = false,
     documentation: ?Documentation = null,
 
-    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !Function {
+    fn parse(allocator: Allocator, reader: *xml.Reader, current_ns: []const u8) !Function {
         const name = name: {
             const index = reader.attributeIndex("name") orelse return error.InvalidGir;
             break :name try reader.attributeValueAlloc(allocator, index);
@@ -1160,7 +1160,7 @@ pub const Function = struct {
             const index = reader.attributeIndex("moved-to") orelse break :moved_to null;
             break :moved_to try reader.attributeValueAlloc(allocator, index);
         };
-        var parameters = std.ArrayList(Parameter).init(allocator);
+        var parameters: std.ArrayList(Parameter) = .empty;
         var return_value: ?ReturnValue = null;
         const throws = throws: {
             const index = reader.attributeIndex("throws") orelse break :throws false;
@@ -1191,7 +1191,7 @@ pub const Function = struct {
             .name = name,
             .c_identifier = c_identifier,
             .moved_to = moved_to,
-            .parameters = try parameters.toOwnedSlice(),
+            .parameters = try parameters.toOwnedSlice(allocator),
             .return_value = return_value orelse return error.InvalidGir,
             .throws = throws,
             .documentation = documentation,
@@ -1208,7 +1208,7 @@ pub const Constructor = struct {
     throws: bool = false,
     documentation: ?Documentation = null,
 
-    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !Constructor {
+    fn parse(allocator: Allocator, reader: *xml.Reader, current_ns: []const u8) !Constructor {
         // Constructors currently have the same structure as functions
         const function = try Function.parse(allocator, reader, current_ns);
         return .{
@@ -1232,7 +1232,7 @@ pub const Method = struct {
     throws: bool = false,
     documentation: ?Documentation,
 
-    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !Method {
+    fn parse(allocator: Allocator, reader: *xml.Reader, current_ns: []const u8) !Method {
         // Methods currently have the same structure as functions
         const function = try Function.parse(allocator, reader, current_ns);
         return .{
@@ -1254,12 +1254,12 @@ pub const VirtualMethod = struct {
     throws: bool = false,
     documentation: ?Documentation = null,
 
-    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !VirtualMethod {
+    fn parse(allocator: Allocator, reader: *xml.Reader, current_ns: []const u8) !VirtualMethod {
         const name = name: {
             const index = reader.attributeIndex("name") orelse return error.InvalidGir;
             break :name try reader.attributeValueAlloc(allocator, index);
         };
-        var parameters = std.ArrayList(Parameter).init(allocator);
+        var parameters: std.ArrayList(Parameter) = .empty;
         var return_value: ?ReturnValue = null;
         const throws = throws: {
             const index = reader.attributeIndex("throws") orelse break :throws false;
@@ -1288,7 +1288,7 @@ pub const VirtualMethod = struct {
 
         return .{
             .name = name,
-            .parameters = try parameters.toOwnedSlice(),
+            .parameters = try parameters.toOwnedSlice(allocator),
             .return_value = return_value orelse return error.InvalidGir,
             .throws = throws,
             .documentation = documentation,
@@ -1301,7 +1301,7 @@ pub const Property = struct {
     type: AnyType,
     documentation: ?Documentation = null,
 
-    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !Property {
+    fn parse(allocator: Allocator, reader: *xml.Reader, current_ns: []const u8) !Property {
         const name = name: {
             const index = reader.attributeIndex("name") orelse return error.InvalidGir;
             break :name try reader.attributeValueAlloc(allocator, index);
@@ -1342,12 +1342,12 @@ pub const Signal = struct {
     return_value: ReturnValue,
     documentation: ?Documentation = null,
 
-    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !Signal {
+    fn parse(allocator: Allocator, reader: *xml.Reader, current_ns: []const u8) !Signal {
         const name = name: {
             const index = reader.attributeIndex("name") orelse return error.InvalidGir;
             break :name try reader.attributeValueAlloc(allocator, index);
         };
-        var parameters = std.ArrayList(Parameter).init(allocator);
+        var parameters: std.ArrayList(Parameter) = .empty;
         var return_value: ?ReturnValue = null;
         var documentation: ?Documentation = null;
 
@@ -1372,7 +1372,7 @@ pub const Signal = struct {
 
         return .{
             .name = name,
-            .parameters = try parameters.toOwnedSlice(),
+            .parameters = try parameters.toOwnedSlice(allocator),
             .return_value = return_value orelse return error.InvalidGir,
             .documentation = documentation,
         };
@@ -1386,7 +1386,7 @@ pub const Constant = struct {
     type: AnyType,
     documentation: ?Documentation = null,
 
-    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !Constant {
+    fn parse(allocator: Allocator, reader: *xml.Reader, current_ns: []const u8) !Constant {
         const name = name: {
             const index = reader.attributeIndex("name") orelse return error.InvalidGir;
             break :name try reader.attributeValueAlloc(allocator, index);
@@ -1441,7 +1441,7 @@ pub const Type = struct {
     c_type: ?[]const u8 = null,
     nullable: bool = false,
 
-    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !Type {
+    fn parse(allocator: Allocator, reader: *xml.Reader, current_ns: []const u8) !Type {
         const name = name: {
             const index = reader.attributeIndex("name") orelse break :name null;
             break :name try Name.parse(allocator, try reader.attributeValue(index), current_ns);
@@ -1472,7 +1472,7 @@ pub const ArrayType = struct {
     fixed_size: ?u32 = null,
     zero_terminated: bool = false,
 
-    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !ArrayType {
+    fn parse(allocator: Allocator, reader: *xml.Reader, current_ns: []const u8) !ArrayType {
         const name = name: {
             const index = reader.attributeIndex("name") orelse break :name null;
             break :name try Name.parse(allocator, try reader.attributeValue(index), current_ns);
@@ -1530,7 +1530,7 @@ pub const Callback = struct {
     throws: bool = false,
     documentation: ?Documentation = null,
 
-    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !Callback {
+    fn parse(allocator: Allocator, reader: *xml.Reader, current_ns: []const u8) !Callback {
         const name = name: {
             const index = reader.attributeIndex("name") orelse return error.InvalidGir;
             break :name try reader.attributeValueAlloc(allocator, index);
@@ -1539,7 +1539,7 @@ pub const Callback = struct {
             const index = reader.attributeIndexNs(ns.c, "type") orelse break :c_type null;
             break :c_type try reader.attributeValueAlloc(allocator, index);
         };
-        var parameters = std.ArrayList(Parameter).init(allocator);
+        var parameters: std.ArrayList(Parameter) = .empty;
         var return_value: ?ReturnValue = null;
         const throws = throws: {
             const index = reader.attributeIndex("throws") orelse break :throws false;
@@ -1569,7 +1569,7 @@ pub const Callback = struct {
         return .{
             .name = name,
             .c_type = c_type,
-            .parameters = try parameters.toOwnedSlice(),
+            .parameters = try parameters.toOwnedSlice(allocator),
             .return_value = return_value orelse return error.InvalidGir,
             .throws = throws,
             .documentation = documentation,
@@ -1606,13 +1606,13 @@ pub const Parameter = struct {
         return parameter.allow_none or parameter.nullable or parameter.optional;
     }
 
-    fn parseMany(allocator: Allocator, parameters: *std.ArrayList(Parameter), reader: anytype, current_ns: []const u8) !void {
+    fn parseMany(allocator: Allocator, parameters: *std.ArrayList(Parameter), reader: *xml.Reader, current_ns: []const u8) !void {
         while (true) {
             switch (try reader.read()) {
                 .element_start => {
                     const child = reader.elementNameNs();
                     if (child.is(ns.core, "parameter") or child.is(ns.core, "instance-parameter")) {
-                        try parameters.append(try parse(allocator, reader, current_ns, child.is(ns.core, "instance-parameter")));
+                        try parameters.append(allocator, try parse(allocator, reader, current_ns, child.is(ns.core, "instance-parameter")));
                     } else {
                         try reader.skipElement();
                     }
@@ -1623,7 +1623,7 @@ pub const Parameter = struct {
         }
     }
 
-    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8, instance: bool) !Parameter {
+    fn parse(allocator: Allocator, reader: *xml.Reader, current_ns: []const u8, instance: bool) !Parameter {
         const name = name: {
             const index = reader.attributeIndex("name") orelse return error.InvalidGir;
             break :name try reader.attributeValueAlloc(allocator, index);
@@ -1708,7 +1708,7 @@ pub const ReturnValue = struct {
         return return_value.allow_none or return_value.nullable;
     }
 
-    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !ReturnValue {
+    fn parse(allocator: Allocator, reader: *xml.Reader, current_ns: []const u8) !ReturnValue {
         var @"type": ?AnyType = null;
         const allow_none = allow_none: {
             const index = reader.attributeIndex("allow-none") orelse break :allow_none false;
@@ -1751,7 +1751,7 @@ pub const ReturnValue = struct {
 pub const Implements = struct {
     name: Name,
 
-    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !Implements {
+    fn parse(allocator: Allocator, reader: *xml.Reader, current_ns: []const u8) !Implements {
         const name = name: {
             const index = reader.attributeIndex("name") orelse return error.InvalidGir;
             break :name try Name.parse(allocator, try reader.attributeValue(index), current_ns);
@@ -1768,7 +1768,7 @@ pub const Implements = struct {
 pub const Prerequisite = struct {
     name: Name,
 
-    fn parse(allocator: Allocator, reader: anytype, current_ns: []const u8) !Prerequisite {
+    fn parse(allocator: Allocator, reader: *xml.Reader, current_ns: []const u8) !Prerequisite {
         const name = name: {
             const index = reader.attributeIndex("name") orelse return error.InvalidGir;
             break :name try Name.parse(allocator, try reader.attributeValue(index), current_ns);
@@ -1785,7 +1785,7 @@ pub const Prerequisite = struct {
 pub const Documentation = struct {
     text: []const u8,
 
-    fn parse(allocator: Allocator, reader: anytype) !Documentation {
+    fn parse(allocator: Allocator, reader: *xml.Reader) !Documentation {
         return .{
             .text = try reader.readElementTextAlloc(allocator),
         };
@@ -1796,7 +1796,7 @@ pub const Documentation = struct {
 // null namespace rather than the current namespace being translated. See also
 // the map of builtin translations in translate.zig. This map contains fewer
 // entries because it is only a set of GIR type names, not C type names.
-const builtin_names = std.StaticStringMap(void).initComptime(.{
+const builtin_names: std.StaticStringMap(void) = .initComptime(.{
     .{"gboolean"},
     .{"gchar"},
     .{"guchar"},

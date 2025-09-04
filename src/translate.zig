@@ -1,5 +1,5 @@
 const std = @import("std");
-const zigWriter = @import("zig_writer.zig").zigWriter;
+const ZigWriter = @import("ZigWriter.zig");
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const assert = std.debug.assert;
@@ -38,15 +38,15 @@ const TranslationContext = struct {
         const allocator = ctx.arena.allocator();
         var seen = RepositorySet.init(allocator);
         defer seen.deinit();
-        var needed_deps = std.ArrayList(gir.Include).init(allocator);
-        defer needed_deps.deinit();
-        try needed_deps.append(.{ .name = repository.namespace.name, .version = repository.namespace.version });
+        var needed_deps: std.ArrayList(gir.Include) = .empty;
+        defer needed_deps.deinit(allocator);
+        try needed_deps.append(allocator, .{ .name = repository.namespace.name, .version = repository.namespace.version });
         while (needed_deps.pop()) |needed_dep| {
             if (!seen.contains(needed_dep)) {
                 try seen.put(needed_dep, {});
                 if (repository_map.get(needed_dep)) |dep_repo| {
                     try ctx.addRepository(dep_repo);
-                    try needed_deps.appendSlice(dep_repo.includes);
+                    try needed_deps.appendSlice(allocator, dep_repo.includes);
                 }
             }
         }
@@ -365,7 +365,7 @@ pub fn createBindings(
             var ctx = TranslationContext.init(allocator);
             defer ctx.deinit();
             try ctx.addRepositoryAndDependencies(repo, repository_map);
-            translateRepository(
+            createRepositoryBindings(
                 allocator,
                 repo,
                 repository_map,
@@ -451,7 +451,7 @@ fn copyExtensionsFile(
     };
 }
 
-fn translateRepository(
+fn createRepositoryBindings(
     allocator: Allocator,
     repo: gir.Repository,
     repository_map: RepositoryMap,
@@ -460,32 +460,42 @@ fn translateRepository(
     deps: *Dependencies,
     diag: *Diagnostics,
 ) !void {
-    var raw_source = std.ArrayList(u8).init(allocator);
-    defer raw_source.deinit();
-    var out = zigWriter(raw_source.writer());
-
-    try out.print("pub const ext = @import(\"ext.zig\");\n", .{});
-
-    try translateIncludes(allocator, repo.namespace, repository_map, &out);
-    try translateNamespace(allocator, repo.namespace, ctx, &out);
-
-    try raw_source.append(0);
-    var ast = try std.zig.Ast.parse(allocator, raw_source.items[0 .. raw_source.items.len - 1 :0], .zig);
-    defer ast.deinit(allocator);
-    const fmt_source = try ast.render(allocator);
-    defer allocator.free(fmt_source);
+    const source = try createRepositoryBindingsSource(
+        allocator,
+        repo,
+        repository_map,
+        ctx,
+    );
+    defer allocator.free(source);
     const file_name = try fileNameAlloc(allocator, repo.namespace.name, repo.namespace.version);
     defer allocator.free(file_name);
     const output_path = try std.fs.path.join(allocator, &.{ output_dir_path, file_name });
     defer allocator.free(output_path);
-    std.fs.cwd().writeFile(.{ .sub_path = output_path, .data = fmt_source }) catch |err| {
+    std.fs.cwd().writeFile(.{ .sub_path = output_path, .data = source }) catch |err| {
         try diag.add("failed to write output source file {s}: {}", .{ output_path, err });
         return error.TranslateFailed;
     };
     try deps.addRepository(output_path, repo);
 }
 
-fn translateIncludes(allocator: Allocator, ns: gir.Namespace, repository_map: RepositoryMap, out: anytype) !void {
+fn createRepositoryBindingsSource(
+    allocator: Allocator,
+    repo: gir.Repository,
+    repository_map: RepositoryMap,
+    ctx: TranslationContext,
+) Allocator.Error![]u8 {
+    var out: ZigWriter = .init(allocator);
+    defer out.deinit();
+
+    try out.print("pub const ext = @import(\"ext.zig\");\n", .{});
+
+    try translateIncludes(allocator, repo.namespace, repository_map, &out);
+    try translateNamespace(allocator, repo.namespace, ctx, &out);
+
+    return try out.toFormatted();
+}
+
+fn translateIncludes(allocator: Allocator, ns: gir.Namespace, repository_map: RepositoryMap, out: *ZigWriter) !void {
     // Having the current namespace in scope using the same name makes type
     // translation logic simpler (no need to know what namespace we're in)
     const ns_lower = try std.ascii.allocLowerString(allocator, ns.name);
@@ -499,10 +509,10 @@ fn translateIncludes(allocator: Allocator, ns: gir.Namespace, repository_map: Re
 
     var seen = RepositorySet.init(allocator);
     defer seen.deinit();
-    var needed_deps = std.ArrayList(gir.Include).init(allocator);
-    defer needed_deps.deinit();
+    var needed_deps: std.ArrayList(gir.Include) = .empty;
+    defer needed_deps.deinit(allocator);
     if (repository_map.get(.{ .name = ns.name, .version = ns.version })) |dep_repo| {
-        try needed_deps.appendSlice(dep_repo.includes);
+        try needed_deps.appendSlice(allocator, dep_repo.includes);
     }
     while (needed_deps.pop()) |needed_dep| {
         if (!seen.contains(needed_dep)) {
@@ -514,33 +524,33 @@ fn translateIncludes(allocator: Allocator, ns: gir.Namespace, repository_map: Re
 
             try seen.put(needed_dep, {});
             if (repository_map.get(needed_dep)) |dep_repo| {
-                try needed_deps.appendSlice(dep_repo.includes);
+                try needed_deps.appendSlice(allocator, dep_repo.includes);
             }
         }
     }
 }
 
 fn fileNameAlloc(allocator: Allocator, name: []const u8, version: []const u8) ![]u8 {
-    return try std.fmt.allocPrint(allocator, "{}.zig", .{fmtModuleName(name, version)});
+    return try std.fmt.allocPrint(allocator, "{f}.zig", .{fmtModuleName(name, version)});
 }
 
 fn moduleNameAlloc(allocator: Allocator, name: []const u8, version: []const u8) ![]u8 {
-    return try std.fmt.allocPrint(allocator, "{}", .{fmtModuleName(name, version)});
+    return try std.fmt.allocPrint(allocator, "{f}", .{fmtModuleName(name, version)});
 }
 
-fn fmtModuleName(name: []const u8, version: []const u8) std.fmt.Formatter(formatModuleName) {
+fn fmtModuleName(name: []const u8, version: []const u8) std.fmt.Alt(gir.Include, formatModuleName) {
     return .{
         .data = .{ .name = name, .version = version },
     };
 }
 
-fn formatModuleName(mod: gir.Include, _: []const u8, _: std.fmt.FormatOptions, writer: anytype) @TypeOf(writer).Error!void {
+fn formatModuleName(mod: gir.Include, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     for (mod.name) |c| try writer.writeByte(std.ascii.toLower(c));
     const version_major_end = mem.indexOfScalar(u8, mod.version, '.') orelse mod.version.len;
     try writer.writeAll(mod.version[0..version_major_end]);
 }
 
-fn translateNamespace(allocator: Allocator, ns: gir.Namespace, ctx: TranslationContext, out: anytype) !void {
+fn translateNamespace(allocator: Allocator, ns: gir.Namespace, ctx: TranslationContext, out: *ZigWriter) !void {
     for (ns.aliases) |alias| {
         try translateAlias(allocator, alias, ctx, out);
     }
@@ -583,14 +593,14 @@ fn translateNamespace(allocator: Allocator, ns: gir.Namespace, ctx: TranslationC
     , .{});
 }
 
-fn translateAlias(allocator: Allocator, alias: gir.Alias, ctx: TranslationContext, out: anytype) !void {
+fn translateAlias(allocator: Allocator, alias: gir.Alias, ctx: TranslationContext, out: *ZigWriter) !void {
     try translateDocumentation(allocator, alias.documentation, ctx, out);
     try out.print("pub const $I = ", .{escapeTypeName(alias.name.local)});
     try translateType(allocator, alias.type, .{}, ctx, out);
     try out.print(";\n\n", .{});
 }
 
-fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContext, out: anytype) !void {
+fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContext, out: *ZigWriter) !void {
     try translateDocumentation(allocator, class.documentation, ctx, out);
     const name = escapeTypeName(class.name.local);
     try out.print("pub const $I = ", .{name});
@@ -672,7 +682,9 @@ fn translateClass(allocator: Allocator, class: gir.Class, ctx: TranslationContex
         try translateMethod(allocator, method, .{ .self_type = name }, ctx, out);
     }
 
-    try translateGetTypeFunction(allocator, "get_g_object_type", class.get_type, ctx, out);
+    if (class.get_type) |get_type| {
+        try translateGetTypeFunction(allocator, "get_g_object_type", get_type, ctx, out);
+    }
     if (!function_names.contains("ref")) {
         if (class.ref_func) |ref_func| {
             try translateRefFunction(allocator, "ref", ref_func, class.name, ctx, out);
@@ -719,7 +731,7 @@ fn classDerivesFromObject(class: gir.Class, ctx: TranslationContext) bool {
     }
 }
 
-fn translateInterface(allocator: Allocator, interface: gir.Interface, ctx: TranslationContext, out: anytype) !void {
+fn translateInterface(allocator: Allocator, interface: gir.Interface, ctx: TranslationContext, out: *ZigWriter) !void {
     // interface type
     try translateDocumentation(allocator, interface.documentation, ctx, out);
     const name = escapeTypeName(interface.name.local);
@@ -793,7 +805,9 @@ fn translateInterface(allocator: Allocator, interface: gir.Interface, ctx: Trans
         try translateMethod(allocator, method, .{ .self_type = name }, ctx, out);
     }
 
-    try translateGetTypeFunction(allocator, "get_g_object_type", interface.get_type, ctx, out);
+    if (interface.get_type) |get_type| {
+        try translateGetTypeFunction(allocator, "get_g_object_type", get_type, ctx, out);
+    }
     if (!function_names.contains("ref") and interfaceDerivesFromObject(interface, ctx)) {
         try translateRefFunction(allocator, "ref", "g_object_ref", interface.name, ctx, out);
     }
@@ -834,7 +848,7 @@ fn interfaceDerivesFromObject(interface: gir.Interface, ctx: TranslationContext)
     return false;
 }
 
-fn translateRecord(allocator: Allocator, record: gir.Record, ctx: TranslationContext, out: anytype) !void {
+fn translateRecord(allocator: Allocator, record: gir.Record, ctx: TranslationContext, out: *ZigWriter) !void {
     // record type
     try translateDocumentation(allocator, record.documentation, ctx, out);
     const name = escapeTypeName(record.name.local);
@@ -895,7 +909,7 @@ fn translateRecord(allocator: Allocator, record: gir.Record, ctx: TranslationCon
     try out.print("};\n\n", .{});
 }
 
-fn translateUnion(allocator: Allocator, @"union": gir.Union, ctx: TranslationContext, out: anytype) !void {
+fn translateUnion(allocator: Allocator, @"union": gir.Union, ctx: TranslationContext, out: *ZigWriter) !void {
     try translateDocumentation(allocator, @"union".documentation, ctx, out);
     const name = escapeTypeName(@"union".name.local);
     try out.print("pub const $I = ", .{name});
@@ -937,7 +951,7 @@ fn translateUnion(allocator: Allocator, @"union": gir.Union, ctx: TranslationCon
     try out.print("};\n\n", .{});
 }
 
-fn translateLayoutElements(allocator: Allocator, layout_elements: []const gir.LayoutElement, ctx: TranslationContext, out: anytype) !void {
+fn translateLayoutElements(allocator: Allocator, layout_elements: []const gir.LayoutElement, ctx: TranslationContext, out: *ZigWriter) !void {
     // This handling of bit fields makes no attempt to be general, so it can
     // avoid a lot of complexity present for bit fields in general. It only
     // handles bit fields backed by guint, and it assumes guint is 32 bits.
@@ -1005,7 +1019,7 @@ fn translateLayoutElements(allocator: Allocator, layout_elements: []const gir.La
     }
 }
 
-fn translateFieldType(allocator: Allocator, @"type": gir.FieldType, ctx: TranslationContext, out: anytype) !void {
+fn translateFieldType(allocator: Allocator, @"type": gir.FieldType, ctx: TranslationContext, out: *ZigWriter) !void {
     switch (@"type") {
         .simple => |simple_type| try translateType(allocator, simple_type, .{
             .nullable = true,
@@ -1019,7 +1033,7 @@ fn translateFieldType(allocator: Allocator, @"type": gir.FieldType, ctx: Transla
     }
 }
 
-fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: TranslationContext, out: anytype) !void {
+fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: TranslationContext, out: *ZigWriter) !void {
     var members = [1]?gir.Member{null} ** 64;
     var needs_u64 = false;
     for (bit_field.members) |member| {
@@ -1104,7 +1118,7 @@ fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: Transla
     try out.print("};\n\n", .{});
 }
 
-fn translateEnum(allocator: Allocator, @"enum": gir.Enum, ctx: TranslationContext, out: anytype) !void {
+fn translateEnum(allocator: Allocator, @"enum": gir.Enum, ctx: TranslationContext, out: *ZigWriter) !void {
     try translateDocumentation(allocator, @"enum".documentation, ctx, out);
     const name = escapeTypeName(@"enum".name.local);
 
@@ -1121,14 +1135,14 @@ fn translateEnum(allocator: Allocator, @"enum": gir.Enum, ctx: TranslationContex
     // "base" value
     var seen_values = std.AutoHashMap(i65, gir.Member).init(allocator);
     defer seen_values.deinit();
-    var duplicate_members = std.ArrayList(gir.Member).init(allocator);
-    defer duplicate_members.deinit();
+    var duplicate_members: std.ArrayList(gir.Member) = .empty;
+    defer duplicate_members.deinit(allocator);
     for (@"enum".members) |member| {
         if (seen_values.get(member.value) == null) {
             try out.print("$I = $L,\n", .{ member.name, member.value });
             try seen_values.put(member.value, member);
         } else {
-            try duplicate_members.append(member);
+            try duplicate_members.append(allocator, member);
         }
     }
     try out.print("_,\n\n", .{});
@@ -1165,7 +1179,7 @@ fn isFunctionTranslatable(function: gir.Function) bool {
     return function.moved_to == null;
 }
 
-fn translateFunction(allocator: Allocator, function: gir.Function, options: TranslateFunctionOptions, ctx: TranslationContext, out: anytype) !void {
+fn translateFunction(allocator: Allocator, function: gir.Function, options: TranslateFunctionOptions, ctx: TranslationContext, out: *ZigWriter) !void {
     if (!isFunctionTranslatable(function)) {
         return;
     }
@@ -1200,7 +1214,7 @@ fn translateFunction(allocator: Allocator, function: gir.Function, options: Tran
     }
 }
 
-fn translateGetTypeFunction(allocator: Allocator, name: []const u8, c_identifier: []const u8, ctx: TranslationContext, out: anytype) !void {
+fn translateGetTypeFunction(allocator: Allocator, name: []const u8, c_identifier: []const u8, ctx: TranslationContext, out: *ZigWriter) !void {
     try translateFunction(allocator, .{
         .name = name,
         .c_identifier = c_identifier,
@@ -1214,7 +1228,7 @@ fn translateGetTypeFunction(allocator: Allocator, name: []const u8, c_identifier
     }, .{}, ctx, out);
 }
 
-fn translateRefFunction(allocator: Allocator, name: []const u8, c_identifier: []const u8, container_name: gir.Name, ctx: TranslationContext, out: anytype) !void {
+fn translateRefFunction(allocator: Allocator, name: []const u8, c_identifier: []const u8, container_name: gir.Name, ctx: TranslationContext, out: *ZigWriter) !void {
     try translateFunction(allocator, .{
         .name = name,
         .c_identifier = c_identifier,
@@ -1240,7 +1254,7 @@ fn isConstructorTranslatable(constructor: gir.Constructor) bool {
     return constructor.moved_to == null;
 }
 
-fn translateConstructor(allocator: Allocator, constructor: gir.Constructor, container_name: gir.Name, ctx: TranslationContext, out: anytype) !void {
+fn translateConstructor(allocator: Allocator, constructor: gir.Constructor, container_name: gir.Name, ctx: TranslationContext, out: *ZigWriter) !void {
     var effective_return_value = constructor.return_value;
     effective_return_value.type = switch (constructor.return_value.type) {
         // Some constructors are actually specified to return supertypes of the
@@ -1274,7 +1288,7 @@ fn isMethodTranslatable(method: gir.Method) bool {
     return method.moved_to == null;
 }
 
-fn translateMethod(allocator: Allocator, method: gir.Method, options: TranslateFunctionOptions, ctx: TranslationContext, out: anytype) !void {
+fn translateMethod(allocator: Allocator, method: gir.Method, options: TranslateFunctionOptions, ctx: TranslationContext, out: *ZigWriter) !void {
     try translateFunction(allocator, .{
         .name = method.name,
         .c_identifier = method.c_identifier,
@@ -1286,7 +1300,7 @@ fn translateMethod(allocator: Allocator, method: gir.Method, options: TranslateF
     }, options, ctx, out);
 }
 
-fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMethod, type_name: []const u8, type_struct_name: []const u8, ctx: TranslationContext, out: anytype) !void {
+fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMethod, type_name: []const u8, type_struct_name: []const u8, ctx: TranslationContext, out: *ZigWriter) !void {
     try translateDocumentation(allocator, virtual_method.documentation, ctx, out);
     try out.print("pub const $I = struct {\n", .{virtual_method.name});
 
@@ -1338,7 +1352,7 @@ fn translateVirtualMethod(allocator: Allocator, virtual_method: gir.VirtualMetho
     try out.print("};\n\n", .{});
 }
 
-fn translateProperty(allocator: Allocator, property: gir.Property, ctx: TranslationContext, out: anytype) !void {
+fn translateProperty(allocator: Allocator, property: gir.Property, ctx: TranslationContext, out: *ZigWriter) !void {
     const name = try allocator.dupe(u8, property.name);
     defer allocator.free(name);
     mem.replaceScalar(u8, name, '-', '_');
@@ -1364,7 +1378,7 @@ fn translateProperty(allocator: Allocator, property: gir.Property, ctx: Translat
     try out.print("};\n\n", .{});
 }
 
-fn translateSignal(allocator: Allocator, signal: gir.Signal, type_name: []const u8, ctx: TranslationContext, out: anytype) !void {
+fn translateSignal(allocator: Allocator, signal: gir.Signal, type_name: []const u8, ctx: TranslationContext, out: *ZigWriter) !void {
     const name = try allocator.dupe(u8, signal.name);
     defer allocator.free(name);
     mem.replaceScalar(u8, name, '-', '_');
@@ -1401,7 +1415,7 @@ fn translateSignal(allocator: Allocator, signal: gir.Signal, type_name: []const 
     try out.print("};\n\n", .{});
 }
 
-fn translateConstant(allocator: Allocator, constant: gir.Constant, ctx: TranslationContext, out: anytype) !void {
+fn translateConstant(allocator: Allocator, constant: gir.Constant, ctx: TranslationContext, out: *ZigWriter) !void {
     try translateDocumentation(allocator, constant.documentation, ctx, out);
     if (constant.type == .simple and constant.type.simple.name != null and mem.eql(u8, constant.type.simple.name.?.local, "utf8")) {
         try out.print("pub const $I = $S;\n", .{ constant.name, constant.value });
@@ -1530,7 +1544,13 @@ fn typeIsPointer(@"type": gir.Type, gobject_context: bool, ctx: TranslationConte
     return gobject_context and ctx.isObjectType(name);
 }
 
-fn translateType(allocator: Allocator, @"type": gir.Type, options: TranslateTypeOptions, ctx: TranslationContext, out: anytype) Allocator.Error!void {
+fn translateType(
+    allocator: Allocator,
+    @"type": gir.Type,
+    options: TranslateTypeOptions,
+    ctx: TranslationContext,
+    out: *ZigWriter,
+) Allocator.Error!void {
     if (@"type".nullable or (options.nullable and typeIsPointer(@"type", options.gobject_context, ctx))) {
         try out.print("?", .{});
     }
@@ -1895,11 +1915,10 @@ fn testTranslateType(expected: []const u8, @"type": gir.Type, options: TestTrans
     var ctx = try options.initTranslationContext(std.testing.allocator);
     defer ctx.deinit();
 
-    var buf = std.ArrayList(u8).init(std.testing.allocator);
-    defer buf.deinit();
-    var out = zigWriter(buf.writer());
+    var out: ZigWriter = .init(std.testing.allocator);
+    defer out.deinit();
     try translateType(std.testing.allocator, @"type", options.toTranslateTypeOptions(), ctx, &out);
-    try expectEqualStrings(expected, buf.items);
+    try expectEqualStrings(expected, out.raw.items);
 }
 
 fn arrayTypeIsPointer(@"type": gir.ArrayType, gobject_context: bool, ctx: TranslationContext) bool {
@@ -1918,7 +1937,7 @@ fn arrayTypeIsPointer(@"type": gir.ArrayType, gobject_context: bool, ctx: Transl
     return false;
 }
 
-fn translateArrayType(allocator: Allocator, @"type": gir.ArrayType, options: TranslateTypeOptions, ctx: TranslationContext, out: anytype) !void {
+fn translateArrayType(allocator: Allocator, @"type": gir.ArrayType, options: TranslateTypeOptions, ctx: TranslationContext, out: *ZigWriter) !void {
     // This special case is useful for types like glib.Array which are
     // translated as array types even though they're not really arrays
     if (@"type".name != null and @"type".c_type != null) {
@@ -2141,11 +2160,10 @@ fn testTranslateArrayType(expected: []const u8, @"type": gir.ArrayType, options:
     var ctx = try options.initTranslationContext(std.testing.allocator);
     defer ctx.deinit();
 
-    var buf = std.ArrayList(u8).init(std.testing.allocator);
-    defer buf.deinit();
-    var out = zigWriter(buf.writer());
+    var out: ZigWriter = .init(std.testing.allocator);
+    defer out.deinit();
     try translateArrayType(std.testing.allocator, @"type", options.toTranslateTypeOptions(), ctx, &out);
-    try expectEqualStrings(expected, buf.items);
+    try expectEqualStrings(expected, out.raw.items);
 }
 
 fn zigTypeIsPointer(expected: []const u8) bool {
@@ -2185,7 +2203,7 @@ const TranslateCallbackOptions = struct {
     nullable: bool = false,
 };
 
-fn translateCallback(allocator: Allocator, callback: gir.Callback, options: TranslateCallbackOptions, ctx: TranslationContext, out: anytype) !void {
+fn translateCallback(allocator: Allocator, callback: gir.Callback, options: TranslateCallbackOptions, ctx: TranslationContext, out: *ZigWriter) !void {
     if (options.named) {
         try translateDocumentation(allocator, callback.documentation, ctx, out);
         try out.print("pub const $I = ", .{escapeTypeName(callback.name)});
@@ -2217,7 +2235,7 @@ const TranslateParametersOptions = struct {
     throws: bool = false,
 };
 
-fn translateParameters(allocator: Allocator, parameters: []const gir.Parameter, options: TranslateParametersOptions, ctx: TranslationContext, out: anytype) !void {
+fn translateParameters(allocator: Allocator, parameters: []const gir.Parameter, options: TranslateParametersOptions, ctx: TranslationContext, out: *ZigWriter) !void {
     // GIR does not appear to consider the instance-parameter when numbering
     // parameters for closure metadata
     const param_offset: usize = if (parameters.len > 0 and parameters[0].instance) 1 else 0;
@@ -2264,7 +2282,7 @@ const TranslateParameterOptions = struct {
     gobject_context: bool = false,
 };
 
-fn translateParameter(allocator: Allocator, parameter: gir.Parameter, options: TranslateParameterOptions, ctx: TranslationContext, out: anytype) !void {
+fn translateParameter(allocator: Allocator, parameter: gir.Parameter, options: TranslateParameterOptions, ctx: TranslationContext, out: *ZigWriter) !void {
     if (parameter.type == .varargs) {
         try out.print("...", .{});
         return;
@@ -2290,7 +2308,7 @@ fn translateParameter(allocator: Allocator, parameter: gir.Parameter, options: T
     }
 }
 
-fn translateParameterName(allocator: Allocator, parameter_name: []const u8, out: anytype) !void {
+fn translateParameterName(allocator: Allocator, parameter_name: []const u8, out: *ZigWriter) !void {
     const translated_name = try std.fmt.allocPrint(allocator, "p_{s}", .{parameter_name});
     defer allocator.free(translated_name);
     try out.print("$I", .{translated_name});
@@ -2305,7 +2323,7 @@ const TranslateReturnValueOptions = struct {
     gobject_context: bool = false,
 };
 
-fn translateReturnValue(allocator: Allocator, return_value: gir.ReturnValue, options: TranslateReturnValueOptions, ctx: TranslationContext, out: anytype) !void {
+fn translateReturnValue(allocator: Allocator, return_value: gir.ReturnValue, options: TranslateReturnValueOptions, ctx: TranslationContext, out: *ZigWriter) !void {
     switch (return_value.type) {
         .simple => |simple_type| try translateType(allocator, simple_type, .{
             .nullable = options.force_nullable or return_value.isNullable(),
@@ -2538,7 +2556,7 @@ comptime {
     _ = Symbol; // Ensure nested tests are run
 }
 
-fn translateDocumentation(allocator: Allocator, documentation: ?gir.Documentation, ctx: TranslationContext, out: anytype) !void {
+fn translateDocumentation(allocator: Allocator, documentation: ?gir.Documentation, ctx: TranslationContext, out: *ZigWriter) !void {
     if (documentation) |doc| {
         var lines = mem.splitScalar(u8, doc.text, '\n');
         while (lines.next()) |line| {
@@ -2741,7 +2759,7 @@ fn translateDocumentation(allocator: Allocator, documentation: ?gir.Documentatio
     }
 }
 
-fn translateSymbolLink(allocator: Allocator, symbol: Symbol, ctx: TranslationContext, out: anytype) !void {
+fn translateSymbolLink(allocator: Allocator, symbol: Symbol, ctx: TranslationContext, out: *ZigWriter) !void {
     switch (symbol) {
         .alias,
         .callback,
@@ -2853,7 +2871,7 @@ fn escapeTypeName(name: []const u8) []const u8 {
     return type_name_escapes.get(name) orelse name;
 }
 
-fn translateName(allocator: Allocator, name: gir.Name, out: anytype) !void {
+fn translateName(allocator: Allocator, name: gir.Name, out: *ZigWriter) !void {
     try translateNameNs(allocator, name.ns, out);
     var local_parts = mem.splitScalar(u8, name.local, '.');
     try out.print("$I", .{escapeTypeName(local_parts.first())});
@@ -2862,7 +2880,7 @@ fn translateName(allocator: Allocator, name: gir.Name, out: anytype) !void {
     }
 }
 
-fn translateNameNs(allocator: Allocator, nameNs: ?[]const u8, out: anytype) !void {
+fn translateNameNs(allocator: Allocator, nameNs: ?[]const u8, out: *ZigWriter) !void {
     if (nameNs != null) {
         const type_ns = try std.ascii.allocLowerString(allocator, nameNs.?);
         defer allocator.free(type_ns);
@@ -2871,8 +2889,7 @@ fn translateNameNs(allocator: Allocator, nameNs: ?[]const u8, out: anytype) !voi
 }
 
 fn toCamelCase(allocator: Allocator, name: []const u8, word_sep: u8) ![]u8 {
-    var out = std.ArrayList(u8).init(allocator);
-    try out.ensureTotalCapacity(name.len);
+    var out: std.ArrayList(u8) = try .initCapacity(allocator, name.len);
     var words = mem.splitScalar(u8, name, word_sep);
     var i: usize = 0;
     while (words.next()) |word| {
@@ -2888,7 +2905,7 @@ fn toCamelCase(allocator: Allocator, name: []const u8, word_sep: u8) ![]u8 {
             out.appendSliceAssumeCapacity("_");
         }
     }
-    return try out.toOwnedSlice();
+    return try out.toOwnedSlice(allocator);
 }
 
 test "toCamelCase" {
@@ -2929,7 +2946,7 @@ fn createBuildZig(
     output_dir_path: []const u8,
     deps: *Dependencies,
     diag: *Diagnostics,
-) !void {
+) Allocator.Error!void {
     const output_path = try std.fs.path.join(allocator, &.{ output_dir_path, "build.zig" });
     defer allocator.free(output_path);
 
@@ -2939,9 +2956,55 @@ fn createBuildZig(
         try repository_map.put(.{ .name = repo.namespace.name, .version = repo.namespace.version }, repo);
     }
 
-    var raw_source = std.ArrayList(u8).init(allocator);
-    defer raw_source.deinit();
-    var out = zigWriter(raw_source.writer());
+    {
+        // We need a root source files for the docs to reference all the modules.
+        const docs_root_dir = try std.fs.path.join(allocator, &.{ output_dir_path, "src", "root" });
+        defer allocator.free(docs_root_dir);
+        std.fs.cwd().makePath(docs_root_dir) catch |err|
+            return diag.add("failed to create docs root module directory {s}: {}", .{ docs_root_dir, err });
+        const docs_root_path = try std.fs.path.join(allocator, &.{ docs_root_dir, "root.zig" });
+        defer allocator.free(docs_root_path);
+        const docs_root_source = try createDocsRootSource(allocator, repositories);
+        defer allocator.free(docs_root_source);
+        std.fs.cwd().writeFile(.{ .sub_path = docs_root_path, .data = docs_root_source }) catch |err|
+            return diag.add("failed to write docs root module file {s}: {}", .{ docs_root_path, err });
+    }
+
+    const source = try createBuildZigSource(
+        allocator,
+        repositories,
+        repository_map,
+        output_path,
+        deps,
+    );
+    defer allocator.free(source);
+    std.fs.cwd().writeFile(.{ .sub_path = output_path, .data = source }) catch |err|
+        return diag.add("failed to write {s}: {}", .{ output_path, err });
+}
+
+fn createDocsRootSource(
+    allocator: Allocator,
+    repositories: []const gir.Repository,
+) Allocator.Error![]u8 {
+    var out: ZigWriter = .init(allocator);
+    defer out.deinit();
+    for (repositories) |repo| {
+        const module_name = try moduleNameAlloc(allocator, repo.namespace.name, repo.namespace.version);
+        defer allocator.free(module_name);
+        try out.print("pub const $I = @import($S);\n", .{ module_name, module_name });
+    }
+    return try out.toFormatted();
+}
+
+fn createBuildZigSource(
+    allocator: Allocator,
+    repositories: []const gir.Repository,
+    repository_map: RepositoryMap,
+    output_path: []const u8,
+    deps: *Dependencies,
+) Allocator.Error![]u8 {
+    var out: ZigWriter = .init(allocator);
+    defer out.deinit();
 
     try out.print("$L\n", .{@embedFile("build/build_base.zig")});
 
@@ -2983,12 +3046,41 @@ fn createBuildZig(
         const test_name = try std.fmt.allocPrint(allocator, "{s}_test", .{module_name});
         defer allocator.free(test_name);
 
-        try out.print(
-            \\const $I = b.addTest(.{
-            \\    .root_module = $I,
-            \\});
-            \\
-        , .{ test_name, module_name });
+        // Unfortunately, GLib requires some special handling for testing. Some
+        // of the functions in GLib require GObject to be linked, but we don't
+        // really want to enforce GObject as a mandatory dependency of GLib,
+        // since it's still possible to use GLib without GObject as long as
+        // those functions aren't used.
+        // As such, for GLib specifically, we create a hard-coded special test
+        // module.
+        if (mem.eql(u8, module_name, "glib2")) {
+            try out.print(
+                \\const glib2_test_mod = b.createModule(.{
+                \\    .root_source_file = b.path("src/glib2/glib2.zig"),
+                \\    .target = target,
+                \\    .optimize = optimize,
+                \\});
+                \\libraries.glib2.linkTo(glib2_test_mod);
+                \\libraries.gobject2.linkTo(glib2_test_mod);
+                \\// Some deprecated thread functions require linking gthread-2.0
+                \\glib2_test_mod.linkSystemLibrary("gthread-2.0", .{ .use_pkg_config = .force });
+                \\glib2_test_mod.addImport("compat", compat);
+                \\glib2_test_mod.addImport("glib2", glib2_test_mod);
+                \\
+                \\const $I = b.addTest(.{
+                \\    .root_module = glib2_test_mod,
+                \\});
+                \\
+            , .{test_name});
+        } else {
+            try out.print(
+                \\const $I = b.addTest(.{
+                \\    .root_module = $I,
+                \\});
+                \\
+            , .{ test_name, module_name });
+        }
+
         try out.print("test_step.dependOn(&b.addRunArtifact($I).step);\n\n", .{test_name});
     }
 
@@ -2998,10 +3090,10 @@ fn createBuildZig(
 
         var seen = RepositorySet.init(allocator);
         defer seen.deinit();
-        var needed_deps = std.ArrayList(gir.Include).init(allocator);
-        defer needed_deps.deinit();
+        var needed_deps: std.ArrayList(gir.Include) = .empty;
+        defer needed_deps.deinit(allocator);
         if (repository_map.get(.{ .name = repo.namespace.name, .version = repo.namespace.version })) |dep_repo| {
-            try needed_deps.appendSlice(dep_repo.includes);
+            try needed_deps.appendSlice(allocator, dep_repo.includes);
         }
         while (needed_deps.pop()) |needed_dep| {
             if (!seen.contains(needed_dep)) {
@@ -3011,7 +3103,7 @@ fn createBuildZig(
 
                 try seen.put(needed_dep, {});
                 if (repository_map.get(needed_dep)) |dep_repo| {
-                    try needed_deps.appendSlice(dep_repo.includes);
+                    try needed_deps.appendSlice(allocator, dep_repo.includes);
                 }
             }
         }
@@ -3021,25 +3113,6 @@ fn createBuildZig(
     }
 
     // Docs
-    {
-        // We need a root source files for the docs to reference all the modules.
-        const docs_root_dir = try std.fs.path.join(allocator, &.{ output_dir_path, "src", "root" });
-        defer allocator.free(docs_root_dir);
-        std.fs.cwd().makePath(docs_root_dir) catch |err|
-            return diag.add("failed to create docs root module directory {s}: {}", .{ docs_root_dir, err });
-        const docs_root_path = try std.fs.path.join(allocator, &.{ docs_root_dir, "root.zig" });
-        defer allocator.free(docs_root_path);
-        var docs_root_source = std.ArrayList(u8).init(allocator);
-        defer docs_root_source.deinit();
-        var docs_root_out = zigWriter(docs_root_source.writer());
-        for (repositories) |repo| {
-            const module_name = try moduleNameAlloc(allocator, repo.namespace.name, repo.namespace.version);
-            defer allocator.free(module_name);
-            try docs_root_out.print("pub const $I = @import($S);\n", .{ module_name, module_name });
-        }
-        std.fs.cwd().writeFile(.{ .sub_path = docs_root_path, .data = docs_root_source.items }) catch |err|
-            return diag.add("failed to write docs root module file {s}: {}", .{ docs_root_path, err });
-    }
     try out.print(
         \\const docs_mod = b.createModule(.{
         \\    .root_source_file = b.path("src/root/root.zig"),
@@ -3084,13 +3157,7 @@ fn createBuildZig(
     }
     try out.print("};\n\n", .{});
 
-    try raw_source.append(0);
-    var ast = try std.zig.Ast.parse(allocator, raw_source.items[0 .. raw_source.items.len - 1 :0], .zig);
-    defer ast.deinit(allocator);
-    const fmt_source = try ast.render(allocator);
-    defer allocator.free(fmt_source);
-    std.fs.cwd().writeFile(.{ .sub_path = output_path, .data = fmt_source }) catch |err|
-        return diag.add("failed to write {s}: {}", .{ output_path, err });
+    return try out.toFormatted();
 }
 
 fn createBuildZon(
@@ -3109,7 +3176,7 @@ fn createBuildZon(
         \\    .name = .gobject,
         \\    .version = "0.3.0",
         \\    .fingerprint = 0xca12a75aeca74b4a, // Changing this has security and trust implications.
-        \\    .minimum_zig_version = "0.14.0",
+        \\    .minimum_zig_version = "0.15.1",
         \\    .paths = .{
         \\        "build",
         \\        "src",
@@ -3169,364 +3236,16 @@ pub fn createAbiTests(
     }
 
     for (repositories) |repo| {
-        var raw_source = std.ArrayList(u8).init(allocator);
-        defer raw_source.deinit();
-        var out = zigWriter(raw_source.writer());
-
-        const ns = repo.namespace;
-        const pkg = try std.ascii.allocLowerString(allocator, ns.name);
-        defer allocator.free(pkg);
-
-        try out.print("const c = @cImport({\n", .{});
-        for (repo.c_includes) |c_include| {
-            try out.print("@cInclude($S);\n", .{c_include.name});
-        }
-        try out.print("});\n", .{});
-        try out.print("const std = @import(\"std\");\n", .{});
-        try out.print("const compat = @import(\"compat.zig\");\n", .{});
-        const import_name = try moduleNameAlloc(allocator, ns.name, ns.version);
+        const import_name = try moduleNameAlloc(allocator, repo.namespace.name, repo.namespace.version);
         defer allocator.free(import_name);
-        try out.print("const $I = @import($S);\n\n", .{ pkg, import_name });
 
-        try out.print(
-            \\fn checkCompatibility(comptime ExpectedType: type, comptime ActualType: type) !void {
-            \\    // translate-c doesn't seem to want to translate va_list to std.builtin.VaList
-            \\    if (ActualType == std.builtin.VaList) return;
-            \\
-            \\    const expected_type_info = @typeInfo(ExpectedType);
-            \\    const actual_type_info = @typeInfo(ActualType);
-            \\    switch (expected_type_info) {
-            \\        .void => switch (actual_type_info) {
-            \\            .void => {},
-            \\            else => {
-            \\                std.debug.print("incompatible types: expected {s}, actual {s}\n", .{@typeName(ExpectedType), @typeName(ActualType)});
-            \\                return error.TestUnexpectedType;
-            \\            },
-            \\        },
-            \\        .bool => switch (actual_type_info) {
-            \\            .bool => {},
-            \\            else => {
-            \\                std.debug.print("incompatible types: expected {s}, actual {s}\n", .{@typeName(ExpectedType), @typeName(ActualType)});
-            \\                return error.TestUnexpectedType;
-            \\            },
-            \\        },
-            \\        .float => |expected_float| switch (actual_type_info) {
-            \\            .float => |actual_float| try std.testing.expectEqual(expected_float.bits, actual_float.bits),
-            \\            else => {
-            \\                std.debug.print("incompatible types: expected {s}, actual {s}\n", .{@typeName(ExpectedType), @typeName(ActualType)});
-            \\                return error.TestUnexpectedType;
-            \\            },
-            \\        },
-            \\        .array => |expected_array| switch (actual_type_info) {
-            \\            .array => |actual_array| {
-            \\                try std.testing.expectEqual(expected_array.len, actual_array.len);
-            \\                try checkCompatibility(expected_array.child, actual_array.child);
-            \\            },
-            \\            else => {
-            \\                std.debug.print("incompatible types: expected {s}, actual {s}\n", .{@typeName(ExpectedType), @typeName(ActualType)});
-            \\                return error.TestUnexpectedType;
-            \\            },
-            \\        },
-            \\        .@"struct" => switch (actual_type_info) {
-            \\            .@"struct" => {
-            \\                try std.testing.expectEqual(@sizeOf(ExpectedType), @sizeOf(ActualType));
-            \\                try std.testing.expectEqual(@alignOf(ExpectedType), @alignOf(ActualType));
-            \\            },
-            \\            else => {
-            \\                std.debug.print("incompatible types: expected {s}, actual {s}\n", .{@typeName(ExpectedType), @typeName(ActualType)});
-            \\                return error.TestUnexpectedType;
-            \\            },
-            \\        },
-            \\        .@"union" => switch (actual_type_info) {
-            \\            .@"union" => {
-            \\                try std.testing.expectEqual(@sizeOf(ExpectedType), @sizeOf(ActualType));
-            \\                try std.testing.expectEqual(@alignOf(ExpectedType), @alignOf(ActualType));
-            \\            },
-            \\            else => {
-            \\                std.debug.print("incompatible types: expected {s}, actual {s}\n", .{@typeName(ExpectedType), @typeName(ActualType)});
-            \\                return error.TestUnexpectedType;
-            \\            },
-            \\        },
-            \\        // Opaque types show up more frequently in translate-c output due to its
-            \\        // limitations. We'll just treat "opaque" as "I don't know" and accept any
-            \\        // translation from zig-gobject.
-            \\        .@"opaque" => {},
-            \\        .int => |expected_int| switch (actual_type_info) {
-            \\            // Checking signedness here turns out to be too strict for many cases
-            \\            // and does not affect actual ABI compatibility.
-            \\            .int => |actual_int| try std.testing.expectEqual(expected_int.bits, actual_int.bits),
-            \\            .@"enum" => |actual_enum| try checkCompatibility(ExpectedType, actual_enum.tag_type),
-            \\            .@"struct" => |actual_struct| {
-            \\                try std.testing.expect(actual_struct.layout == .@"packed");
-            \\                try checkCompatibility(ExpectedType, actual_struct.backing_integer.?);
-            \\            },
-            \\            else => {
-            \\                std.debug.print("incompatible types: expected {s}, actual {s}\n", .{@typeName(ExpectedType), @typeName(ActualType)});
-            \\                return error.TestUnexpectedType;
-            \\            },
-            \\        },
-            \\        // Pointers are tricky to assert on, since we may translate some pointers
-            \\        // differently from how they appear in C (e.g. *GtkWindow rather than *GtkWidget)
-            \\        .pointer => switch (actual_type_info) {
-            \\            .pointer => {},
-            \\            .@"optional" => |actual_optional| try std.testing.expect(@typeInfo(actual_optional.child) == .pointer),
-            \\            else => {
-            \\                std.debug.print("incompatible types: expected {s}, actual {s}\n", .{@typeName(ExpectedType), @typeName(ActualType)}) ;
-            \\                return error.TestUnexpectedType;
-            \\            }
-            \\        },
-            \\        .@"optional" => |expected_optional| switch (@typeInfo(expected_optional.child)) {
-            \\            .pointer => try checkCompatibility(expected_optional.child, ActualType),
-            \\            else => {
-            \\                std.debug.print("unexpected C translated type: {s}\n", .{@typeName(ExpectedType)});
-            \\                return error.TestUnexpectedType;
-            \\            }
-            \\        },
-            \\        .@"fn" => |expected_fn| switch (actual_type_info) {
-            \\            .@"fn" => |actual_fn| {
-            \\                try std.testing.expectEqual(expected_fn.params.len, actual_fn.params.len);
-            \\                try std.testing.expectEqual(expected_fn.calling_convention, actual_fn.calling_convention);
-            \\                // The special casing of zero arguments here is because there are some
-            \\                // headers (specifically in IBus) which do not properly use the (void)
-            \\                // parameter list, so the function is translated as varargs even though
-            \\                // it wasn't intended to be.
-            \\                try std.testing.expect(expected_fn.is_var_args == actual_fn.is_var_args or (expected_fn.is_var_args and expected_fn.params.len == 0));
-            \\                try std.testing.expect(expected_fn.return_type != null);
-            \\                try std.testing.expect(actual_fn.return_type != null);
-            \\                try checkCompatibility(expected_fn.return_type.?, actual_fn.return_type.?);
-            \\                inline for (expected_fn.params, actual_fn.params) |expected_param, actual_param| {
-            \\                    try std.testing.expect(expected_param.type != null);
-            \\                    try std.testing.expect(actual_param.type != null);
-            \\                    try checkCompatibility(expected_param.type.?, actual_param.type.?);
-            \\                }
-            \\            },
-            \\            else => {
-            \\                std.debug.print("incompatible types: expected {s}, actual {s}\n", .{@typeName(ExpectedType), @typeName(ActualType)}) ;
-            \\                return error.TestUnexpectedType;
-            \\            }
-            \\        },
-            \\        else => {
-            \\            std.debug.print("unexpected C translated type: {s}\n", .{@typeName(ExpectedType)});
-            \\            return error.TestUnexpectedType;
-            \\        },
-            \\    }
-            \\}
-            \\
-            \\
-        , .{});
-
-        for (ns.aliases) |alias| {
-            const alias_name = escapeTypeName(alias.name.local);
-            if (alias.c_type) |c_type| {
-                try out.print("test $S {\n", .{alias_name});
-                try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_type});
-                try out.print(
-                    \\const ExpectedType = c.$I;
-                    \\const ActualType = $I.$I;
-                    \\try checkCompatibility(ExpectedType, ActualType);
-                    \\
-                , .{ c_type, pkg, alias_name });
-                try out.print("}\n\n", .{});
-            }
-        }
-
-        for (ns.classes) |class| {
-            const class_name = escapeTypeName(class.name.local);
-            // containsBitField: https://github.com/ziglang/zig/issues/1499
-            if (!class.isOpaque() and !containsBitField(class.layout_elements)) {
-                if (class.c_type) |c_type| {
-                    try out.print("test $S {\n", .{class_name});
-                    try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_type});
-                    try out.print(
-                        \\const ExpectedType = c.$I;
-                        \\const ActualType = $I.$I;
-                        \\try std.testing.expect(@typeInfo(ExpectedType) == .@"struct");
-                        \\try checkCompatibility(ExpectedType, ActualType);
-                        \\
-                    , .{ c_type, pkg, class_name });
-                    try out.print("}\n\n", .{});
-                }
-            }
-            for (class.constructors) |constructor| {
-                if (isConstructorTranslatable(constructor)) {
-                    const constructor_name = try toCamelCase(allocator, constructor.name, '_');
-                    defer allocator.free(constructor_name);
-                    try createFunctionTest(constructor.c_identifier, pkg, class_name, constructor_name, &out);
-                }
-            }
-            for (class.functions) |function| {
-                if (isFunctionTranslatable(function)) {
-                    const function_name = try toCamelCase(allocator, function.name, '_');
-                    defer allocator.free(function_name);
-                    try createFunctionTest(function.c_identifier, pkg, class_name, function_name, &out);
-                }
-            }
-            for (class.methods) |method| {
-                if (isMethodTranslatable(method)) {
-                    const method_name = try toCamelCase(allocator, method.name, '_');
-                    defer allocator.free(method_name);
-                    try createMethodTest(method.c_identifier, pkg, class_name, method_name, &out);
-                }
-            }
-        }
-
-        for (ns.records) |record| {
-            const record_name = escapeTypeName(record.name.local);
-            // containsBitField: https://github.com/ziglang/zig/issues/1499
-            if (!record.isOpaque() and !containsBitField(record.layout_elements)) {
-                if (record.c_type) |c_type| {
-                    try out.print("test $S {\n", .{record_name});
-                    try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_type});
-                    try out.print(
-                        \\const ExpectedType = c.$I;
-                        \\const ActualType = $I.$I;
-                        \\
-                    , .{ c_type, pkg, record_name });
-                    if (record.isPointer()) {
-                        try out.print("try std.testing.expect(@typeInfo(ExpectedType) == .pointer);\n", .{});
-                    } else {
-                        try out.print("try std.testing.expect(@typeInfo(ExpectedType) == .@\"struct\");\n", .{});
-                    }
-                    try out.print("try checkCompatibility(ExpectedType, ActualType);\n", .{});
-                    try out.print("}\n\n", .{});
-                }
-            }
-            if (!record.isPointer()) {
-                for (record.constructors) |constructor| {
-                    if (isConstructorTranslatable(constructor)) {
-                        const constructor_name = try toCamelCase(allocator, constructor.name, '_');
-                        defer allocator.free(constructor_name);
-                        try createFunctionTest(constructor.c_identifier, pkg, record_name, constructor_name, &out);
-                    }
-                }
-                for (record.functions) |function| {
-                    if (isFunctionTranslatable(function)) {
-                        const function_name = try toCamelCase(allocator, function.name, '_');
-                        defer allocator.free(function_name);
-                        try createFunctionTest(function.c_identifier, pkg, record_name, function_name, &out);
-                    }
-                }
-                for (record.methods) |method| {
-                    if (isMethodTranslatable(method)) {
-                        const method_name = try toCamelCase(allocator, method.name, '_');
-                        defer allocator.free(method_name);
-                        try createMethodTest(method.c_identifier, pkg, record_name, method_name, &out);
-                    }
-                }
-            }
-        }
-
-        for (ns.unions) |@"union"| {
-            const union_name = escapeTypeName(@"union".name.local);
-            if (!@"union".isOpaque()) {
-                if (@"union".c_type) |c_type| {
-                    try out.print("test $S {\n", .{union_name});
-                    try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_type});
-                    try out.print(
-                        \\const ExpectedType = c.$I;
-                        \\const ActualType = $I.$I;
-                        \\try std.testing.expect(@typeInfo(ExpectedType) == .@"union");
-                        \\try checkCompatibility(ExpectedType, ActualType);
-                        \\
-                    , .{ c_type, pkg, union_name });
-                    try out.print("}\n\n", .{});
-                }
-            }
-            for (@"union".constructors) |constructor| {
-                if (isConstructorTranslatable(constructor)) {
-                    const constructor_name = try toCamelCase(allocator, constructor.name, '_');
-                    defer allocator.free(constructor_name);
-                    try createFunctionTest(constructor.c_identifier, pkg, union_name, constructor_name, &out);
-                }
-            }
-            for (@"union".functions) |function| {
-                if (isFunctionTranslatable(function)) {
-                    const function_name = try toCamelCase(allocator, function.name, '_');
-                    defer allocator.free(function_name);
-                    try createFunctionTest(function.c_identifier, pkg, union_name, function_name, &out);
-                }
-            }
-            for (@"union".methods) |method| {
-                if (isMethodTranslatable(method)) {
-                    const method_name = try toCamelCase(allocator, method.name, '_');
-                    defer allocator.free(method_name);
-                    try createMethodTest(method.c_identifier, pkg, union_name, method_name, &out);
-                }
-            }
-        }
-
-        for (ns.bit_fields) |bit_field| {
-            const bit_field_name = escapeTypeName(bit_field.name.local);
-            if (bit_field.c_type) |c_type| {
-                try out.print("test $S {\n", .{bit_field_name});
-                try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_type});
-                try out.print(
-                    \\const ExpectedType = c.$I;
-                    \\const ActualType = $I.$I;
-                    \\try std.testing.expect(@typeInfo(ExpectedType) == .int);
-                    \\try checkCompatibility(ExpectedType, ActualType);
-                    \\
-                , .{ c_type, pkg, bit_field_name });
-                try out.print("}\n\n", .{});
-            }
-            for (bit_field.functions) |function| {
-                if (isFunctionTranslatable(function)) {
-                    const function_name = try toCamelCase(allocator, function.name, '_');
-                    defer allocator.free(function_name);
-                    try createFunctionTest(function.c_identifier, pkg, bit_field_name, function_name, &out);
-                }
-            }
-        }
-
-        for (ns.enums) |@"enum"| {
-            const enum_name = escapeTypeName(@"enum".name.local);
-            if (@"enum".c_type) |c_type| {
-                try out.print("test $S {\n", .{enum_name});
-                try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_type});
-                try out.print(
-                    \\const ExpectedType = c.$I;
-                    \\const ActualType = $I.$I;
-                    \\try std.testing.expect(@typeInfo(ExpectedType) == .int);
-                    \\try checkCompatibility(ExpectedType, ActualType);
-                    \\
-                , .{ c_type, pkg, enum_name });
-                try out.print("}\n\n", .{});
-            }
-            for (@"enum".functions) |function| {
-                if (isFunctionTranslatable(function)) {
-                    const function_name = try toCamelCase(allocator, function.name, '_');
-                    defer allocator.free(function_name);
-                    try createFunctionTest(function.c_identifier, pkg, enum_name, function_name, &out);
-                }
-            }
-        }
-
-        for (ns.functions) |function| {
-            if (!isFunctionTranslatable(function)) continue;
-            const function_name = try toCamelCase(allocator, function.name, '_');
-            defer allocator.free(function_name);
-            try out.print("test $S {\n", .{function_name});
-            try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{function.c_identifier});
-            try out.print(
-                \\const ExpectedFnType = @TypeOf(c.$I);
-                \\const ActualFnType = @TypeOf($I.$I);
-                \\try std.testing.expect(@typeInfo(ExpectedFnType) == .@"fn");
-                \\try checkCompatibility(ExpectedFnType, ActualFnType);
-                \\
-            , .{ function.c_identifier, pkg, function_name });
-            try out.print("}\n\n", .{});
-        }
-
-        try raw_source.append(0);
-        var ast = try std.zig.Ast.parse(allocator, raw_source.items[0 .. raw_source.items.len - 1 :0], .zig);
-        defer ast.deinit(allocator);
-        const fmt_source = try ast.render(allocator);
-        defer allocator.free(fmt_source);
+        const source = try createAbiTestSource(allocator, repo, import_name);
+        defer allocator.free(source);
         const file_name = try std.fmt.allocPrint(allocator, "{s}.abi.zig", .{import_name});
         defer allocator.free(file_name);
         const file_path = try std.fs.path.join(allocator, &.{ output_dir_path, file_name });
         defer allocator.free(file_path);
-        std.fs.cwd().writeFile(.{ .sub_path = file_path, .data = fmt_source }) catch |err| {
+        std.fs.cwd().writeFile(.{ .sub_path = file_path, .data = source }) catch |err| {
             try diag.add("failed to write output source file {s}: {}", .{ file_path, err });
             try diag.add("failed to create ABI tests for {s}-{s}", .{ repo.namespace.name, repo.namespace.version });
         };
@@ -3534,12 +3253,365 @@ pub fn createAbiTests(
     }
 }
 
+fn createAbiTestSource(
+    allocator: Allocator,
+    repo: gir.Repository,
+    import_name: []const u8,
+) Allocator.Error![]u8 {
+    var out: ZigWriter = .init(allocator);
+    defer out.deinit();
+
+    const ns = repo.namespace;
+    const pkg = try std.ascii.allocLowerString(allocator, ns.name);
+    defer allocator.free(pkg);
+
+    try out.print("const c = @cImport({\n", .{});
+    for (repo.c_includes) |c_include| {
+        try out.print("@cInclude($S);\n", .{c_include.name});
+    }
+    try out.print("});\n", .{});
+    try out.print("const std = @import(\"std\");\n", .{});
+    try out.print("const compat = @import(\"compat.zig\");\n", .{});
+    try out.print("const $I = @import($S);\n\n", .{ pkg, import_name });
+
+    try out.print(
+        \\fn checkCompatibility(comptime ExpectedType: type, comptime ActualType: type) !void {
+        \\    // translate-c doesn't seem to want to translate va_list to std.builtin.VaList
+        \\    if (ActualType == std.builtin.VaList) return;
+        \\
+        \\    const expected_type_info = @typeInfo(ExpectedType);
+        \\    const actual_type_info = @typeInfo(ActualType);
+        \\    switch (expected_type_info) {
+        \\        .void => switch (actual_type_info) {
+        \\            .void => {},
+        \\            else => {
+        \\                std.debug.print("incompatible types: expected {s}, actual {s}\n", .{@typeName(ExpectedType), @typeName(ActualType)});
+        \\                return error.TestUnexpectedType;
+        \\            },
+        \\        },
+        \\        .bool => switch (actual_type_info) {
+        \\            .bool => {},
+        \\            else => {
+        \\                std.debug.print("incompatible types: expected {s}, actual {s}\n", .{@typeName(ExpectedType), @typeName(ActualType)});
+        \\                return error.TestUnexpectedType;
+        \\            },
+        \\        },
+        \\        .float => |expected_float| switch (actual_type_info) {
+        \\            .float => |actual_float| try std.testing.expectEqual(expected_float.bits, actual_float.bits),
+        \\            else => {
+        \\                std.debug.print("incompatible types: expected {s}, actual {s}\n", .{@typeName(ExpectedType), @typeName(ActualType)});
+        \\                return error.TestUnexpectedType;
+        \\            },
+        \\        },
+        \\        .array => |expected_array| switch (actual_type_info) {
+        \\            .array => |actual_array| {
+        \\                try std.testing.expectEqual(expected_array.len, actual_array.len);
+        \\                try checkCompatibility(expected_array.child, actual_array.child);
+        \\            },
+        \\            else => {
+        \\                std.debug.print("incompatible types: expected {s}, actual {s}\n", .{@typeName(ExpectedType), @typeName(ActualType)});
+        \\                return error.TestUnexpectedType;
+        \\            },
+        \\        },
+        \\        .@"struct" => switch (actual_type_info) {
+        \\            .@"struct" => {
+        \\                try std.testing.expectEqual(@sizeOf(ExpectedType), @sizeOf(ActualType));
+        \\                try std.testing.expectEqual(@alignOf(ExpectedType), @alignOf(ActualType));
+        \\            },
+        \\            else => {
+        \\                std.debug.print("incompatible types: expected {s}, actual {s}\n", .{@typeName(ExpectedType), @typeName(ActualType)});
+        \\                return error.TestUnexpectedType;
+        \\            },
+        \\        },
+        \\        .@"union" => switch (actual_type_info) {
+        \\            .@"union" => {
+        \\                try std.testing.expectEqual(@sizeOf(ExpectedType), @sizeOf(ActualType));
+        \\                try std.testing.expectEqual(@alignOf(ExpectedType), @alignOf(ActualType));
+        \\            },
+        \\            else => {
+        \\                std.debug.print("incompatible types: expected {s}, actual {s}\n", .{@typeName(ExpectedType), @typeName(ActualType)});
+        \\                return error.TestUnexpectedType;
+        \\            },
+        \\        },
+        \\        // Opaque types show up more frequently in translate-c output due to its
+        \\        // limitations. We'll just treat "opaque" as "I don't know" and accept any
+        \\        // translation from zig-gobject.
+        \\        .@"opaque" => {},
+        \\        .int => |expected_int| switch (actual_type_info) {
+        \\            // Checking signedness here turns out to be too strict for many cases
+        \\            // and does not affect actual ABI compatibility.
+        \\            .int => |actual_int| try std.testing.expectEqual(expected_int.bits, actual_int.bits),
+        \\            .@"enum" => |actual_enum| try checkCompatibility(ExpectedType, actual_enum.tag_type),
+        \\            .@"struct" => |actual_struct| {
+        \\                try std.testing.expect(actual_struct.layout == .@"packed");
+        \\                try checkCompatibility(ExpectedType, actual_struct.backing_integer.?);
+        \\            },
+        \\            else => {
+        \\                std.debug.print("incompatible types: expected {s}, actual {s}\n", .{@typeName(ExpectedType), @typeName(ActualType)});
+        \\                return error.TestUnexpectedType;
+        \\            },
+        \\        },
+        \\        // Pointers are tricky to assert on, since we may translate some pointers
+        \\        // differently from how they appear in C (e.g. *GtkWindow rather than *GtkWidget)
+        \\        .pointer => switch (actual_type_info) {
+        \\            .pointer => {},
+        \\            .@"optional" => |actual_optional| try std.testing.expect(@typeInfo(actual_optional.child) == .pointer),
+        \\            else => {
+        \\                std.debug.print("incompatible types: expected {s}, actual {s}\n", .{@typeName(ExpectedType), @typeName(ActualType)}) ;
+        \\                return error.TestUnexpectedType;
+        \\            }
+        \\        },
+        \\        .@"optional" => |expected_optional| switch (@typeInfo(expected_optional.child)) {
+        \\            .pointer => try checkCompatibility(expected_optional.child, ActualType),
+        \\            else => {
+        \\                std.debug.print("unexpected C translated type: {s}\n", .{@typeName(ExpectedType)});
+        \\                return error.TestUnexpectedType;
+        \\            }
+        \\        },
+        \\        .@"fn" => |expected_fn| switch (actual_type_info) {
+        \\            .@"fn" => |actual_fn| {
+        \\                try std.testing.expectEqual(expected_fn.params.len, actual_fn.params.len);
+        \\                try std.testing.expectEqual(expected_fn.calling_convention, actual_fn.calling_convention);
+        \\                // The special casing of zero arguments here is because there are some
+        \\                // headers (specifically in IBus) which do not properly use the (void)
+        \\                // parameter list, so the function is translated as varargs even though
+        \\                // it wasn't intended to be.
+        \\                try std.testing.expect(expected_fn.is_var_args == actual_fn.is_var_args or (expected_fn.is_var_args and expected_fn.params.len == 0));
+        \\                try std.testing.expect(expected_fn.return_type != null);
+        \\                try std.testing.expect(actual_fn.return_type != null);
+        \\                try checkCompatibility(expected_fn.return_type.?, actual_fn.return_type.?);
+        \\                inline for (expected_fn.params, actual_fn.params) |expected_param, actual_param| {
+        \\                    try std.testing.expect(expected_param.type != null);
+        \\                    try std.testing.expect(actual_param.type != null);
+        \\                    try checkCompatibility(expected_param.type.?, actual_param.type.?);
+        \\                }
+        \\            },
+        \\            else => {
+        \\                std.debug.print("incompatible types: expected {s}, actual {s}\n", .{@typeName(ExpectedType), @typeName(ActualType)}) ;
+        \\                return error.TestUnexpectedType;
+        \\            }
+        \\        },
+        \\        else => {
+        \\            std.debug.print("unexpected C translated type: {s}\n", .{@typeName(ExpectedType)});
+        \\            return error.TestUnexpectedType;
+        \\        },
+        \\    }
+        \\}
+        \\
+        \\
+    , .{});
+
+    for (ns.aliases) |alias| {
+        const alias_name = escapeTypeName(alias.name.local);
+        if (alias.c_type) |c_type| {
+            try out.print("test $S {\n", .{alias_name});
+            try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_type});
+            try out.print(
+                \\const ExpectedType = c.$I;
+                \\const ActualType = $I.$I;
+                \\try checkCompatibility(ExpectedType, ActualType);
+                \\
+            , .{ c_type, pkg, alias_name });
+            try out.print("}\n\n", .{});
+        }
+    }
+
+    for (ns.classes) |class| {
+        const class_name = escapeTypeName(class.name.local);
+        // containsBitField: https://github.com/ziglang/zig/issues/1499
+        if (!class.isOpaque() and !containsBitField(class.layout_elements)) {
+            if (class.c_type) |c_type| {
+                try out.print("test $S {\n", .{class_name});
+                try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_type});
+                try out.print(
+                    \\const ExpectedType = c.$I;
+                    \\const ActualType = $I.$I;
+                    \\try std.testing.expect(@typeInfo(ExpectedType) == .@"struct");
+                    \\try checkCompatibility(ExpectedType, ActualType);
+                    \\
+                , .{ c_type, pkg, class_name });
+                try out.print("}\n\n", .{});
+            }
+        }
+        for (class.constructors) |constructor| {
+            if (isConstructorTranslatable(constructor)) {
+                const constructor_name = try toCamelCase(allocator, constructor.name, '_');
+                defer allocator.free(constructor_name);
+                try createFunctionTest(constructor.c_identifier, pkg, class_name, constructor_name, &out);
+            }
+        }
+        for (class.functions) |function| {
+            if (isFunctionTranslatable(function)) {
+                const function_name = try toCamelCase(allocator, function.name, '_');
+                defer allocator.free(function_name);
+                try createFunctionTest(function.c_identifier, pkg, class_name, function_name, &out);
+            }
+        }
+        for (class.methods) |method| {
+            if (isMethodTranslatable(method)) {
+                const method_name = try toCamelCase(allocator, method.name, '_');
+                defer allocator.free(method_name);
+                try createMethodTest(method.c_identifier, pkg, class_name, method_name, &out);
+            }
+        }
+    }
+
+    for (ns.records) |record| {
+        const record_name = escapeTypeName(record.name.local);
+        // containsBitField: https://github.com/ziglang/zig/issues/1499
+        if (!record.isOpaque() and !containsBitField(record.layout_elements)) {
+            if (record.c_type) |c_type| {
+                try out.print("test $S {\n", .{record_name});
+                try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_type});
+                try out.print(
+                    \\const ExpectedType = c.$I;
+                    \\const ActualType = $I.$I;
+                    \\
+                , .{ c_type, pkg, record_name });
+                if (record.isPointer()) {
+                    try out.print("try std.testing.expect(@typeInfo(ExpectedType) == .pointer);\n", .{});
+                } else {
+                    try out.print("try std.testing.expect(@typeInfo(ExpectedType) == .@\"struct\");\n", .{});
+                }
+                try out.print("try checkCompatibility(ExpectedType, ActualType);\n", .{});
+                try out.print("}\n\n", .{});
+            }
+        }
+        if (!record.isPointer()) {
+            for (record.constructors) |constructor| {
+                if (isConstructorTranslatable(constructor)) {
+                    const constructor_name = try toCamelCase(allocator, constructor.name, '_');
+                    defer allocator.free(constructor_name);
+                    try createFunctionTest(constructor.c_identifier, pkg, record_name, constructor_name, &out);
+                }
+            }
+            for (record.functions) |function| {
+                if (isFunctionTranslatable(function)) {
+                    const function_name = try toCamelCase(allocator, function.name, '_');
+                    defer allocator.free(function_name);
+                    try createFunctionTest(function.c_identifier, pkg, record_name, function_name, &out);
+                }
+            }
+            for (record.methods) |method| {
+                if (isMethodTranslatable(method)) {
+                    const method_name = try toCamelCase(allocator, method.name, '_');
+                    defer allocator.free(method_name);
+                    try createMethodTest(method.c_identifier, pkg, record_name, method_name, &out);
+                }
+            }
+        }
+    }
+
+    for (ns.unions) |@"union"| {
+        const union_name = escapeTypeName(@"union".name.local);
+        if (!@"union".isOpaque()) {
+            if (@"union".c_type) |c_type| {
+                try out.print("test $S {\n", .{union_name});
+                try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_type});
+                try out.print(
+                    \\const ExpectedType = c.$I;
+                    \\const ActualType = $I.$I;
+                    \\try std.testing.expect(@typeInfo(ExpectedType) == .@"union");
+                    \\try checkCompatibility(ExpectedType, ActualType);
+                    \\
+                , .{ c_type, pkg, union_name });
+                try out.print("}\n\n", .{});
+            }
+        }
+        for (@"union".constructors) |constructor| {
+            if (isConstructorTranslatable(constructor)) {
+                const constructor_name = try toCamelCase(allocator, constructor.name, '_');
+                defer allocator.free(constructor_name);
+                try createFunctionTest(constructor.c_identifier, pkg, union_name, constructor_name, &out);
+            }
+        }
+        for (@"union".functions) |function| {
+            if (isFunctionTranslatable(function)) {
+                const function_name = try toCamelCase(allocator, function.name, '_');
+                defer allocator.free(function_name);
+                try createFunctionTest(function.c_identifier, pkg, union_name, function_name, &out);
+            }
+        }
+        for (@"union".methods) |method| {
+            if (isMethodTranslatable(method)) {
+                const method_name = try toCamelCase(allocator, method.name, '_');
+                defer allocator.free(method_name);
+                try createMethodTest(method.c_identifier, pkg, union_name, method_name, &out);
+            }
+        }
+    }
+
+    for (ns.bit_fields) |bit_field| {
+        const bit_field_name = escapeTypeName(bit_field.name.local);
+        if (bit_field.c_type) |c_type| {
+            try out.print("test $S {\n", .{bit_field_name});
+            try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_type});
+            try out.print(
+                \\const ExpectedType = c.$I;
+                \\const ActualType = $I.$I;
+                \\try std.testing.expect(@typeInfo(ExpectedType) == .int);
+                \\try checkCompatibility(ExpectedType, ActualType);
+                \\
+            , .{ c_type, pkg, bit_field_name });
+            try out.print("}\n\n", .{});
+        }
+        for (bit_field.functions) |function| {
+            if (isFunctionTranslatable(function)) {
+                const function_name = try toCamelCase(allocator, function.name, '_');
+                defer allocator.free(function_name);
+                try createFunctionTest(function.c_identifier, pkg, bit_field_name, function_name, &out);
+            }
+        }
+    }
+
+    for (ns.enums) |@"enum"| {
+        const enum_name = escapeTypeName(@"enum".name.local);
+        if (@"enum".c_type) |c_type| {
+            try out.print("test $S {\n", .{enum_name});
+            try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_type});
+            try out.print(
+                \\const ExpectedType = c.$I;
+                \\const ActualType = $I.$I;
+                \\try std.testing.expect(@typeInfo(ExpectedType) == .int);
+                \\try checkCompatibility(ExpectedType, ActualType);
+                \\
+            , .{ c_type, pkg, enum_name });
+            try out.print("}\n\n", .{});
+        }
+        for (@"enum".functions) |function| {
+            if (isFunctionTranslatable(function)) {
+                const function_name = try toCamelCase(allocator, function.name, '_');
+                defer allocator.free(function_name);
+                try createFunctionTest(function.c_identifier, pkg, enum_name, function_name, &out);
+            }
+        }
+    }
+
+    for (ns.functions) |function| {
+        if (!isFunctionTranslatable(function)) continue;
+        const function_name = try toCamelCase(allocator, function.name, '_');
+        defer allocator.free(function_name);
+        try out.print("test $S {\n", .{function_name});
+        try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{function.c_identifier});
+        try out.print(
+            \\const ExpectedFnType = @TypeOf(c.$I);
+            \\const ActualFnType = @TypeOf($I.$I);
+            \\try std.testing.expect(@typeInfo(ExpectedFnType) == .@"fn");
+            \\try checkCompatibility(ExpectedFnType, ActualFnType);
+            \\
+        , .{ function.c_identifier, pkg, function_name });
+        try out.print("}\n\n", .{});
+    }
+
+    return try out.toFormatted();
+}
+
 fn createFunctionTest(
     c_name: []const u8,
     pkg_name: []const u8,
     container_name: []const u8,
     function_name: []const u8,
-    out: anytype,
+    out: *ZigWriter,
 ) !void {
     try out.print("test \"$L.$L\" {\n", .{ container_name, function_name });
     try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_name});
@@ -3558,7 +3630,7 @@ fn createMethodTest(
     pkg_name: []const u8,
     container_name: []const u8,
     function_name: []const u8,
-    out: anytype,
+    out: *ZigWriter,
 ) !void {
     try out.print("test \"$L.$L\" {\n", .{ container_name, function_name });
     try out.print("if (!@hasDecl(c, $S)) return error.SkipZigTest;\n", .{c_name});

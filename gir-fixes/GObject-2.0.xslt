@@ -49,4 +49,33 @@
       <xsl:copy-of select="@* | node()"/>
     </xsl:copy>
   </xsl:template>
+
+  <xsl:template match="core:class[@c:type='GParamSpec']/@glib:get-type |
+                       core:class[@c:type='GParamSpecBoolean']/@glib:get-type |
+                       core:class[@c:type='GParamSpecBoxed']/@glib:get-type |
+                       core:class[@c:type='GParamSpecChar']/@glib:get-type |
+                       core:class[@c:type='GParamSpecDouble']/@glib:get-type |
+                       core:class[@c:type='GParamSpecEnum']/@glib:get-type |
+                       core:class[@c:type='GParamSpecFlags']/@glib:get-type |
+                       core:class[@c:type='GParamSpecFloat']/@glib:get-type |
+                       core:class[@c:type='GParamSpecGType']/@glib:get-type |
+                       core:class[@c:type='GParamSpecInt']/@glib:get-type |
+                       core:class[@c:type='GParamSpecInt64']/@glib:get-type |
+                       core:class[@c:type='GParamSpecLong']/@glib:get-type |
+                       core:class[@c:type='GParamSpecObject']/@glib:get-type |
+                       core:class[@c:type='GParamSpecOverride']/@glib:get-type |
+                       core:class[@c:type='GParamSpecParam']/@glib:get-type |
+                       core:class[@c:type='GParamSpecPointer']/@glib:get-type |
+                       core:class[@c:type='GParamSpecString']/@glib:get-type |
+                       core:class[@c:type='GParamSpecUChar']/@glib:get-type |
+                       core:class[@c:type='GParamSpecUInt']/@glib:get-type |
+                       core:class[@c:type='GParamSpecUInt64']/@glib:get-type |
+                       core:class[@c:type='GParamSpecULong']/@glib:get-type |
+                       core:class[@c:type='GParamSpecUnichar']/@glib:get-type |
+                       core:class[@c:type='GParamSpecValueArray']/@glib:get-type |
+                       core:class[@c:type='GParamSpecVariant']/@glib:get-type">
+    <!-- https://github.com/ianprime0509/zig-gobject/issues/124 -->
+    <!-- I prefer to enumerate all the affected types explicitly so I can
+    evaluate any new instances on a case-by-case basis. -->
+  </xsl:template>
 </xsl:stylesheet>
