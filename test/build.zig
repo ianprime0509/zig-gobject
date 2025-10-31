@@ -256,10 +256,10 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run binding tests");
 
-    const GirProfile = enum { gnome47, gnome48 };
+    const GirProfile = enum { gnome48, gnome49 };
     const gir_profile = b.option(GirProfile, "gir-profile", "Predefined GIR profile for tests");
     const test_modules: []const []const u8 = b.option([]const []const u8, "modules", "Modules to test") orelse if (gir_profile) |profile| switch (profile) {
-        .gnome47 => &.{
+        .gnome48 => &.{
             "Adw-1",
             "AppStream-1.0",
             "AppStreamCompose-1.0",
@@ -369,7 +369,7 @@ pub fn build(b: *std.Build) void {
             "Xmlb-2.0",
             "xrandr-1.3",
         },
-        .gnome48 => &.{
+        .gnome49 => &.{
             "Adw-1",
             "AppStream-1.0",
             "AppStreamCompose-1.0",
@@ -404,6 +404,8 @@ pub fn build(b: *std.Build) void {
             "GL-1.0",
             "GLib-2.0",
             "GLibUnix-2.0",
+            "Gly-2",
+            "GlyGtk4-2",
             "GModule-2.0",
             "GObject-2.0",
             "Graphene-1.0",
