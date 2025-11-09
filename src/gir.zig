@@ -1585,6 +1585,7 @@ pub const Parameter = struct {
     nullable: bool = false,
     optional: bool = false,
     instance: bool = false,
+    caller_allocates: bool = false,
     closure: ?usize = null,
     destroy: ?usize = null,
     documentation: ?Documentation = null,
@@ -1645,6 +1646,10 @@ pub const Parameter = struct {
             const index = reader.attributeIndex("optional") orelse break :optional false;
             break :optional mem.eql(u8, try reader.attributeValue(index), "1");
         };
+        const caller_allocates: bool = caller_allocates: {
+            const index = reader.attributeIndex("caller-allocates") orelse break :caller_allocates false;
+            break :caller_allocates mem.eql(u8, try reader.attributeValue(index), "1");
+        };
         const closure = closure: {
             const index = reader.attributeIndex("closure") orelse break :closure null;
             break :closure std.fmt.parseInt(usize, try reader.attributeValue(index), 10) catch return error.InvalidGir;
@@ -1684,6 +1689,7 @@ pub const Parameter = struct {
             .allow_none = allow_none,
             .nullable = nullable,
             .optional = optional,
+            .caller_allocates = caller_allocates,
             .instance = instance,
             .closure = closure,
             .destroy = destroy,
