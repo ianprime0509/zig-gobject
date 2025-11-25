@@ -12,6 +12,6 @@
   </xsl:template>
 
   <xsl:template match="core:method[@c:identifier='atspi_table_cell_get_column_index']">
-    <!-- https://github.com/ianprime0509/zig-gobject/issues/133 -->
+    <!-- https://github.com/ianprime0509/zig-gobject/issues/135 -->
   </xsl:template>
 </xsl:stylesheet>
