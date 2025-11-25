@@ -60,4 +60,19 @@
       <xsl:attribute name="c:type">GeeFutureZipFunc</xsl:attribute>
     </xsl:copy>
   </xsl:template>
+
+  <xsl:template match="core:method[starts-with(@c:identifier, 'gee_abstract_bidir_list_reserved')] |
+                       core:method[starts-with(@c:identifier, 'gee_abstract_bidir_sorted_set_reserved')] |
+                       core:method[starts-with(@c:identifier, 'gee_abstract_bidir_sorted_map_reserved')] |
+                       core:method[starts-with(@c:identifier, 'gee_abstract_collection_reserved')] |
+                       core:method[starts-with(@c:identifier, 'gee_abstract_list_reserved')] |
+                       core:method[starts-with(@c:identifier, 'gee_abstract_map_reserved')] |
+                       core:method[starts-with(@c:identifier, 'gee_abstract_multi_map_reserved')] |
+                       core:method[starts-with(@c:identifier, 'gee_abstract_multi_set_reserved')] |
+                       core:method[starts-with(@c:identifier, 'gee_abstract_queue_reserved')] |
+                       core:method[starts-with(@c:identifier, 'gee_abstract_set_reserved')] |
+                       core:method[starts-with(@c:identifier, 'gee_abstract_sorted_map_reserved')] |
+                       core:method[starts-with(@c:identifier, 'gee_abstract_sorted_set_reserved')]">
+    <!-- https://github.com/ianprime0509/zig-gobject/issues/140 -->
+  </xsl:template>
 </xsl:stylesheet>
