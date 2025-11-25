@@ -19,4 +19,8 @@
       <xsl:attribute name="c:type">gpointer</xsl:attribute>
     </xsl:copy>
   </xsl:template>
+
+  <xsl:template match="core:method[@c:identifier='webkit_dom_node_clone_node']">
+    <!-- https://github.com/ianprime0509/zig-gobject/issues/136 -->
+  </xsl:template>
 </xsl:stylesheet>
