@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        gnome-version: [48, 49]
+    container:
+       image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-${{ matrix.gnome-version }}
+       options: --privileged
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Set up Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+      - name: Run tests
+        run: |
+          .github/workflows/flatpak-run.sh ${{ matrix.gnome-version }} <<EOF
+          zig build test
+          EOF
+      - name: Generate bindings
+        run: |
+          # For unknown reasons, the build does not seem to be able to create
+          # this directory itself (AccessDenied), but works if it's created in
+          # advance.
+          mkdir -p zig-out/bindings/build
+
+          .github/workflows/flatpak-run.sh ${{ matrix.gnome-version }} <<EOF
+          zig build codegen -Dgir-profile=gnome${{ matrix.gnome-version }}
+          EOF
+      - name: Test bindings
+        run: |
+          # Some tests do not work without a display
+          Xvfb :99 -screen 0 1024x768x24 &
+          export DISPLAY=:99
+
+          .github/workflows/flatpak-run.sh ${{ matrix.gnome-version }} <<EOF
+          cd zig-out/bindings
+          zig build test
+          EOF
+      - name: Build example
+        run: |
+          .github/workflows/flatpak-run.sh ${{ matrix.gnome-version }} <<EOF
+          cd example
+          zig build
+          EOF
