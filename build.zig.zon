@@ -1,6 +1,6 @@
 .{
     .name = .gobject_codegen,
-    .version = "0.3.0",
+    .version = "0.3.1",
     .fingerprint = 0x9edb5c54cdea7d07, // Changing this has security and trust implications.
     .minimum_zig_version = "0.15.1",
     .paths = .{
