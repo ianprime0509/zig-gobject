@@ -64,4 +64,20 @@
                        core:function[@c:identifier='g_main_context_pusher_free']">
     <!-- https://github.com/ianprime0509/zig-gobject/issues/125 -->
   </xsl:template>
+
+  <xsl:template match="core:function[@c:identifier='g_list_append']/core:parameters/core:parameter[@name='list'] |
+                       core:function[@c:identifier='g_list_prepend']/core:parameters/core:parameter[@name='list'] |
+                       core:function[@c:identifier='g_list_insert']/core:parameters/core:parameter[@name='list'] |
+                       core:function[@c:identifier='g_list_insert_before']/core:parameters/core:parameter[@name='list'] |
+                       core:function[@c:identifier='g_slist_append']/core:parameters/core:parameter[@name='list'] |
+                       core:function[@c:identifier='g_slist_prepend']/core:parameters/core:parameter[@name='list'] |
+                       core:function[@c:identifier='g_slist_insert']/core:parameters/core:parameter[@name='list'] |
+                       core:function[@c:identifier='g_slist_insert_before']/core:parameters/core:parameter[@name='slist']">
+    <!-- https://github.com/ianprime0509/zig-gobject/issues/145 -->
+    <xsl:copy>
+      <xsl:attribute name="allow-none">1</xsl:attribute>
+
+      <xsl:copy-of select="@* | node()" />
+    </xsl:copy>
+  </xsl:template>
 </xsl:stylesheet>
