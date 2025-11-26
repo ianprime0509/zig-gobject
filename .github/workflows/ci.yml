@@ -56,3 +56,33 @@ jobs:
           cd example
           zig build
           EOF
+      - name: Configure GitHub Pages
+        if: ${{ github.ref == 'refs/heads/main' && matrix.gnome-version == 49 }}
+        uses: actions/configure-pages@v5
+      - name: Build docs
+        if: ${{ github.ref == 'refs/heads/main' && matrix.gnome-version == 49 }}
+        run: |
+          .github/workflows/flatpak-run.sh ${{ matrix.gnome-version }} <<EOF
+          cd zig-out/bindings
+          zig build docs -Dautodoc-fork
+          EOF
+      - name: Upload docs artifact
+        if: ${{ github.ref == 'refs/heads/main' && matrix.gnome-version == 49 }}
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: zig-out/bindings/zig-out/docs
+
+  publish-docs:
+    needs: [test]
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
