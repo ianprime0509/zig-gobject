@@ -1929,10 +1929,7 @@ fn arrayTypeIsPointer(@"type": gir.ArrayType, gobject_context: bool, ctx: Transl
         return true;
     }
     if (@"type".c_type) |c_type| {
-        return std.mem.eql(u8, c_type, "gpointer") or
-            std.mem.eql(u8, c_type, "gconstpointer") or
-            std.mem.eql(u8, c_type, "GStrv") or
-            parseCPointerType(c_type) != null;
+        return parseCPointerType(c_type) != null;
     }
     return false;
 }
@@ -1948,20 +1945,7 @@ fn translateArrayType(allocator: Allocator, @"type": gir.ArrayType, options: Tra
         try out.print("?", .{});
     }
 
-    var pointer_type: ?CPointerType = null;
-    if (@"type".c_type) |original_c_type| {
-        var c_type = original_c_type;
-        // Translate certain known aliases
-        if (std.mem.eql(u8, c_type, "gpointer")) {
-            c_type = "void*";
-        } else if (std.mem.eql(u8, c_type, "gconstpointer")) {
-            c_type = "const void*";
-        } else if (std.mem.eql(u8, c_type, "GStrv")) {
-            c_type = "gchar**";
-        }
-
-        pointer_type = parseCPointerType(c_type);
-    }
+    var pointer_type: ?CPointerType = if (@"type".c_type) |c_type| parseCPointerType(c_type) else null;
 
     if (@"type".fixed_size) |fixed_size| {
         // The fixed-size attribute is interpreted differently based on whether
@@ -2003,7 +1987,15 @@ fn translateArrayType(allocator: Allocator, @"type": gir.ArrayType, options: Tra
             if (element_is_pointer) {
                 try out.print(":null", .{});
             } else {
-                try out.print(":0", .{});
+                // This is a very simple heuristic which doesn't account for
+                // potential type aliases. We need to ensure we don't try to
+                // zero-terminate an array of non-scalar types, since Zig
+                // doesn't allow non-scalar sentinels.
+                const element_is_scalar = if (pointer_type) |pointer|
+                    std.mem.eql(u8, pointer.element, "void") or builtins.has(pointer.element)
+                else
+                    false;
+                if (element_is_scalar) try out.print(":0", .{});
             }
         }
         try out.print("]", .{});
@@ -2108,6 +2100,13 @@ test "translateArrayType" {
             .simple = .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = null },
         },
     }, .{});
+    try testTranslateArrayType("[*:null]?[*:0]u8", .{
+        .c_type = "GStrv",
+        .zero_terminated = true,
+        .element = &.{
+            .simple = .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = null },
+        },
+    }, .{});
     try testTranslateArrayType("[*][*:0]u8", .{
         .element = &.{
             .simple = .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = null },
@@ -2120,13 +2119,49 @@ test "translateArrayType" {
             .simple = .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = "char*" },
         },
     }, .{});
+    // Found in g_desktop_app_info_get_string_list
     try testTranslateArrayType("[*:null]?[*:0]u8", .{
         .c_type = "gchar**",
         .zero_terminated = true,
+        .length = 1,
         .element = &.{
             .simple = .{ .name = .{ .ns = null, .local = "utf8" }, .c_type = null },
         },
     }, .{});
+    // Found in DBusInterfaceInfo (field `signals`)
+    try testTranslateArrayType("?[*:null]?*gio.DBusSignalInfo", .{
+        .c_type = "GDBusSignalInfo**",
+        .zero_terminated = true,
+        .element = &.{
+            .simple = .{ .name = .{ .ns = "Gio", .local = "DBusSignalInfo" }, .c_type = "GDBusSignalInfo*" },
+        },
+    }, .{ .nullable = true });
+    // Found in g_application_add_main_option_entries
+    // We can't represent the precise type here, which is an array terminated
+    // by a zeroed struct, since Zig doesn't allow non-scalar sentinels.
+    try testTranslateArrayType("[*]const glib.OptionEntry", .{
+        .c_type = "const GOptionEntry*",
+        .zero_terminated = true,
+        .element = &.{
+            .simple = .{ .name = .{ .ns = "GLib", .local = "OptionEntry" } },
+        },
+    }, .{});
+    // Found in g_ptr_array_new_from_null_terminated_array
+    try testTranslateArrayType("[*:null]?*anyopaque", .{
+        .c_type = "gpointer*",
+        .zero_terminated = true,
+        .element = &.{
+            .simple = .{ .name = .{ .ns = null, .local = "gpointer" }, .c_type = "gpointer" },
+        },
+    }, .{});
+    // Found in g_array_new_take_zero_terminated
+    try testTranslateArrayType("?[*:null]?*anyopaque", .{
+        .c_type = "gpointer",
+        .zero_terminated = true,
+        .element = &.{
+            .simple = .{ .name = .{ .ns = null, .local = "gpointer" }, .c_type = "gpointer" },
+        },
+    }, .{ .nullable = true });
     try testTranslateArrayType("*const [4]gdk.RGBA", .{
         .c_type = "const GdkRGBA*",
         .fixed_size = 4,
@@ -2201,6 +2236,15 @@ const CPointerType = struct {
 };
 
 fn parseCPointerType(c_type: []const u8) ?CPointerType {
+    // Certain pointer types are commonly used with aliases.
+    if (std.mem.eql(u8, c_type, "gpointer")) {
+        return .{ .@"const" = false, .element = "void" };
+    } else if (std.mem.eql(u8, c_type, "gconstpointer")) {
+        return .{ .@"const" = true, .element = "void" };
+    } else if (std.mem.eql(u8, c_type, "GStrv")) {
+        return .{ .@"const" = false, .element = "gchar*" };
+    }
+
     if (!std.mem.endsWith(u8, c_type, "*")) {
         return null;
     }
