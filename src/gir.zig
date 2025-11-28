@@ -1470,6 +1470,7 @@ pub const ArrayType = struct {
     c_type: ?[]const u8 = null,
     element: *const AnyType,
     fixed_size: ?u32 = null,
+    length: ?u32 = null,
     zero_terminated: bool = false,
 
     fn parse(allocator: Allocator, reader: *xml.Reader, current_ns: []const u8) !ArrayType {
@@ -1486,8 +1487,21 @@ pub const ArrayType = struct {
             const index = reader.attributeIndex("fixed-size") orelse break :fixed_size null;
             break :fixed_size std.fmt.parseInt(u32, try reader.attributeValue(index), 10) catch return error.InvalidGir;
         };
+        const length = length: {
+            const index = reader.attributeIndex("length") orelse break :length null;
+            break :length std.fmt.parseInt(u32, try reader.attributeValue(index), 10) catch return error.InvalidGir;
+        };
         const zero_terminated = zero_terminated: {
-            const index = reader.attributeIndex("zero-terminated") orelse break :zero_terminated false;
+            // The GIR scanner does not emit zero-terminated="1" if it is
+            // implied by fixed-size and length being absent:
+            // https://gitlab.gnome.org/GNOME/gobject-introspection/-/blob/43ae0b53c23b39b0a700b66a9640c1180b10de00/giscanner/girwriter.py#L386-393
+            // Hence, the default value of the attribute actually depends on
+            // the values of other attributes. Maintainers have indicated this
+            // may become more explicit in the future:
+            // https://gitlab.gnome.org/GNOME/gobject-introspection/-/issues/561#note_2548013
+            // so it seems reasonable to apply this normalization here.
+            const index = reader.attributeIndex("zero-terminated") orelse
+                break :zero_terminated fixed_size == null and length == null;
             break :zero_terminated mem.eql(u8, try reader.attributeValue(index), "1");
         };
 
@@ -1517,6 +1531,7 @@ pub const ArrayType = struct {
                 break :element copy;
             },
             .fixed_size = fixed_size,
+            .length = length,
             .zero_terminated = zero_terminated,
         };
     }
