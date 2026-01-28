@@ -258,11 +258,13 @@ pub fn build(b: *std.Build) void {
         },
     } else &.{};
 
-    const gir_files_path = b.option([]const u8, "gir-files-path", "Path to GIR files") orelse "/usr/share/gir-1.0";
+    const gir_files_paths: []const []const u8 = b.option([]const []const u8, "gir-files-path", "Path to GIR files") orelse &.{"/usr/share/gir-1.0"};
 
     const codegen_exe_run = b.addRunArtifact(codegen_exe);
 
-    codegen_exe_run.addPrefixedDirectoryArg("--gir-dir=", .{ .cwd_relative = gir_files_path });
+    for (gir_files_paths) |path| {
+        codegen_exe_run.addPrefixedDirectoryArg("--gir-dir=", .{ .cwd_relative = path });
+    }
     codegen_exe_run.addPrefixedDirectoryArg("--gir-fixes-dir=", b.path("gir-fixes"));
     codegen_exe_run.addPrefixedDirectoryArg("--bindings-dir=", b.path("binding-overrides"));
     codegen_exe_run.addPrefixedDirectoryArg("--extensions-dir=", b.path("extensions"));
