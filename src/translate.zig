@@ -286,6 +286,7 @@ const TranslationContext = struct {
 
 pub fn createBindings(
     allocator: Allocator,
+    io: std.Io,
     repositories: []const gir.Repository,
     bindings_path: []const []const u8,
     extensions_path: []const []const u8,
@@ -296,14 +297,14 @@ pub fn createBindings(
     compat_module: {
         const compat_output_dir_path = try std.fs.path.join(allocator, &.{ output_dir_path, "compat" });
         defer allocator.free(compat_output_dir_path);
-        std.fs.cwd().makePath(compat_output_dir_path) catch |err| {
+        std.Io.Dir.cwd().createDirPath(io, compat_output_dir_path) catch |err| {
             try diag.add("failed to create output directory {s}: {}", .{ compat_output_dir_path, err });
             break :compat_module;
         };
 
         const compat_file_path = try std.fs.path.join(allocator, &.{ compat_output_dir_path, "compat.zig" });
         defer allocator.free(compat_file_path);
-        std.fs.cwd().writeFile(.{
+        std.Io.Dir.cwd().writeFile(io, .{
             .sub_path = compat_file_path,
             .data = @embedFile("compat.zig"),
         }) catch |err| {
@@ -324,13 +325,14 @@ pub fn createBindings(
         const module_output_dir_path = try std.fs.path.join(allocator, &.{ output_dir_path, module_name });
         defer allocator.free(module_output_dir_path);
 
-        std.fs.cwd().makePath(module_output_dir_path) catch |err| {
+        std.Io.Dir.cwd().createDirPath(io, module_output_dir_path) catch |err| {
             try diag.add("failed to create output directory {s}: {}", .{ module_output_dir_path, err });
             continue;
         };
 
         const manual_bindings = copyBindingsFile(
             allocator,
+            io,
             repo.namespace.name,
             repo.namespace.version,
             bindings_path,
@@ -347,6 +349,7 @@ pub fn createBindings(
 
         copyExtensionsFile(
             allocator,
+            io,
             repo.namespace.name,
             repo.namespace.version,
             extensions_path,
@@ -367,6 +370,7 @@ pub fn createBindings(
             try ctx.addRepositoryAndDependencies(repo, repository_map);
             createRepositoryBindings(
                 allocator,
+                io,
                 repo,
                 repository_map,
                 ctx,
@@ -386,6 +390,7 @@ pub fn createBindings(
 
 fn copyBindingsFile(
     allocator: Allocator,
+    io: std.Io,
     name: []const u8,
     version: []const u8,
     bindings_dir_paths: []const []const u8,
@@ -402,7 +407,7 @@ fn copyBindingsFile(
         const bindings_path = try std.fs.path.join(allocator, &.{ bindings_dir_path, bindings_name });
         defer allocator.free(bindings_path);
 
-        std.fs.cwd().copyFile(bindings_path, std.fs.cwd(), bindings_output_path, .{}) catch |err| switch (err) {
+        std.Io.Dir.cwd().copyFile(bindings_path, std.Io.Dir.cwd(), bindings_output_path, io, .{}) catch |err| switch (err) {
             error.FileNotFound => continue,
             else => {
                 try diag.add("failed to copy bindings file {s}: {}", .{ bindings_path, err });
@@ -418,6 +423,7 @@ fn copyBindingsFile(
 
 fn copyExtensionsFile(
     allocator: Allocator,
+    io: std.Io,
     name: []const u8,
     version: []const u8,
     extensions_dir_paths: []const []const u8,
@@ -434,7 +440,7 @@ fn copyExtensionsFile(
         const extensions_path = try std.fs.path.join(allocator, &.{ extensions_dir_path, extensions_name });
         defer allocator.free(extensions_path);
 
-        std.fs.cwd().copyFile(extensions_path, std.fs.cwd(), extensions_output_path, .{}) catch |err| switch (err) {
+        std.Io.Dir.cwd().copyFile(extensions_path, std.Io.Dir.cwd(), extensions_output_path, io, .{}) catch |err| switch (err) {
             error.FileNotFound => continue,
             else => {
                 try diag.add("failed to copy extensions file {s}: {}", .{ extensions_path, err });
@@ -445,7 +451,7 @@ fn copyExtensionsFile(
         return;
     }
 
-    std.fs.cwd().writeFile(.{ .sub_path = extensions_output_path, .data = "" }) catch |err| {
+    std.Io.Dir.cwd().writeFile(io, .{ .sub_path = extensions_output_path, .data = "" }) catch |err| {
         try diag.add("failed to create extensions file {s}: {}", .{ extensions_output_path, err });
         return error.CopyFailed;
     };
@@ -453,6 +459,7 @@ fn copyExtensionsFile(
 
 fn createRepositoryBindings(
     allocator: Allocator,
+    io: std.Io,
     repo: gir.Repository,
     repository_map: RepositoryMap,
     ctx: TranslationContext,
@@ -471,7 +478,7 @@ fn createRepositoryBindings(
     defer allocator.free(file_name);
     const output_path = try std.fs.path.join(allocator, &.{ output_dir_path, file_name });
     defer allocator.free(output_path);
-    std.fs.cwd().writeFile(.{ .sub_path = output_path, .data = source }) catch |err| {
+    std.Io.Dir.cwd().writeFile(io, .{ .sub_path = output_path, .data = source }) catch |err| {
         try diag.add("failed to write output source file {s}: {}", .{ output_path, err });
         return error.TranslateFailed;
     };
@@ -2949,21 +2956,23 @@ fn testToCamelCase(expected: []const u8, input: []const u8, word_sep: u8) !void 
 
 pub fn createBuildFiles(
     allocator: Allocator,
+    io: std.Io,
     repositories: []const gir.Repository,
     output_dir_path: []const u8,
     deps: *Dependencies,
     diag: *Diagnostics,
 ) Allocator.Error!void {
-    std.fs.cwd().makePath(output_dir_path) catch |err|
+    std.Io.Dir.cwd().createDirPath(io, output_dir_path) catch |err|
         return diag.add("failed to create output directory {s}: {}", .{ output_dir_path, err });
 
-    try createBuildZig(allocator, repositories, output_dir_path, deps, diag);
-    try createBuildZon(allocator, output_dir_path, deps, diag);
-    try createBuildHelpers(allocator, output_dir_path, deps, diag);
+    try createBuildZig(allocator, io, repositories, output_dir_path, deps, diag);
+    try createBuildZon(allocator, io, output_dir_path, deps, diag);
+    try createBuildHelpers(allocator, io, output_dir_path, deps, diag);
 }
 
 fn createBuildZig(
     allocator: Allocator,
+    io: std.Io,
     repositories: []const gir.Repository,
     output_dir_path: []const u8,
     deps: *Dependencies,
@@ -2982,13 +2991,13 @@ fn createBuildZig(
         // We need a root source files for the docs to reference all the modules.
         const docs_root_dir = try std.fs.path.join(allocator, &.{ output_dir_path, "src", "root" });
         defer allocator.free(docs_root_dir);
-        std.fs.cwd().makePath(docs_root_dir) catch |err|
+        std.Io.Dir.cwd().createDirPath(io, docs_root_dir) catch |err|
             return diag.add("failed to create docs root module directory {s}: {}", .{ docs_root_dir, err });
         const docs_root_path = try std.fs.path.join(allocator, &.{ docs_root_dir, "root.zig" });
         defer allocator.free(docs_root_path);
         const docs_root_source = try createDocsRootSource(allocator, repositories);
         defer allocator.free(docs_root_source);
-        std.fs.cwd().writeFile(.{ .sub_path = docs_root_path, .data = docs_root_source }) catch |err|
+        std.Io.Dir.cwd().writeFile(io, .{ .sub_path = docs_root_path, .data = docs_root_source }) catch |err|
             return diag.add("failed to write docs root module file {s}: {}", .{ docs_root_path, err });
     }
 
@@ -3000,7 +3009,7 @@ fn createBuildZig(
         deps,
     );
     defer allocator.free(source);
-    std.fs.cwd().writeFile(.{ .sub_path = output_path, .data = source }) catch |err|
+    std.Io.Dir.cwd().writeFile(io, .{ .sub_path = output_path, .data = source }) catch |err|
         return diag.add("failed to write {s}: {}", .{ output_path, err });
 }
 
@@ -3189,6 +3198,7 @@ fn createBuildZigSource(
 
 fn createBuildZon(
     allocator: Allocator,
+    io: std.Io,
     output_dir_path: []const u8,
     deps: *Dependencies,
     diag: *Diagnostics,
@@ -3226,19 +3236,20 @@ fn createBuildZon(
         \\
     ;
 
-    std.fs.cwd().writeFile(.{ .sub_path = output_path, .data = source }) catch |err|
+    std.Io.Dir.cwd().writeFile(io, .{ .sub_path = output_path, .data = source }) catch |err|
         return diag.add("failed to write {s}: {}", .{ output_path, err });
 }
 
 fn createBuildHelpers(
     allocator: Allocator,
+    io: std.Io,
     output_dir_path: []const u8,
     deps: *Dependencies,
     diag: *Diagnostics,
 ) !void {
     const helper_dir_path = try std.fs.path.join(allocator, &.{ output_dir_path, "build" });
     defer allocator.free(helper_dir_path);
-    std.fs.cwd().makePath(helper_dir_path) catch |err|
+    std.Io.Dir.cwd().createDirPath(io, helper_dir_path) catch |err|
         return diag.add("failed to create output directory {s}: {}", .{ helper_dir_path, err });
 
     const helpers: []const []const u8 = &.{"build_gresources_xml.zig"};
@@ -3248,25 +3259,26 @@ fn createBuildHelpers(
 
         try deps.add(output_path, &.{});
 
-        std.fs.cwd().writeFile(.{ .sub_path = output_path, .data = @embedFile("build/" ++ helper) }) catch |err|
+        std.Io.Dir.cwd().writeFile(io, .{ .sub_path = output_path, .data = @embedFile("build/" ++ helper) }) catch |err|
             return diag.add("failed to write {s}: {}", .{ output_path, err });
     }
 }
 
 pub fn createAbiTests(
     allocator: Allocator,
+    io: std.Io,
     repositories: []const gir.Repository,
     output_dir_path: []const u8,
     deps: *Dependencies,
     diag: *Diagnostics,
 ) Allocator.Error!void {
-    std.fs.cwd().makePath(output_dir_path) catch |err|
+    std.Io.Dir.cwd().createDirPath(io, output_dir_path) catch |err|
         return diag.add("failed to create output directory {s}: {}", .{ output_dir_path, err });
 
     {
         const compat_file_path = try std.fs.path.join(allocator, &.{ output_dir_path, "compat.zig" });
         defer allocator.free(compat_file_path);
-        std.fs.cwd().writeFile(.{
+        std.Io.Dir.cwd().writeFile(io, .{
             .sub_path = compat_file_path,
             .data = @embedFile("compat.zig"),
         }) catch |err| {
@@ -3284,7 +3296,7 @@ pub fn createAbiTests(
         defer allocator.free(file_name);
         const file_path = try std.fs.path.join(allocator, &.{ output_dir_path, file_name });
         defer allocator.free(file_path);
-        std.fs.cwd().writeFile(.{ .sub_path = file_path, .data = source }) catch |err| {
+        std.Io.Dir.cwd().writeFile(io, .{ .sub_path = file_path, .data = source }) catch |err| {
             try diag.add("failed to write output source file {s}: {}", .{ file_path, err });
             try diag.add("failed to create ABI tests for {s}-{s}", .{ repo.namespace.name, repo.namespace.version });
         };
