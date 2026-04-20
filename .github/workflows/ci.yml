@@ -27,7 +27,7 @@ jobs:
           version: 0.15.2
       - name: Run tests
         run: |
-          .github/workflows/flatpak-run.sh ${{ matrix.gnome-version }} <<EOF
+          .github/workflows/flatpak-run.sh --host-filesystem ${{ matrix.gnome-version }} <<EOF
           zig build test
           EOF
       - name: Generate bindings
@@ -37,7 +37,7 @@ jobs:
           # advance.
           mkdir -p zig-out/bindings/build
 
-          .github/workflows/flatpak-run.sh ${{ matrix.gnome-version }} <<EOF
+          .github/workflows/flatpak-run.sh --host-filesystem ${{ matrix.gnome-version }} <<EOF
           zig build codegen -Dgir-profile=gnome${{ matrix.gnome-version }}
           EOF
       - name: Test bindings
@@ -46,13 +46,13 @@ jobs:
           Xvfb :99 -screen 0 1024x768x24 &
           export DISPLAY=:99
 
-          .github/workflows/flatpak-run.sh ${{ matrix.gnome-version }} <<EOF
+          .github/workflows/flatpak-run.sh --host-filesystem ${{ matrix.gnome-version }} <<EOF
           cd zig-out/bindings
           zig build test
           EOF
       - name: Build example
         run: |
-          .github/workflows/flatpak-run.sh ${{ matrix.gnome-version }} <<EOF
+          .github/workflows/flatpak-run.sh --host-filesystem ${{ matrix.gnome-version }} <<EOF
           cd example
           zig build
           EOF
@@ -62,7 +62,7 @@ jobs:
       - name: Build docs
         if: ${{ github.ref == 'refs/heads/main' && matrix.gnome-version == 49 }}
         run: |
-          .github/workflows/flatpak-run.sh ${{ matrix.gnome-version }} <<EOF
+          .github/workflows/flatpak-run.sh --host-filesystem ${{ matrix.gnome-version }} <<EOF
           cd zig-out/bindings
           zig build docs -Dautodoc-fork
           EOF
