@@ -11,9 +11,7 @@ cat >>"$script_path"
 chmod +x "$script_path"
 
 exec flatpak run \
-  --filesystem="$PWD" \
-  --filesystem="$tmp_dir" \
-  --filesystem="$zig_bin_dir":ro \
+  --filesystem=host \
   --share=network \
   --share=ipc \
   --socket=fallback-x11 \
