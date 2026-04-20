@@ -8,13 +8,14 @@ const Diagnostics = @import("main.zig").Diagnostics;
 /// including dependencies.
 pub fn findRepositories(
     allocator: Allocator,
+    io: std.Io,
     gir_dir_paths: []const []const u8,
     gir_fixes_dir_paths: []const []const u8,
     roots: []const Include,
     diag: *Diagnostics,
 ) Allocator.Error![]Repository {
-    var repos = std.ArrayHashMap(Include, Repository, Include.ArrayContext, true).init(allocator);
-    defer repos.deinit();
+    var repos: std.ArrayHashMapUnmanaged(Include, Repository, Include.ArrayContext, true) = .empty;
+    defer repos.deinit(allocator);
     errdefer for (repos.values()) |*repo| repo.deinit();
 
     var needed_repos: std.ArrayList(Include) = .empty;
@@ -24,6 +25,7 @@ pub fn findRepositories(
         if (!repos.contains(needed_repo)) {
             const repo = findRepository(
                 allocator,
+                io,
                 gir_dir_paths,
                 gir_fixes_dir_paths,
                 needed_repo,
@@ -32,7 +34,7 @@ pub fn findRepositories(
                 error.OutOfMemory => return error.OutOfMemory,
                 error.FindFailed => continue,
             };
-            try repos.put(needed_repo, repo);
+            try repos.put(allocator, needed_repo, repo);
             try needed_repos.appendSlice(allocator, repo.includes);
         }
     }
@@ -42,6 +44,7 @@ pub fn findRepositories(
 
 fn findRepository(
     allocator: Allocator,
+    io: std.Io,
     gir_dir_paths: []const []const u8,
     gir_fixes_dir_paths: []const []const u8,
     include: Include,
@@ -50,7 +53,7 @@ fn findRepository(
     const gir_path = path: {
         const file_name = try std.fmt.allocPrint(allocator, "{s}-{s}.gir", .{ include.name, include.version });
         defer allocator.free(file_name);
-        break :path try findFile(allocator, gir_dir_paths, file_name) orelse {
+        break :path try findFile(allocator, io, gir_dir_paths, file_name) orelse {
             try diag.add("no GIR file found for {s}-{s}", .{ include.name, include.version });
             return error.FindFailed;
         };
@@ -59,16 +62,15 @@ fn findRepository(
     const gir_fix_path = path: {
         const file_name = try std.fmt.allocPrint(allocator, "{s}-{s}.xslt", .{ include.name, include.version });
         defer allocator.free(file_name);
-        break :path try findFile(allocator, gir_fixes_dir_paths, file_name);
+        break :path try findFile(allocator, io, gir_fixes_dir_paths, file_name);
     };
 
     const max_gir_size = 50 * 1024 * 1024;
     const gir_content = content: {
         if (gir_fix_path) |fix_path| {
-            const xsltproc_result = std.process.Child.run(.{
-                .allocator = allocator,
+            const xsltproc_result = std.process.run(allocator, io, .{
                 .argv = &.{ "xsltproc", fix_path, gir_path },
-                .max_output_bytes = max_gir_size,
+                .stdout_limit = .limited(max_gir_size),
                 .expand_arg0 = .expand,
             }) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
@@ -80,28 +82,28 @@ fn findRepository(
             errdefer allocator.free(xsltproc_result.stdout);
             defer allocator.free(xsltproc_result.stderr);
             switch (xsltproc_result.term) {
-                .Exited => |status| if (status != 0) {
+                .exited => |status| if (status != 0) {
                     try diag.add(
                         "xsltproc {s}-{s} exited with non-zero status: {}; stderr:\n{s}",
                         .{ include.name, include.version, status, xsltproc_result.stderr },
                     );
                     return error.FindFailed;
                 },
-                .Signal => |signal| {
+                .signal => |signal| {
                     try diag.add(
                         "xsltproc {s}-{s} exited with signal: {}; stderr:\n{s}",
                         .{ include.name, include.version, signal, xsltproc_result.stderr },
                     );
                     return error.FindFailed;
                 },
-                .Stopped => |code| {
+                .stopped => |code| {
                     try diag.add(
                         "xsltproc {s}-{s} stopped with code: {}; stderr:\n{s}",
                         .{ include.name, include.version, code, xsltproc_result.stderr },
                     );
                     return error.FindFailed;
                 },
-                .Unknown => |code| {
+                .unknown => |code| {
                     try diag.add(
                         "xsltproc {s}-{s} terminated with unknown code: {}; stderr:\n{s}",
                         .{ include.name, include.version, code, xsltproc_result.stderr },
@@ -111,7 +113,7 @@ fn findRepository(
             }
             break :content xsltproc_result.stdout;
         } else {
-            break :content std.fs.cwd().readFileAlloc(allocator, gir_path, max_gir_size) catch |err| switch (err) {
+            break :content std.Io.Dir.cwd().readFileAlloc(io, gir_path, allocator, std.Io.Limit.limited(max_gir_size)) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 else => |other| {
                     try diag.add("failed to read GIR file '{s}': {}", .{ gir_path, other });
@@ -131,10 +133,10 @@ fn findRepository(
     };
 }
 
-fn findFile(allocator: Allocator, search_path: []const []const u8, file_name: []const u8) !?[]u8 {
+fn findFile(allocator: Allocator, io: std.Io, search_path: []const []const u8, file_name: []const u8) !?[]u8 {
     return for (search_path) |dir| {
         const path = try std.fs.path.join(allocator, &.{ dir, file_name });
-        if (std.fs.cwd().statFile(path)) |_| {
+        if (std.Io.Dir.cwd().statFile(io, path, .{})) |_| {
             break path;
         } else |_| {
             allocator.free(path);

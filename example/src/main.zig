@@ -2,7 +2,7 @@ const std = @import("std");
 
 const Example = struct {
     name: []const u8,
-    main: *const fn () void,
+    main: *const fn (init: std.process.Init) void,
 };
 
 const examples: []const Example = &.{
@@ -13,12 +13,14 @@ const examples: []const Example = &.{
     .{ .name = "List view", .main = &@import("list_view.zig").main },
 };
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
+    const io = init.io;
+
     var stdin_buf: [1024]u8 = undefined;
-    var stdin_reader = std.fs.File.stdin().reader(&stdin_buf);
+    var stdin_reader = std.Io.File.stdin().reader(io, &stdin_buf);
     const stdin = &stdin_reader.interface;
     var stdout_buf: [1024]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buf);
+    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buf);
     const stdout = &stdout_writer.interface;
 
     try stdout.writeAll("Available examples:\n");
@@ -35,5 +37,5 @@ pub fn main() !void {
     if (choice >= examples.len) {
         return error.OutOfBounds;
     }
-    examples[choice].main();
+    examples[choice].main(init);
 }

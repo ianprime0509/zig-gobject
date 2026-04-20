@@ -1179,7 +1179,7 @@ pub const TextCluster = extern struct {
 
 pub const TextClusterFlags = packed struct(c_int) {
     backward: bool,
-    _: @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(c_int) - 1 } }) = 0,
+    _: @Int(.unsigned, @bitSizeOf(c_int) - 1) = 0,
 };
 
 pub const TextExtents = extern struct {

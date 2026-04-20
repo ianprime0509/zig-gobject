@@ -23,8 +23,6 @@ const usage =
     \\
 ;
 
-var log_tty_config: std.io.tty.Config = undefined; // Will be initialized immediately in main
-
 pub const std_options: std.Options = .{
     .log_level = if (builtin.mode == .Debug) log.Level.debug else log.Level.info,
     .logFn = logImpl,
@@ -32,7 +30,7 @@ pub const std_options: std.Options = .{
 
 pub fn logImpl(
     comptime level: log.Level,
-    comptime scope: @Type(.enum_literal),
+    comptime scope: @EnumLiteral(),
     comptime format: []const u8,
     args: anytype,
 ) void {
@@ -40,28 +38,24 @@ pub fn logImpl(
         comptime level.asText() ++ ": "
     else
         comptime level.asText() ++ "(" ++ @tagName(scope) ++ "): ";
-    var buffer: [64]u8 = undefined;
-    const stderr = std.debug.lockStderrWriter(&buffer);
-    defer std.debug.unlockStderrWriter();
-    log_tty_config.setColor(stderr, switch (level) {
+    var buf: [64]u8 = undefined;
+    const t = std.debug.lockStderr(&buf).terminal();
+    defer std.debug.unlockStderr();
+    t.setColor(switch (level) {
         .err => .bright_red,
         .warn => .bright_yellow,
         .info => .bright_blue,
         .debug => .bright_magenta,
     }) catch return;
-    stderr.writeAll(prefix) catch return;
-    log_tty_config.setColor(stderr, .reset) catch return;
-    stderr.print(format ++ "\n", args) catch return;
+    t.writer.writeAll(prefix) catch return;
+    t.setColor(.reset) catch return;
+    t.writer.print(format ++ "\n", args) catch return;
 }
 
-pub fn main() Allocator.Error!void {
-    log_tty_config = std.io.tty.detectConfig(.stderr());
-
+pub fn main(init: std.process.Init) Allocator.Error!void {
+    const io = init.io;
+    const cli_arena = init.arena.allocator();
     const allocator = std.heap.smp_allocator;
-
-    var cli_arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer cli_arena_state.deinit();
-    const cli_arena = cli_arena_state.allocator();
 
     var gir_dir_paths: std.ArrayList([]u8) = .empty;
     var gir_fixes_dir_paths: std.ArrayList([]u8) = .empty;
@@ -72,12 +66,14 @@ pub fn main() Allocator.Error!void {
     var maybe_dependency_file_path: ?[]u8 = null;
     var roots: std.ArrayList(gir.Include) = .empty;
 
-    var args: ArgIterator = .{ .args = try std.process.argsWithAllocator(cli_arena) };
+    var args: ArgIterator = .{ .args = try .initAllocator(init.minimal.args, cli_arena) };
     _ = args.next();
     while (args.next()) |arg| {
         switch (arg) {
             .option => |option| if (option.is('h', "help")) {
-                std.fs.File.stdout().writeAll(usage) catch {};
+                var out = std.Io.File.stdout().writer(io, &.{});
+                out.interface.writeAll(usage) catch {};
+                out.flush() catch {};
                 std.process.exit(0);
             } else if (option.is(null, "bindings-dir")) {
                 const path = args.optionValue() orelse fatal("expected value for --bindings-dir", .{});
@@ -125,6 +121,7 @@ pub fn main() Allocator.Error!void {
         defer diag.deinit();
         const repositories = try gir.findRepositories(
             allocator,
+            io,
             gir_dir_paths.items,
             gir_fixes_dir_paths.items,
             roots.items,
@@ -144,6 +141,7 @@ pub fn main() Allocator.Error!void {
         defer diag.deinit();
         try translate.createBuildFiles(
             allocator,
+            io,
             repositories,
             output_dir_path,
             &deps,
@@ -158,6 +156,7 @@ pub fn main() Allocator.Error!void {
         defer diag.deinit();
         try translate.createBindings(
             allocator,
+            io,
             repositories,
             bindings_dir_paths.items,
             extensions_dir_paths.items,
@@ -173,6 +172,7 @@ pub fn main() Allocator.Error!void {
         defer diag.deinit();
         try translate.createAbiTests(
             allocator,
+            io,
             repositories,
             abi_test_output_dir_path,
             &deps,
@@ -184,7 +184,7 @@ pub fn main() Allocator.Error!void {
     if (maybe_dependency_file_path) |dependency_file_path| {
         var diag: Diagnostics = .{ .allocator = allocator };
         defer diag.deinit();
-        try writeDependencies(dependency_file_path, deps, &diag);
+        try writeDependencies(io, dependency_file_path, deps, &diag);
         diag.report("failed to create dependency file", .{});
     }
 }
@@ -194,13 +194,13 @@ fn fatal(comptime format: []const u8, args: anytype) noreturn {
     std.process.exit(1);
 }
 
-fn writeDependencies(path: []const u8, deps: Dependencies, diag: *Diagnostics) !void {
-    var file = std.fs.cwd().createFile(path, .{}) catch |err|
+fn writeDependencies(io: std.Io, path: []const u8, deps: Dependencies, diag: *Diagnostics) !void {
+    var file = std.Io.Dir.cwd().createFile(io, path, .{}) catch |err|
         return diag.add("failed to create dependency file {s}: {}", .{ path, err });
-    defer file.close();
+    defer file.close(io);
 
     var buf: [4096]u8 = undefined;
-    var file_writer = file.writer(&buf);
+    var file_writer = file.writer(io, &buf);
     deps.write(&file_writer.interface) catch |err|
         return diag.add("failed to write dependency file {s}: {}", .{ path, err });
     file_writer.interface.flush() catch |err|
@@ -225,7 +225,7 @@ pub const Dependencies = struct {
         const gop = try deps.paths.getOrPut(arena, target);
         if (!gop.found_existing) {
             gop.key_ptr.* = try arena.dupe(u8, target);
-            gop.value_ptr.* = .{};
+            gop.value_ptr.* = .empty;
         }
         try gop.value_ptr.ensureUnusedCapacity(arena, dependencies.len);
         for (dependencies) |dependency| {
@@ -250,7 +250,7 @@ pub const Dependencies = struct {
 };
 
 pub const Diagnostics = struct {
-    errors: std.ArrayListUnmanaged([]u8) = .{},
+    errors: std.ArrayListUnmanaged([]u8) = .empty,
     allocator: Allocator,
 
     pub fn deinit(diag: *Diagnostics) void {
@@ -278,7 +278,7 @@ pub const Diagnostics = struct {
 
 // Inspired by https://github.com/judofyr/parg
 const ArgIterator = struct {
-    args: std.process.ArgIterator,
+    args: std.process.Args.Iterator,
     state: union(enum) {
         normal,
         short: []const u8,

@@ -237,7 +237,8 @@ const ExampleButton = extern struct {
     };
 };
 
-pub fn main() void {
-    const status = gio.Application.run(ExampleApplication.new().as(gio.Application), @intCast(std.os.argv.len), std.os.argv.ptr);
+pub fn main(init: std.process.Init) void {
+    const argv = init.minimal.args.vector;
+    const status = gio.Application.run(ExampleApplication.new().as(gio.Application), @intCast(argv.len), @ptrCast(@constCast(argv.ptr)));
     std.process.exit(@intCast(status));
 }
