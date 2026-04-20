@@ -14,8 +14,8 @@ pub fn findRepositories(
     roots: []const Include,
     diag: *Diagnostics,
 ) Allocator.Error![]Repository {
-    var repos = std.ArrayHashMap(Include, Repository, Include.ArrayContext, true).init(allocator);
-    defer repos.deinit();
+    var repos: std.ArrayHashMapUnmanaged(Include, Repository, Include.ArrayContext, true) = .empty;
+    defer repos.deinit(allocator);
     errdefer for (repos.values()) |*repo| repo.deinit();
 
     var needed_repos: std.ArrayList(Include) = .empty;
@@ -34,7 +34,7 @@ pub fn findRepositories(
                 error.OutOfMemory => return error.OutOfMemory,
                 error.FindFailed => continue,
             };
-            try repos.put(needed_repo, repo);
+            try repos.put(allocator, needed_repo, repo);
             try needed_repos.appendSlice(allocator, repo.includes);
         }
     }

@@ -1408,7 +1408,7 @@ pub fn defineProperty(
 ///
 /// The properties passed in `properties` should be the structs returned by
 /// `defineProperty`.
-pub fn registerProperties(class: anytype, properties: []const type) void {
+pub fn registerProperties(class: anytype, comptime properties: []const type) void {
     const Instance = @typeInfo(@TypeOf(class)).pointer.child.Instance;
     gobject.Object.virtual_methods.get_property.implement(class, struct {
         fn getProperty(object: *Instance, id: c_uint, value: *gobject.Value, _: *gobject.ParamSpec) callconv(.c) void {
@@ -1476,17 +1476,7 @@ pub fn defineSignal(
     comptime param_types: []const type,
     comptime ReturnType: type,
 ) type {
-    const EmitParams = emit_params: {
-        var field_names: [param_types.len][:0]const u8 = undefined;
-        var field_types: [param_types.len]type = undefined;
-        var field_attrs: [param_types.len]std.builtin.Type.StructField.Attributes = undefined;
-        for (param_types, 0..) |ParamType, i| {
-            field_names[i] = std.fmt.comptimePrint("{}", .{i});
-            field_types[i] = ParamType;
-            field_attrs[i] = .{};
-        }
-        break :emit_params @Struct(.auto, null, &field_names, &field_types, &field_attrs);
-    };
+    const EmitParams = @Tuple(param_types);
 
     return struct {
         /// The ID of the signal. Initialized once the signal is registered.

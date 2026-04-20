@@ -7,10 +7,11 @@ const gdk = @import("gdk");
 const cairo = @import("cairo");
 const gobject = @import("gobject");
 
-pub fn main() void {
+pub fn main(init: std.process.Init) void {
     const app = gtk.Application.new("org.gtk.example", .{});
     _ = gio.Application.signals.activate.connect(app, ?*anyopaque, &activate, null, .{});
-    const status = gio.Application.run(app.as(gio.Application), @intCast(std.os.argv.len), std.os.argv.ptr);
+    const argv = init.minimal.args.vector;
+    const status = gio.Application.run(app.as(gio.Application), @intCast(argv.len), @ptrCast(@constCast(argv.ptr)));
     std.process.exit(@intCast(status));
 }
 

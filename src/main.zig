@@ -225,7 +225,7 @@ pub const Dependencies = struct {
         const gop = try deps.paths.getOrPut(arena, target);
         if (!gop.found_existing) {
             gop.key_ptr.* = try arena.dupe(u8, target);
-            gop.value_ptr.* = .{};
+            gop.value_ptr.* = .empty;
         }
         try gop.value_ptr.ensureUnusedCapacity(arena, dependencies.len);
         for (dependencies) |dependency| {
@@ -250,7 +250,7 @@ pub const Dependencies = struct {
 };
 
 pub const Diagnostics = struct {
-    errors: std.ArrayListUnmanaged([]u8) = .{},
+    errors: std.ArrayListUnmanaged([]u8) = .empty,
     allocator: Allocator,
 
     pub fn deinit(diag: *Diagnostics) void {
