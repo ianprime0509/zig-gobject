@@ -66,7 +66,7 @@ pub fn buildCompileResources(gobject_dependency: *std.Build.Dependency) CompileR
 /// A builder for a compiled GResource bundle.
 pub const CompileResources = struct {
     b: *std.Build,
-    groups: std.ArrayListUnmanaged(*Group) = .{},
+    groups: std.ArrayListUnmanaged(*Group) = .empty,
 
     var build_gresources_xml_exe: ?*std.Build.Step.Compile = null;
 
@@ -116,7 +116,7 @@ pub const CompileResources = struct {
     pub const Group = struct {
         owner: *CompileResources,
         prefix: []const u8,
-        files: std.ArrayListUnmanaged(File) = .{},
+        files: std.ArrayListUnmanaged(File) = .empty,
 
         /// Adds the file at `path` as a resource named `name` (within the
         /// prefix of the containing group).
