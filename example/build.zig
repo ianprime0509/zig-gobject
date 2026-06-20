@@ -28,6 +28,7 @@ pub fn build(b: *std.Build) !void {
     const exe = b.addExecutable(.{
         .name = "zig-gobject-examples",
         .root_module = mod,
+        .use_llvm = true,
     });
     b.installArtifact(exe);
 
