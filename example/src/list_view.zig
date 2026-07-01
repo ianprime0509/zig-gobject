@@ -106,7 +106,7 @@ const Number = extern struct {
 
     fn getLabel(number: *Number) *gtk.Label {
         var buf: [64]u8 = undefined;
-        const text = std.fmt.bufPrintZ(&buf, "Number {}", .{number.value}) catch unreachable;
+        const text = std.fmt.bufPrintSentinel(&buf, "Number {}", .{number.value}) catch unreachable;
         const label = gtk.Label.new(text);
         // For the sake of demonstrating the scenario where getter_transfer is
         // set to full, we want label to have a full reference at this point so
