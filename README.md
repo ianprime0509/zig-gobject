@@ -16,7 +16,7 @@ exe.root_module.addImport("gtk", gobject.module("gtk4"));
 exe.root_module.addImport("adw", gobject.module("adw1"));
 ```
 
-The binding generator and generated bindings are tested on Zig 0.15 and master,
+The binding generator and generated bindings are tested on Zig v0.17.0-dev.1099+7db2ef610,
 though support for the latest master may temporarily regress when breaking
 changes are made upstream.
 
