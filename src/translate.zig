@@ -1041,7 +1041,7 @@ fn translateFieldType(allocator: Allocator, @"type": gir.FieldType, ctx: Transla
 }
 
 fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: TranslationContext, out: *ZigWriter) !void {
-    var members = [1]?gir.Member{null} ** 64;
+    var members: [64]?gir.Member = @splat(null);
     var needs_u64 = false;
     for (bit_field.members) |member| {
         if (member.value > 0) {

@@ -199,9 +199,9 @@ pub const Variant = struct {
                 return glib.Variant.newMaybe(child_type, null);
             }
         } else if (type_info == .@"struct" and type_info.@"struct".is_tuple) {
-            var children: [type_info.@"struct".fields.len]*glib.Variant = undefined;
-            inline for (type_info.@"struct".fields, &children) |field, *child| {
-                child.* = newFrom(@field(contents, field.name));
+            var children: [type_info.@"struct".field_names.len]*glib.Variant = undefined;
+            inline for (type_info.@"struct".field_names, &children) |field, *child| {
+                child.* = newFrom(@field(contents, field));
             }
             return glib.Variant.newTuple(&children, children.len);
         } else {
@@ -367,7 +367,7 @@ pub const VariantType = struct {
             return "m" ++ stringFor(type_info.optional.child);
         } else if (type_info == .@"struct" and type_info.@"struct".is_tuple) {
             comptime var str: [:0]const u8 = "(";
-            inline for (type_info.@"struct".fields) |field| {
+            inline for (type_info.@"struct".field_types) |field| {
                 str = str ++ comptime stringFor(field.type);
             }
             return str ++ ")";

@@ -37,7 +37,7 @@ pub fn deinit(w: *ZigWriter) void {
 /// made into its own project.
 pub fn print(w: *ZigWriter, comptime fmt: []const u8, args: anytype) Allocator.Error!void {
     @setEvalBranchQuota(100_000);
-    const arg_fields = @typeInfo(@TypeOf(args)).@"struct".fields;
+    const arg_fields = @typeInfo(@TypeOf(args)).@"struct".field_names;
 
     comptime var current_arg = 0;
     comptime var i = 0;
@@ -62,7 +62,7 @@ pub fn print(w: *ZigWriter, comptime fmt: []const u8, args: anytype) Allocator.E
                 start = i + 1;
             },
             'L' => {
-                const arg = @field(args, arg_fields[current_arg].name);
+                const arg = @field(args, arg_fields[current_arg]);
                 if (isString(@TypeOf(arg))) {
                     for (arg) |char| {
                         switch (char) {
@@ -78,12 +78,12 @@ pub fn print(w: *ZigWriter, comptime fmt: []const u8, args: anytype) Allocator.E
                 current_arg += 1;
             },
             'S' => {
-                const arg = @field(args, arg_fields[current_arg].name);
+                const arg = @field(args, arg_fields[current_arg]);
                 try w.raw.print(w.gpa, "\"{f}\"", .{std.zig.fmtString(arg)});
                 current_arg += 1;
             },
             'I' => {
-                const arg = @field(args, arg_fields[current_arg].name);
+                const arg = @field(args, arg_fields[current_arg]);
                 // zig.fmtId does not escape primitive type names
                 if (std.zig.isValidId(arg) and !std.zig.primitives.isPrimitive(arg)) {
                     try w.raw.appendSlice(w.gpa, arg);
