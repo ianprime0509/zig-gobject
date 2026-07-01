@@ -34,7 +34,7 @@ pub fn build(b: *std.Build) !void {
 
     const exe_run = b.addRunArtifact(exe);
     exe_run.step.dependOn(b.getInstallStep());
-    run_cmd.addPassthruArgs();
+    exe_run.addPassthruArgs();
 
     const run_step = b.step("run", "Run the example launcher");
     run_step.dependOn(&exe_run.step);
