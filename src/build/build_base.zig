@@ -17,7 +17,7 @@ pub const Library = struct {
     pub fn linkTo(lib: Library, module: *std.Build.Module) void {
         module.link_libc = true;
         for (lib.system_libraries) |system_lib| {
-            module.linkSystemLibrary(system_lib, .{ .use_pkg_config = .force });
+            module.linkSystemLibrary(system_lib, .{ .use_pkg_config = .yes }); // in original: .use_pkg_config = .force
         }
     }
 };
