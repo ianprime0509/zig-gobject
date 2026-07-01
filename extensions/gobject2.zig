@@ -1437,7 +1437,7 @@ pub fn registerProperties(class: anytype, comptime properties: []const type) voi
 
 pub fn SignalHandler(comptime Itype: type, comptime param_types: []const type, comptime DataType: type, comptime ReturnType: type) type {
     var fn_param_types: [param_types.len + 2]type = undefined;
-    var fn_param_attrs: [param_types.len + 2]std.builtin.Type.Fn.Param.Attributes = undefined;
+    var fn_param_attrs: [param_types.len + 2]std.builtin.Type.Fn.ParamAttributes = undefined;
     fn_param_types[0] = *Itype;
     fn_param_attrs[0] = .{};
     for (param_types, 0..) |ParamType, i| {
