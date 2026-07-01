@@ -70,7 +70,7 @@ jobs:
         run: |
           .github/workflows/flatpak-run.sh ${{ matrix.gnome-version }} <<EOF
           cd zig-out/bindings
-          zig build docs -Dautodoc-fork
+          zig build docs
           EOF
       - name: Upload docs artifact
         if: ${{ github.ref == 'refs/heads/main' && matrix.gnome-version == 50 }}
