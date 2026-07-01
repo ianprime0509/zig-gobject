@@ -212,7 +212,7 @@ const ExampleButton = extern struct {
 
     fn updateLabel(button: *ExampleButton) void {
         var buf: [64]u8 = undefined;
-        gtk.Button.setLabel(button.as(gtk.Button), std.fmt.bufPrintSentinel(&buf, "Clicked: {}", .{button.private().counter}) catch unreachable);
+        gtk.Button.setLabel(button.as(gtk.Button), std.fmt.bufPrintSentinel(&buf, "Clicked: {}", .{button.private().counter}, 0) catch unreachable);
     }
 
     fn private(button: *ExampleButton) *Private {
