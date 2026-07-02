@@ -368,7 +368,7 @@ pub const VariantType = struct {
         } else if (type_info == .@"struct" and type_info.@"struct".is_tuple) {
             comptime var str: [:0]const u8 = "(";
             inline for (type_info.@"struct".field_types) |field| {
-                str = str ++ comptime stringFor(field.type);
+                str = str ++ comptime stringFor(field);
             }
             return str ++ ")";
         } else {
