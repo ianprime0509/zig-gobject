@@ -14,19 +14,25 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        gnome-version: [48, 49]
+        gnome-version: [48, 49, 50]
     container:
        image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-${{ matrix.gnome-version }}
        options: --privileged
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Set up Zig
-        uses: mlugg/setup-zig@v2
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         with:
-          version: 0.15.2
+          version: master
+          cache-key: gnome-common
       - name: Run tests
         run: |
+          # For unknown reasons, the build does not seem to be able to create
+          # this directory itself (AccessDenied), but works if it's created in
+          # advance.
+          mkdir -p .zig-cache zig-pkg
+
           .github/workflows/flatpak-run.sh ${{ matrix.gnome-version }} <<EOF
           zig build test
           EOF
@@ -57,18 +63,18 @@ jobs:
           zig build
           EOF
       - name: Configure GitHub Pages
-        if: ${{ github.ref == 'refs/heads/main' && matrix.gnome-version == 49 }}
-        uses: actions/configure-pages@v5
+        if: ${{ github.ref == 'refs/heads/main' && matrix.gnome-version == 50 }}
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
       - name: Build docs
-        if: ${{ github.ref == 'refs/heads/main' && matrix.gnome-version == 49 }}
+        if: ${{ github.ref == 'refs/heads/main' && matrix.gnome-version == 50 }}
         run: |
           .github/workflows/flatpak-run.sh ${{ matrix.gnome-version }} <<EOF
           cd zig-out/bindings
-          zig build docs -Dautodoc-fork
+          zig build docs
           EOF
       - name: Upload docs artifact
-        if: ${{ github.ref == 'refs/heads/main' && matrix.gnome-version == 49 }}
-        uses: actions/upload-pages-artifact@v4
+        if: ${{ github.ref == 'refs/heads/main' && matrix.gnome-version == 50 }}
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: zig-out/bindings/zig-out/docs
 
@@ -85,4 +91,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
