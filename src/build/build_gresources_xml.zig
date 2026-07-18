@@ -7,12 +7,11 @@
 
 const std = @import("std");
 
-pub fn main() !void {
-    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
-
-    const args = try std.process.argsAlloc(arena);
+pub fn main(init: std.process.Init) !void {
+    const arena = init.arena.allocator();
+    const raw_args = init.minimal.args.vector;
+    const args = try arena.alloc([]const u8, raw_args.len);
+    for (raw_args, args) |raw, *arg| arg.* = std.mem.span(raw);
 
     var output_path: ?[]const u8 = null;
     var output: std.ArrayList(u8) = .empty;
@@ -58,7 +57,7 @@ pub fn main() !void {
     }
     try output.appendSlice(arena, "</gresources>");
 
-    try std.fs.cwd().writeFile(.{
+    try std.Io.Dir.writeFile(std.Io.Dir.cwd(), init.io, .{
         .sub_path = output_path orelse return error.MissingOutput,
         .data = output.items,
     });
