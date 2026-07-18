@@ -9,9 +9,7 @@ const std = @import("std");
 
 pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
-    const raw_args = init.minimal.args.vector;
-    const args = try arena.alloc([]const u8, raw_args.len);
-    for (raw_args, args) |raw, *arg| arg.* = std.mem.span(raw);
+    const args = try init.minimal.args.toSlice(arena);
 
     var output_path: ?[]const u8 = null;
     var output: std.ArrayList(u8) = .empty;
