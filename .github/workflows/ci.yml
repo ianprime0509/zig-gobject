@@ -24,7 +24,13 @@ jobs:
       - name: Set up Zig
         uses: mlugg/setup-zig@v2
         with:
-          version: 0.15.2
+          version: 0.16.0
+      - name: Fix working directory permissions
+        run: |
+          # The container runs as root, but the working directory is created with UID/GID 1001.
+          # Normally this would be fine, as root can do whatever it wants, but within the Flatpak
+          # container, it seems that root is no longer able to use its superpowers.
+          chown root:root .
       - name: Run tests
         run: |
           .github/workflows/flatpak-run.sh ${{ matrix.gnome-version }} <<EOF
