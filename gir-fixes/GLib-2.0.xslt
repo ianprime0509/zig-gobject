@@ -43,14 +43,6 @@
     </xsl:copy>
   </xsl:template>
 
-  <xsl:template match="core:array[@c:type='gchar**' and not(@zero-terminated)]">
-    <xsl:copy>
-      <xsl:attribute name="zero-terminated">1</xsl:attribute>
-
-      <xsl:copy-of select="@* | node()" />
-    </xsl:copy>
-  </xsl:template>
-
   <xsl:template match="core:function[@c:identifier='g_set_prgname_once'] |
                        core:function[@c:identifier='g_set_user_dirs']">
     <!-- https://github.com/ianprime0509/zig-gobject/issues/122 -->

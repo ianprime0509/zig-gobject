@@ -12,14 +12,6 @@
     </xsl:copy>
   </xsl:template>
 
-  <xsl:template match="core:array[../core:doc[contains(text(),'NULL-terminated array')]]">
-    <xsl:copy>
-      <xsl:attribute name="zero-terminated">1</xsl:attribute>
-
-      <xsl:copy-of select="@* | node()" />
-    </xsl:copy>
-  </xsl:template>
-
   <xsl:template match="core:return-value[core:doc[contains(text(),'or %NULL if')]] | core:parameter[core:doc[contains(text(),'%NULL to')]]">
     <xsl:copy>
       <xsl:attribute name="nullable">1</xsl:attribute>
