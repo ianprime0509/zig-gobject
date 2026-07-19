@@ -11,22 +11,6 @@
     </xsl:copy>
   </xsl:template>
 
-  <xsl:template match="core:callback[@c:type='GHookFinalizeFunc']/core:parameters/core:parameter[@name='hook_list']/core:type">
-    <!-- https://github.com/ianprime0509/zig-gobject/issues/33 -->
-    <xsl:copy>
-      <xsl:attribute name="name">gpointer</xsl:attribute>
-      <xsl:attribute name="c:type">gpointer</xsl:attribute>
-    </xsl:copy>
-  </xsl:template>
-
-  <xsl:template match="core:callback[@c:type='GScannerMsgFunc']/core:parameters/core:parameter[@name='scanner']/core:type">
-    <!-- https://github.com/ianprime0509/zig-gobject/issues/33 -->
-    <xsl:copy>
-      <xsl:attribute name="name">gpointer</xsl:attribute>
-      <xsl:attribute name="c:type">gpointer</xsl:attribute>
-    </xsl:copy>
-  </xsl:template>
-
   <xsl:template match="core:parameter/core:array/core:type">
     <xsl:variable name="paramName" select="../../@name"/>
     <xsl:variable name="doc" select="../../../../core:doc"/>
