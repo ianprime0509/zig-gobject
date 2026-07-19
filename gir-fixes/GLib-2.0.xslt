@@ -51,11 +51,6 @@
     </xsl:copy>
   </xsl:template>
 
-  <xsl:template match="core:function[@c:identifier='g_set_prgname_once'] |
-                       core:function[@c:identifier='g_set_user_dirs']">
-    <!-- https://github.com/ianprime0509/zig-gobject/issues/122 -->
-  </xsl:template>
-
   <xsl:template match="core:record[@c:type='GVariant']/@glib:get-type">
     <!-- https://github.com/ianprime0509/zig-gobject/issues/123 -->
   </xsl:template>
