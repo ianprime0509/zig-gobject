@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        gnome-version: [48, 49]
+        gnome-version: [49, 50]
     container:
        image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-${{ matrix.gnome-version }}
        options: --privileged
@@ -58,17 +58,17 @@ jobs:
           zig build
           EOF
       - name: Configure GitHub Pages
-        if: ${{ github.ref == 'refs/heads/main' && matrix.gnome-version == 49 }}
+        if: ${{ github.ref == 'refs/heads/main' && matrix.gnome-version == 50 }}
         uses: actions/configure-pages@v5
       - name: Build docs
-        if: ${{ github.ref == 'refs/heads/main' && matrix.gnome-version == 49 }}
+        if: ${{ github.ref == 'refs/heads/main' && matrix.gnome-version == 50 }}
         run: |
           .github/workflows/flatpak-run.sh ${{ matrix.gnome-version }} <<EOF
           cd zig-out/bindings
           zig build docs -Dautodoc-fork
           EOF
       - name: Upload docs artifact
-        if: ${{ github.ref == 'refs/heads/main' && matrix.gnome-version == 49 }}
+        if: ${{ github.ref == 'refs/heads/main' && matrix.gnome-version == 50 }}
         uses: actions/upload-pages-artifact@v4
         with:
           path: zig-out/bindings/zig-out/docs

@@ -7,74 +7,86 @@ const ModuleOptions = struct {
 
 const module_options = std.StaticStringMap(ModuleOptions).initComptime(.{
     .{
-        "AppStreamCompose-1.0", ModuleOptions{
+        "AppStreamCompose-1.0",
+        ModuleOptions{
             // TODO: have to define I_KNOW_THE_APPSTREAM_COMPOSE_API_IS_SUBJECT_TO_CHANGE
             .test_abi = false,
         },
     },
     .{
-        "Atspi-2.0", ModuleOptions{
+        "Atspi-2.0",
+        ModuleOptions{
             // TODO: incorrect translation of time_added field in Application
             .test_abi = false,
         },
     },
     .{
-        "cairo-1.0", ModuleOptions{
+        "cairo-1.0",
+        ModuleOptions{
             // TODO: the ABI tests don't work for manually created bindings
             .test_abi = false,
         },
     },
     .{
-        "Dex-1", ModuleOptions{
+        "Dex-1",
+        ModuleOptions{
             // Header file libdex.h not found
             .test_abi = false,
         },
     },
     .{
-        "Gck-1", ModuleOptions{
+        "Gck-1",
+        ModuleOptions{
             // C includes yield error "This API has not yet reached stability."
             .test_abi = false,
         },
     },
     .{
-        "Gck-2", ModuleOptions{
+        "Gck-2",
+        ModuleOptions{
             // C includes yield error "This API has not yet reached stability."
             .test_abi = false,
         },
     },
     .{
-        "Gcr-3", ModuleOptions{
+        "Gcr-3",
+        ModuleOptions{
             // C includes yield error "This API has not yet reached stability."
             .test_abi = false,
         },
     },
     .{
-        "Gcr-4", ModuleOptions{
+        "Gcr-4",
+        ModuleOptions{
             // C includes yield error "This API has not yet reached stability."
             .test_abi = false,
         },
     },
     .{
-        "GcrUi-3", ModuleOptions{
+        "GcrUi-3",
+        ModuleOptions{
             // C includes yield error "This API has not yet reached stability."
             .test_abi = false,
         },
     },
     .{
-        "Gdk-3.0", ModuleOptions{
+        "Gdk-3.0",
+        ModuleOptions{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "GdkPixbuf-2.0", ModuleOptions{
+        "GdkPixbuf-2.0",
+        ModuleOptions{
             // GdkPixbufAnimation and GdkPixbufAnimationIter seemingly are final
             // without being marked as such in GIR
             .test_abi = false,
         },
     },
     .{
-        "Gee-0.8", ModuleOptions{
+        "Gee-0.8",
+        ModuleOptions{
             // Either the GIR or the C header for gee_hazard_pointer_new is
             // incorrect, but I don't know which one. There might be more
             // examples of such discrepancies.
@@ -82,163 +94,190 @@ const module_options = std.StaticStringMap(ModuleOptions).initComptime(.{
         },
     },
     .{
-        "Gio-2.0", ModuleOptions{
+        "Gio-2.0",
+        ModuleOptions{
             // Something weird going on with GSettingsBackend being translated as opaque
             .test_abi = false,
         },
     },
     .{
-        "GLib-2.0", ModuleOptions{
+        "GLib-2.0",
+        ModuleOptions{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "GObject-2.0", ModuleOptions{
+        "GObject-2.0",
+        ModuleOptions{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "Graphene-1.0", ModuleOptions{
+        "Graphene-1.0",
+        ModuleOptions{
             // Uses non-portable conditional SIMD types; the GIR won't work unless it's generated on the same target
             .test_abi = false,
         },
     },
     .{
-        "Gsk-4.0", ModuleOptions{
+        "Gsk-4.0",
+        ModuleOptions{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "Gst-1.0", ModuleOptions{
+        "Gst-1.0",
+        ModuleOptions{
             // GstMemoryCopyFunction: https://github.com/ziglang/zig/issues/12325
             .test_abi = false,
         },
     },
     .{
-        "GstApp-1.0", ModuleOptions{
+        "GstApp-1.0",
+        ModuleOptions{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "GstAudio-1.0", ModuleOptions{
+        "GstAudio-1.0",
+        ModuleOptions{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "GstBase-1.0", ModuleOptions{
+        "GstBase-1.0",
+        ModuleOptions{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "GstCheck-1.0", ModuleOptions{
+        "GstCheck-1.0",
+        ModuleOptions{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "GstGL-1.0", ModuleOptions{
+        "GstGL-1.0",
+        ModuleOptions{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "GstGLEGL-1.0", ModuleOptions{
+        "GstGLEGL-1.0",
+        ModuleOptions{
             // GstMemoryCopyFunction: https://github.com/ziglang/zig/issues/12325
             .test_abi = false,
         },
     },
     .{
-        "GstInsertBin-1.0", ModuleOptions{
+        "GstInsertBin-1.0",
+        ModuleOptions{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "GstMse-1.0", ModuleOptions{
+        "GstMse-1.0",
+        ModuleOptions{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "GstPbutils-1.0", ModuleOptions{
+        "GstPbutils-1.0",
+        ModuleOptions{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "GstRtp-1.0", ModuleOptions{
+        "GstRtp-1.0",
+        ModuleOptions{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "GstTag-1.0", ModuleOptions{
+        "GstTag-1.0",
+        ModuleOptions{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "GstVideo-1.0", ModuleOptions{
+        "GstVideo-1.0",
+        ModuleOptions{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "Gtk-3.0", ModuleOptions{
+        "Gtk-3.0",
+        ModuleOptions{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "Handy-1", ModuleOptions{
+        "Handy-1",
+        ModuleOptions{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "Pango-1.0", ModuleOptions{
+        "Pango-1.0",
+        ModuleOptions{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "PangoCairo-1.0", ModuleOptions{
+        "PangoCairo-1.0",
+        ModuleOptions{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "PangoFc-1.0", ModuleOptions{
+        "PangoFc-1.0",
+        ModuleOptions{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "PangoFT2-1.0", ModuleOptions{
+        "PangoFT2-1.0",
+        ModuleOptions{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "PangoOT-1.0", ModuleOptions{
+        "PangoOT-1.0",
+        ModuleOptions{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "WebKit2-4.1", ModuleOptions{
+        "WebKit2-4.1",
+        ModuleOptions{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
     },
     .{
-        "WebKit2WebExtension-4.1", ModuleOptions{
+        "WebKit2WebExtension-4.1",
+        ModuleOptions{
             // Needs more comprehensive checks to skip indirect bit field references
             .test_abi = false,
         },
@@ -256,10 +295,10 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run binding tests");
 
-    const GirProfile = enum { gnome48, gnome49 };
+    const GirProfile = enum { gnome49, gnome50 };
     const gir_profile = b.option(GirProfile, "gir-profile", "Predefined GIR profile for tests");
     const test_modules: []const []const u8 = b.option([]const []const u8, "modules", "Modules to test") orelse if (gir_profile) |profile| switch (profile) {
-        .gnome48 => &.{
+        .gnome49 => &.{
             "Adw-1",
             "AppStream-1.0",
             "AppStreamCompose-1.0",
@@ -294,6 +333,8 @@ pub fn build(b: *std.Build) void {
             "GL-1.0",
             "GLib-2.0",
             "GLibUnix-2.0",
+            "Gly-2",
+            "GlyGtk4-2",
             "GModule-2.0",
             "GObject-2.0",
             "Graphene-1.0",
@@ -369,7 +410,7 @@ pub fn build(b: *std.Build) void {
             "Xmlb-2.0",
             "xrandr-1.3",
         },
-        .gnome49 => &.{
+        .gnome50 => &.{
             "Adw-1",
             "AppStream-1.0",
             "AppStreamCompose-1.0",
