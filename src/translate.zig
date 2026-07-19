@@ -3211,7 +3211,7 @@ fn createBuildZon(
     const source =
         \\.{
         \\    .name = .gobject,
-        \\    .version = "0.3.1",
+        \\    .version = "0.3.2",
         \\    .fingerprint = 0xca12a75aeca74b4a, // Changing this has security and trust implications.
         \\    .minimum_zig_version = "0.16.0",
         \\    .paths = .{
