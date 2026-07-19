@@ -3153,6 +3153,11 @@ fn createBuildZigSource(
         \\const docs_obj = b.addObject(.{
         \\    .name = "docs",
         \\    .root_module = docs_mod,
+        \\    // Defaults to false to avoid bringing in the lazy dependency if not building docs.
+        \\    .zig_lib_dir = if (b.option(bool, "autodoc-fork", "Use Autodoc fork for documentation") orelse false) zig_lib_dir: {
+        \\        const zig_autodoc_dep = b.lazyDependency("zig_autodoc", .{}) orelse break :zig_lib_dir null;
+        \\        break :zig_lib_dir zig_autodoc_dep.path("lib");
+        \\    } else null,
         \\});
         \\const install_docs = b.addInstallDirectory(.{
         \\    .source_dir = docs_obj.getEmittedDocs(),
@@ -3215,7 +3220,18 @@ fn createBuildZon(
         \\        "build.zig",
         \\        "build.zig.zon",
         \\    },
-        \\    .dependencies = .{},
+        \\    .dependencies = .{
+        \\        // Upstream Autodoc currently has a behavior where alias declarations
+        \\        // are presented using the name of the underlying decl:
+        \\        // https://github.com/ziglang/zig/issues/20905
+        \\        // This is unusable for this library, because it means all our aliased
+        \\        // functions would be given their original C names in the documentation.
+        \\        .zig_autodoc = .{
+        \\            .url = "git+https://github.com/ianprime0509/zig?ref=zig-gobject#08e338bce1897fa893c721dcafa97055321aec93",
+        \\            .hash = "zig-0.0.0-Fp4XJMfK5Q1tetqfhp_lsaUgdwIy08LrKG6PEztKDReL",
+        \\            .lazy = true,
+        \\        },
+        \\    },
         \\}
         \\
     ;
