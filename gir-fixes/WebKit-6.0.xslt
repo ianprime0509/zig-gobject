@@ -13,11 +13,5 @@
 
   <xsl:template match="core:function[@c:identifier='webkit_web_extension_match_pattern_register_custom_URL_scheme']">
     <!-- https://github.com/ianprime0509/zig-gobject/issues/157 -->
-    <!-- We only conditionally remove the function, for compatibility with the GNOME 48 SDK, which still uses the old name. -->
-    <xsl:if test="not(/*//core:function[@c:identifier='webkit_web_extension_match_pattern_register_custom_url_scheme'])">
-      <xsl:copy>
-        <xsl:apply-templates select="@* | node()" />
-      </xsl:copy>
-    </xsl:if>
   </xsl:template>
 </xsl:stylesheet>
