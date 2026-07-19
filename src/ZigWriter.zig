@@ -108,7 +108,7 @@ pub fn print(w: *ZigWriter, comptime fmt: []const u8, args: anytype) Allocator.E
 pub fn toFormatted(w: *ZigWriter) Allocator.Error![]u8 {
     try w.raw.append(w.gpa, 0);
     defer w.raw.clearAndFree(w.gpa);
-    var ast: std.zig.Ast = try .parse(w.gpa, w.raw.items[0 .. w.raw.items.len - 1 :0], .zig);
+    var ast: std.zig.Ast = try .parse(w.gpa, w.raw.items[0 .. w.raw.items.len - 1 :0], .{ .mode = .zig });
     defer ast.deinit(w.gpa);
     var fmt_source: std.Io.Writer.Allocating = .init(w.gpa);
     defer fmt_source.deinit();
