@@ -38,11 +38,6 @@ jobs:
           EOF
       - name: Generate bindings
         run: |
-          # For unknown reasons, the build does not seem to be able to create
-          # this directory itself (AccessDenied), but works if it's created in
-          # advance.
-          mkdir -p zig-out/bindings/build
-
           .github/workflows/flatpak-run.sh ${{ matrix.gnome-version }} <<EOF
           zig build codegen -Dgir-profile=gnome${{ matrix.gnome-version }}
           EOF
