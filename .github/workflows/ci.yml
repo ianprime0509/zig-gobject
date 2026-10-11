@@ -24,9 +24,7 @@ jobs:
       - name: Set up Zig
         uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         with:
-==== BASE ====
-          version: 0.15.2
-==== BASE ====
+          version: 0.17.0
       - name: Run tests
         run: |
           .github/workflows/flatpak-run.sh ${{ matrix.gnome-version }} <<EOF
