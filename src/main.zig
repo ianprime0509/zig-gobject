@@ -24,7 +24,7 @@ const usage =
 ;
 
 pub const std_options: std.Options = .{
-    .log_level = if (builtin.mode == .Debug) log.Level.debug else log.Level.info,
+    .log_level = if (builtin.mode == .debug) log.Level.debug else log.Level.info,
     .logFn = logImpl,
 };
 
