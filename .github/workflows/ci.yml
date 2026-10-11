@@ -14,13 +14,13 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        gnome-version: [49, 50]
+        gnome-version: [49, 50, 51]
     container:
        image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-${{ matrix.gnome-version }}
        options: --privileged
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Zig
         uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         with:
@@ -56,17 +56,17 @@ jobs:
           zig build
           EOF
       - name: Configure GitHub Pages
-        if: ${{ github.ref == 'refs/heads/main' && matrix.gnome-version == 50 }}
+        if: ${{ github.ref == 'refs/heads/main' && matrix.gnome-version == 51 }}
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
       - name: Build docs
-        if: ${{ github.ref == 'refs/heads/main' && matrix.gnome-version == 50 }}
+        if: ${{ github.ref == 'refs/heads/main' && matrix.gnome-version == 51 }}
         run: |
           .github/workflows/flatpak-run.sh ${{ matrix.gnome-version }} <<EOF
           cd zig-out/bindings
           zig build docs
           EOF
       - name: Upload docs artifact
-        if: ${{ github.ref == 'refs/heads/main' && matrix.gnome-version == 50 }}
+        if: ${{ github.ref == 'refs/heads/main' && matrix.gnome-version == 51 }}
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: zig-out/bindings/zig-out/docs
@@ -84,4 +84,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
