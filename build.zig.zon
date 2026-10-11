@@ -15,8 +15,8 @@
     },
     .dependencies = .{
         .xml = .{
-            .url = "git+https://github.com/ianprime0509/zig-xml#d73304c3d56d6331a0caca4d339607e7c740aab5",
-            .hash = "xml-0.2.0-ZTbP35V4AgA_pFiWGWiBILJK7ifCCvj7mbiGfyMcEi2K",
+            .url = "https://github.com/carlmontanari/zig-xml/archive/fix/no-deref-non-ptr.tar.gz",
+            .hash = "xml-0.2.0-ZTbP35N4AgCLKY1YU0TFz0pRvLiGWnEWAoO6Ugjk-RRE",
         },
     },
 }
