@@ -20,9 +20,9 @@ jobs:
        options: --privileged
     steps:
       - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v3
       - name: Set up Zig
-        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        uses: mlugg/setup-zig@v2
         with:
           version: 0.17.0
           cache-key: gnome-common
@@ -60,7 +60,7 @@ jobs:
           EOF
       - name: Configure GitHub Pages
         if: ${{ github.ref == 'refs/heads/main' && matrix.gnome-version == 51 }}
-        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+        uses: actions/configure-pages@v5
       - name: Build docs
         if: ${{ github.ref == 'refs/heads/main' && matrix.gnome-version == 51 }}
         run: |
@@ -70,7 +70,7 @@ jobs:
           EOF
       - name: Upload docs artifact
         if: ${{ github.ref == 'refs/heads/main' && matrix.gnome-version == 51 }}
-        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        uses: actions/upload-pages-artifact@v4
         with:
           path: zig-out/bindings/zig-out/docs
 
@@ -87,4 +87,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+        uses: actions/deploy-pages@v4
