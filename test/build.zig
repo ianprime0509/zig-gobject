@@ -276,13 +276,6 @@ const module_options = std.StaticStringMap(ModuleOptions).initComptime(.{
         },
     },
     .{
-        "WebKit-6.0",
-        ModuleOptions{
-            // Needs more comprehensive checks to skip indirect bit field references
-            .test_abi = false,
-        },
-    },
-    .{
         "WebKit2WebExtension-4.1",
         ModuleOptions{
             // Needs more comprehensive checks to skip indirect bit field references
