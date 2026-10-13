@@ -16,7 +16,7 @@ exe.root_module.addImport("gtk", gobject.module("gtk4"));
 exe.root_module.addImport("adw", gobject.module("adw1"));
 ```
 
-The binding generator and generated bindings are tested on Zig 0.16. The latest
+The binding generator and generated bindings are tested on Zig 0.17.0. The latest
 master version may be supported on a best-effort basis, though it is not the
 main focus.
 
@@ -42,12 +42,12 @@ testing purposes. The best way to get a consistent environment for testing is to
 use [Flatpak](https://flatpak.org/):
 
 1. Install `flatpak`.
-2. Install the GNOME SDK: `flatpak install org.gnome.Sdk//50`
+2. Install the GNOME SDK: `flatpak install org.gnome.Sdk//51`
 
 The steps above only need to be done once per GNOME SDK version. To enter a
 development environment:
 
-1. Run `flatpak run --filesystem=home --share=network --share=ipc --socket=fallback-x11 --socket=wayland --device=dri --socket=session-bus org.gnome.Sdk//50`
+1. Run `flatpak run --filesystem=home --share=network --share=ipc --socket=fallback-x11 --socket=wayland --device=dri --socket=session-bus org.gnome.Sdk//51`
    - `--filesystem=home` - makes the user's home directory available within the
      container
    - `--share=network` - allows network access (needed to fetch `build.zig.zon`

@@ -2,7 +2,7 @@
     .name = .gobject_codegen,
     .version = "0.3.2",
     .fingerprint = 0x9edb5c54cdea7d07, // Changing this has security and trust implications.
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0",
     .paths = .{
         "binding-overrides",
         "extensions",
@@ -15,8 +15,8 @@
     },
     .dependencies = .{
         .xml = .{
-            .url = "git+https://github.com/ianprime0509/zig-xml?ref=main#b97f2ab4868ae3cac9902b33a40d3f31d2df739d",
-            .hash = "xml-0.2.0-ZTbP3yI6AgB9Rpd2hQrueO63ib0Bm6mQiL_WB1t7JAmP",
+            .url = "git+https://github.com/ianprime0509/zig-xml?ref=0.2.2#4beab29d68ab308af4bd12a4fc4187c24fdad0d6",
+            .hash = "xml-0.2.2-ZTbP35N4AgAN3HBgWmBp_LAQ0MIPKW17GAGMwx4DHGYK",
         },
     },
 }

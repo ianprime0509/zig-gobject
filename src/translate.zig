@@ -1041,7 +1041,7 @@ fn translateFieldType(allocator: Allocator, @"type": gir.FieldType, ctx: Transla
 }
 
 fn translateBitField(allocator: Allocator, bit_field: gir.BitField, ctx: TranslationContext, out: *ZigWriter) !void {
-    var members = [1]?gir.Member{null} ** 64;
+    var members: [64]?gir.Member = @splat(null);
     var needs_u64 = false;
     for (bit_field.members) |member| {
         if (member.value > 0) {
@@ -3155,7 +3155,7 @@ fn createBuildZigSource(
         \\    .root_module = docs_mod,
         \\    // Defaults to false to avoid bringing in the lazy dependency if not building docs.
         \\    .zig_lib_dir = if (b.option(bool, "autodoc-fork", "Use Autodoc fork for documentation") orelse false) zig_lib_dir: {
-        \\        const zig_autodoc_dep = b.lazyDependency("zig_autodoc", .{}) orelse break :zig_lib_dir null;
+        \\        const zig_autodoc_dep = b.lazyDependency("zig_autodoc", .{ .@"version-string" = "0.17.0" }) orelse break :zig_lib_dir null;
         \\        break :zig_lib_dir zig_autodoc_dep.path("lib");
         \\    } else null,
         \\});
@@ -3213,7 +3213,7 @@ fn createBuildZon(
         \\    .name = .gobject,
         \\    .version = "0.3.2",
         \\    .fingerprint = 0xca12a75aeca74b4a, // Changing this has security and trust implications.
-        \\    .minimum_zig_version = "0.16.0",
+        \\    .minimum_zig_version = "0.17.0",
         \\    .paths = .{
         \\        "build",
         \\        "src",
@@ -3227,8 +3227,8 @@ fn createBuildZon(
         \\        // This is unusable for this library, because it means all our aliased
         \\        // functions would be given their original C names in the documentation.
         \\        .zig_autodoc = .{
-        \\            .url = "git+https://github.com/ianprime0509/zig?ref=zig-gobject#08e338bce1897fa893c721dcafa97055321aec93",
-        \\            .hash = "zig-0.0.0-Fp4XJMfK5Q1tetqfhp_lsaUgdwIy08LrKG6PEztKDReL",
+        \\            .url = "git+https://github.com/ianprime0509/zig?ref=zig-gobject-0.17.0#d8e798e9a83e558076ea6a04e1e4000c731b9c5c",
+        \\            .hash = "zig-0.0.0-Fp4XJLTbSg6p3al3MOf-zVtw8ySK9N9I5iKj83e5U9QM",
         \\            .lazy = true,
         \\        },
         \\    },
