@@ -61,12 +61,23 @@ jobs:
       - name: Configure GitHub Pages
         if: ${{ github.ref == 'refs/heads/main' && matrix.gnome-version == 51 }}
         uses: actions/configure-pages@v5
+      - name: Checkout Zig fork for Autodoc workaround
+        # Upstream Autodoc currently has a behavior where alias declarations
+        # are presented using the name of the underlying decl:
+        # https://github.com/ziglang/zig/issues/20905
+        # This is unusable for this library, because it means all our aliased
+        # functions would be given their original C names in the documentation.
+        uses: actions/checkout@v3
+        with:
+          repository: ianprime0509/zig
+          ref: zig-gobject-0.17.0
+          path: zig-autodoc
       - name: Build docs
         if: ${{ github.ref == 'refs/heads/main' && matrix.gnome-version == 51 }}
         run: |
           .github/workflows/flatpak-run.sh ${{ matrix.gnome-version }} <<EOF
           cd zig-out/bindings
-          zig build docs -Dautodoc-fork
+          ZIG_LIB_DIR=$GITHUB_WORKSPACE/zig-autodoc/lib zig build docs
           EOF
       - name: Upload docs artifact
         if: ${{ github.ref == 'refs/heads/main' && matrix.gnome-version == 51 }}
