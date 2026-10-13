@@ -43,6 +43,7 @@ pub fn build(b: *std.Build) void {
             "cairo-1.0",
             "CudaGst-1.0",
             "DBus-1.0",
+            // "DBusGLib-1.0", // Deprecated, not linkable in the GNOME SDK
             "Dex-1",
             "fontconfig-2.0",
             "freetype2-2.0",
@@ -83,6 +84,7 @@ pub fn build(b: *std.Build) void {
             "GstBadAudio-1.0",
             "GstBase-1.0",
             "GstCheck-1.0",
+            // "GstCodecs-1.0", // Not linkable in the GNOME SDK
             "GstController-1.0",
             "GstCuda-1.0",
             // "GstDxva-1.0", // Not usable on Linux
@@ -155,7 +157,7 @@ pub fn build(b: *std.Build) void {
             "cairo-1.0",
             "CudaGst-1.0",
             "DBus-1.0",
-            // "DBusGLib-1.0",
+            // "DBusGLib-1.0", // Deprecated, not linkable in the GNOME SDK
             "Dex-1",
             "fontconfig-2.0",
             "freetype2-2.0",
@@ -196,7 +198,7 @@ pub fn build(b: *std.Build) void {
             "GstBadAudio-1.0",
             "GstBase-1.0",
             "GstCheck-1.0",
-            // "GstCodecs-1.0",
+            // "GstCodecs-1.0", // Not linkable in the GNOME SDK
             "GstController-1.0",
             "GstCuda-1.0",
             // "GstDxva-1.0", // Not usable on Linux
@@ -269,7 +271,7 @@ pub fn build(b: *std.Build) void {
             "cairo-1.0",
             "CudaGst-1.0",
             "DBus-1.0",
-            // "DBusGLib-1.0",
+            // "DBusGLib-1.0", // Deprecated, not linkable in the GNOME SDK
             "Dex-1",
             "fontconfig-2.0",
             "freetype2-2.0",
@@ -308,7 +310,7 @@ pub fn build(b: *std.Build) void {
             "GstBase-1.0",
             "GstCheck-1.0",
             // "GstCodecParsers-1.0",
-            // "GstCodecs-1.0",
+            // "GstCodecs-1.0", // Not linkable in the GNOME SDK
             "GstController-1.0",
             "GstCuda-1.0",
             // "GstDxva-1.0", // Not usable on Linux
