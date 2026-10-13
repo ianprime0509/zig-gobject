@@ -350,7 +350,7 @@ pub fn build(b: *std.Build) void {
             "Libproxy-1.0",
             "libxml2-2.0",
             "Manette-0.2",
-            // "Ministream-1",
+            // "Ministream-1", // GNOME 51 SDK libministream.so doesn't export any symbols
             "Nice-0.1",
             "Notify-0.7",
             "Pango-1.0",
