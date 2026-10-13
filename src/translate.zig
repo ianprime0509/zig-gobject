@@ -3213,7 +3213,7 @@ fn createBuildZon(
         \\    .name = .gobject,
         \\    .version = "0.3.2",
         \\    .fingerprint = 0xca12a75aeca74b4a, // Changing this has security and trust implications.
-        \\    .minimum_zig_version = "0.16.0",
+        \\    .minimum_zig_version = "0.17.0",
         \\    .paths = .{
         \\        "build",
         \\        "src",
