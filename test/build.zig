@@ -580,7 +580,7 @@ pub fn build(b: *std.Build) void {
             "GstBadAudio-1.0",
             "GstBase-1.0",
             "GstCheck-1.0",
-            // "GstCodecParsers-1.0",
+            "GstCodecParsers-1.0",
             // "GstCodecs-1.0", // Not linkable in the GNOME SDK
             "GstController-1.0",
             "GstCuda-1.0",
